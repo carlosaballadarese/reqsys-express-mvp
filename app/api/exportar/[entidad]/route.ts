@@ -37,7 +37,7 @@ export async function GET(
     }))
     ws['!cols'] = colWidths
 
-    const buffer: Buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+    const buffer: Uint8Array = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
 
     return new NextResponse(buffer, {
       status: 200,
