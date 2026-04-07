@@ -70,7 +70,7 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <nav className="bg-blue-900 text-white sticky top-0 z-50 shadow-lg">
+      <nav className="sticky top-0 z-50 shadow-lg text-white" style={{ background: 'linear-gradient(90deg, #0d2e2e 0%, #1a5252 60%, #0f3535 100%)' }}>
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center justify-between h-14">
 
@@ -78,22 +78,27 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
               <Image
                 src="/logo-reqsys.png"
                 alt="REQSYS"
-                width={32}
-                height={32}
-                className="rounded-full"
+                width={34}
+                height={34}
+                className="rounded-full ring-1 ring-white/20"
               />
-              <span className="font-bold text-white text-base tracking-wide">REQSYS</span>
-              <span className="text-blue-300 text-xs hidden sm:block">ARLIFT S.A.</span>
+              <div className="flex items-baseline gap-1.5">
+                <span className="font-black text-white text-base tracking-wide">
+                  REQ<span style={{ color: '#c9a840' }}>SYS</span>
+                </span>
+                <span className="text-xs hidden sm:block" style={{ color: 'rgba(201,168,64,0.7)' }}>ARLIFT S.A.</span>
+              </div>
             </Link>
 
-            <div className="hidden md:flex items-center gap-1 flex-1 px-6">
+            <div className="hidden md:flex items-center gap-0.5 flex-1 px-6">
               {navItems.map(item => (
                 <Link key={item.href + item.label} href={item.href}>
-                  <span className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  <span className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
                     isActive(item)
-                      ? 'bg-white text-blue-900'
-                      : 'text-blue-100 hover:bg-blue-800'
-                  }`}>
+                      ? 'text-[#0d2e2e] font-semibold'
+                      : 'text-white/80 hover:text-white hover:bg-white/10'
+                  }`}
+                  style={isActive(item) ? { background: '#c9a840' } : {}}>
                     {item.label}
                   </span>
                 </Link>
@@ -104,12 +109,13 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
               {perfil && (
                 <div className="text-right">
                   <p className="text-white text-xs font-medium leading-tight">{perfil.nombre}</p>
-                  <p className="text-blue-400 text-xs leading-tight">{ROL_LABEL[perfil.rol] ?? perfil.rol}</p>
+                  <p className="text-xs leading-tight" style={{ color: 'rgba(201,168,64,0.8)' }}>{ROL_LABEL[perfil.rol] ?? perfil.rol}</p>
                 </div>
               )}
               <button
                 onClick={handleLogout}
-                className="bg-blue-800 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-md transition-colors"
+                className="text-white text-xs px-3 py-1.5 rounded-md transition-all hover:bg-red-700/80"
+                style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)' }}
               >
                 Salir
               </button>
@@ -117,7 +123,7 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
 
             <button
               onClick={() => setMenuAbierto(!menuAbierto)}
-              className="md:hidden p-2 rounded-md hover:bg-blue-800"
+              className="md:hidden p-2 rounded-md hover:bg-white/10"
             >
               <div className="space-y-1">
                 <span className="block w-5 h-0.5 bg-white"></span>
@@ -128,23 +134,24 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
           </div>
 
           {menuAbierto && (
-            <div className="md:hidden pb-3 pt-1 border-t border-blue-800 space-y-1">
+            <div className="md:hidden pb-3 pt-1 space-y-1" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
               {navItems.map(item => (
                 <Link key={item.href + item.label} href={item.href} onClick={() => setMenuAbierto(false)}>
                   <span className={`block px-3 py-2 rounded-md text-sm font-medium ${
                     isActive(item)
-                      ? 'bg-white text-blue-900'
-                      : 'text-blue-100 hover:bg-blue-800'
-                  }`}>
+                      ? 'text-[#0d2e2e] font-semibold'
+                      : 'text-white/80 hover:text-white hover:bg-white/10'
+                  }`}
+                  style={isActive(item) ? { background: '#c9a840' } : {}}>
                     {item.label}
                   </span>
                 </Link>
               ))}
               {perfil && (
-                <div className="px-3 pt-2 border-t border-blue-800 flex items-center justify-between">
+                <div className="px-3 pt-2 flex items-center justify-between" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                   <div>
                     <p className="text-white text-xs font-medium">{perfil.nombre}</p>
-                    <p className="text-blue-400 text-xs">{ROL_LABEL[perfil.rol] ?? perfil.rol}</p>
+                    <p className="text-xs" style={{ color: 'rgba(201,168,64,0.8)' }}>{ROL_LABEL[perfil.rol] ?? perfil.rol}</p>
                   </div>
                   <button onClick={handleLogout} className="text-xs text-red-300 hover:text-red-200">
                     Cerrar sesión
