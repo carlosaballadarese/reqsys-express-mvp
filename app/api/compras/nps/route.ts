@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/anonClient()/server'
-import { adminClient, anonClient } from '@/lib/supabase/clients'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { adminClient } from '@/lib/supabase/clients'
 
 
 export async function GET(req: NextRequest) {
@@ -11,8 +11,8 @@ export async function GET(req: NextRequest) {
     const q       = searchParams.get('q')?.trim()
 
     // Leer sesión para determinar si es solicitante
-    const anonClient() = await createSupabaseServerClient()
-    const { data: { user } } = await anonClient().auth.getUser()
+    const supabase = await createSupabaseServerClient()
+    const { data: { user } } = await supabase.auth.getUser()
 
     let emailFiltro: string | null = null
 

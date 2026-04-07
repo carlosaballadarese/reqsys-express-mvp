@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/anonClient()/server'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { registrarAuditoria } from '@/lib/auditoria'
-import { adminClient, anonClient } from '@/lib/supabase/clients'
+import { adminClient } from '@/lib/supabase/clients'
 
 
 async function verificarAdmin() {
-  const anonClient() = await createSupabaseServerClient()
-  const { data: { user } } = await anonClient().auth.getUser()
+  const supabase = await createSupabaseServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
   const { data: perfil } = await adminClient()
     .from('perfiles').select('rol').eq('id', user.id).single()

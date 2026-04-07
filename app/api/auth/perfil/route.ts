@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/anonClient()/server'
-import { adminClient, anonClient } from '@/lib/supabase/clients'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { adminClient } from '@/lib/supabase/clients'
 
 
 export async function GET() {
-  const anonClient() = await createSupabaseServerClient()
-  const { data: { user } } = await anonClient().auth.getUser()
+  const supabase = await createSupabaseServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
