@@ -93,7 +93,7 @@ export default function ComprasPage() {
             <p className="text-blue-300 text-xs mt-0.5">Listado y gestión de requerimientos</p>
           </div>
           {puedeCrearNP && (
-            <Link href="/">
+            <Link href="/compras/nueva">
               <Button className="bg-white text-blue-800 hover:bg-blue-50 text-sm font-semibold">+ Nueva NP</Button>
             </Link>
           )}
