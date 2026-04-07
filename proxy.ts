@@ -51,36 +51,6 @@ export async function proxy(req: NextRequest) {
   // Rutas públicas — sin chequeo
   if (isPublic(pathname)) return NextResponse.next()
 
-  // Ruta raíz — redirigir según rol después de autenticar
-  if (pathname === '/') {
-    // Construir cliente para leer sesión
-    let resRoot = NextResponse.next({ request: req })
-    const supabaseRoot = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll()              { return req.cookies.getAll() },
-          setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value }) => req.cookies.set(name, value))
-            resRoot = NextResponse.next({ request: req })
-            cookiesToSet.forEach(({ name, value, options }) => resRoot.cookies.set(name, value, options))
-          },
-        },
-      }
-    )
-    const { data: { user: userRoot } } = await supabaseRoot.auth.getUser()
-    if (userRoot) {
-      const { createClient: cc } = await import('@supabase/supabase-js')
-      const adminRoot = cc(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
-      const { data: perfilRoot } = await adminRoot.from('perfiles').select('rol').eq('id', userRoot.id).single()
-      if (perfilRoot && perfilRoot.rol !== 'solicitante') {
-        return NextResponse.redirect(new URL('/compras/dashboard', req.url))
-      }
-    }
-    return NextResponse.next()
-  }
-
   // Construir respuesta base para que Supabase pueda refrescar cookies
   let res = NextResponse.next({ request: req })
 
@@ -131,9 +101,17 @@ export async function proxy(req: NextRequest) {
 
   const rol = perfil.rol as string
 
+  // Ruta raíz — solo solicitante, los demás van a dashboard
+  if (pathname === '/') {
+    if (rol !== 'solicitante') {
+      return NextResponse.redirect(new URL('/compras/dashboard', req.url))
+    }
+    return res
+  }
+
   // Admin only
   if (requiresAdmin(pathname) && rol !== 'admin') {
-    return NextResponse.redirect(new URL('/', req.url))
+    return NextResponse.redirect(new URL('/compras/dashboard', req.url))
   }
 
   // Admin o compras

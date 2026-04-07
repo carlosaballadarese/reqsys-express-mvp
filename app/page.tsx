@@ -243,7 +243,7 @@ export default function NuevaNotaPedido() {
             <p className="text-sm text-slate-400">Recibirás un email cuando sea aprobada o rechazada.</p>
             <div className="flex gap-3 justify-center pt-2">
               <Button onClick={() => setEstado('idle')}>Nueva NP</Button>
-              <Link href="/nps">
+              <Link href="/compras">
                 <Button variant="outline">Ver mis NPs</Button>
               </Link>
             </div>
@@ -262,11 +262,8 @@ export default function NuevaNotaPedido() {
             <p className="text-slate-500 text-sm mt-1">ARLIFT S.A. — Sistema de Gestión de Requerimientos</p>
           </div>
           <div className="flex gap-2">
-            <Link href="/dashboard">
-              <Button variant="outline" size="sm">Dashboard</Button>
-            </Link>
-            <Link href="/nps">
-              <Button variant="outline" size="sm">Ver NPs</Button>
+            <Link href="/compras">
+              <Button variant="outline" size="sm">Ver mis NPs</Button>
             </Link>
           </div>
         </div>

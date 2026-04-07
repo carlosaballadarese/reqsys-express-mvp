@@ -57,8 +57,8 @@ function LoginForm() {
     // Redirigir según rol
     const rol = perfil.rol
     if (rol === 'solicitante') {
-      router.push('/compras')
-    } else if (nextPath && nextPath !== '/login' && nextPath !== '/compras' && nextPath !== '/') {
+      router.push('/')
+    } else if (nextPath && nextPath !== '/login' && nextPath !== '/') {
       router.push(nextPath)
     } else {
       router.push('/compras/dashboard')
