@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 
@@ -74,8 +75,15 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
           <div className="flex items-center justify-between h-14">
 
             <Link href="/compras" className="flex items-center gap-2 shrink-0">
+              <Image
+                src="/logo-reqsys.png"
+                alt="REQSYS"
+                width={32}
+                height={32}
+                className="rounded-full"
+              />
               <span className="font-bold text-white text-base tracking-wide">REQSYS</span>
-              <span className="text-blue-400 text-xs hidden sm:block">ARLIFT S.A.</span>
+              <span className="text-blue-300 text-xs hidden sm:block">ARLIFT S.A.</span>
             </Link>
 
             <div className="hidden md:flex items-center gap-1 flex-1 px-6">
