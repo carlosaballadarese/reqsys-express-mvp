@@ -53,6 +53,7 @@ export default function ComprasPage() {
   const [estado, setEstado]     = useState('todos')
   const [area, setArea]         = useState('todas')
   const [esSolicitante, setEsSolicitante] = useState(false)
+  const [puedeCrearNP, setPuedeCrearNP]   = useState(false)
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient()
@@ -60,7 +61,10 @@ export default function ComprasPage() {
       if (!user) return
       fetch('/api/auth/perfil')
         .then(r => r.json())
-        .then(p => { if (p.rol === 'solicitante') setEsSolicitante(true) })
+        .then(p => {
+          if (p.rol === 'solicitante') setEsSolicitante(true)
+          if (['solicitante', 'compras', 'admin', 'gerencia'].includes(p.rol)) setPuedeCrearNP(true)
+        })
     })
   }, [])
 
@@ -88,7 +92,7 @@ export default function ComprasPage() {
             <h1 className="text-lg font-bold">{esSolicitante ? 'Mis Notas de Pedido' : 'Notas de Pedido'}</h1>
             <p className="text-blue-300 text-xs mt-0.5">Listado y gestión de requerimientos</p>
           </div>
-          {esSolicitante && (
+          {puedeCrearNP && (
             <Link href="/">
               <Button className="bg-white text-blue-800 hover:bg-blue-50 text-sm font-semibold">+ Nueva NP</Button>
             </Link>

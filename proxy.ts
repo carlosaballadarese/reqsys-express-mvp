@@ -101,9 +101,9 @@ export async function proxy(req: NextRequest) {
 
   const rol = perfil.rol as string
 
-  // Ruta raíz — solo solicitante, los demás van a dashboard
+  // Ruta raíz — solicitante, compras, admin y gerencia pueden crear NPs
   if (pathname === '/') {
-    if (rol !== 'solicitante') {
+    if (!['solicitante', 'compras', 'admin', 'gerencia'].includes(rol)) {
       return NextResponse.redirect(new URL('/compras/dashboard', req.url))
     }
     return res
