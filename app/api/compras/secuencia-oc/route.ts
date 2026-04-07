@@ -3,7 +3,7 @@ import { adminClient } from '@/lib/supabase/clients'
 
 
 export async function GET() {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await adminClient()
     .from('oc_secuencia')
     .select('año, ultimo_numero')
     .order('año', { ascending: false })
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Año y número inicial son requeridos' }, { status: 400 })
     }
 
-    const { error } = await supabaseAdmin
+    const { error } = await adminClient()
       .from('oc_secuencia')
       .upsert({ año, ultimo_numero: Math.max(0, Number(numero_inicial) - 1) }, { onConflict: 'año' })
 

@@ -13,7 +13,7 @@ export async function GET(
   try {
     const { token } = await params
 
-    const { data: np, error } = await supabase
+    const { data: np, error } = await anonClient()
       .from('notas_pedido')
       .select('*')
       .eq('token_edicion', token)
@@ -24,7 +24,7 @@ export async function GET(
       return NextResponse.json({ error: 'NP no encontrada o no está disponible para edición' }, { status: 404 })
     }
 
-    const { data: items } = await supabase
+    const { data: items } = await anonClient()
       .from('items_np')
       .select('linea, codigo, descripcion, unidad, cantidad, precio_unitario')
       .eq('nota_pedido_id', np.id)
@@ -48,7 +48,7 @@ export async function POST(
     const { encabezado, items } = body
 
     // Verificar que la NP sigue en estado devuelta
-    const { data: np, error } = await supabase
+    const { data: np, error } = await anonClient()
       .from('notas_pedido')
       .select('*')
       .eq('token_edicion', token)
@@ -60,7 +60,7 @@ export async function POST(
     }
 
     // Buscar coordinador del área
-    const { data: coordinador, error: errorCoord } = await supabase
+    const { data: coordinador, error: errorCoord } = await anonClient()
       .from('coordinadores_area')
       .select('nombre, email')
       .eq('area', encabezado.area)
@@ -78,7 +78,7 @@ export async function POST(
     )
 
     // Actualizar encabezado de la NP y volver a pendiente
-    const { error: errorUpdate } = await supabase
+    const { error: errorUpdate } = await anonClient()
       .from('notas_pedido')
       .update({
         solicitante_nombre: encabezado.solicitante_nombre,
@@ -99,7 +99,7 @@ export async function POST(
     }
 
     // Reemplazar ítems usando admin para bypass de RLS
-    const { error: errorDelete } = await supabaseAdmin
+    const { error: errorDelete } = await adminClient()
       .from('items_np')
       .delete()
       .eq('nota_pedido_id', np.id)

@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   // Búsqueda rápida para autocomplete (q corto)
   if (q && q.length < 2) return NextResponse.json([])
 
-  let query = supabaseAdmin
+  let query = adminClient()
     .from('proveedores')
     .select('id, nombre, clasificacion, categoria, ciudad, telefono, email, contacto, activo, direccion')
     .order('nombre')
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'El nombre es requerido' }, { status: 400 })
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await adminClient()
       .from('proveedores')
       .insert({
         nombre:       nombre.trim(),

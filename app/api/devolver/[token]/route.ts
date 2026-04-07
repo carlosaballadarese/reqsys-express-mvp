@@ -17,7 +17,7 @@ export async function POST(
     }
 
     // Buscar la NP por token_aprobacion (el mismo token del email de compras)
-    const { data: np, error } = await supabase
+    const { data: np, error } = await anonClient()
       .from('notas_pedido')
       .select('*')
       .eq('token_aprobacion', token)
@@ -32,7 +32,7 @@ export async function POST(
     }
 
     // Actualizar estado a devuelta
-    const { error: errorUpdate } = await supabase
+    const { error: errorUpdate } = await anonClient()
       .from('notas_pedido')
       .update({
         estado: 'devuelta',
@@ -45,7 +45,7 @@ export async function POST(
     }
 
     // Registrar en historial
-    const { data: coordinadorCompras } = await supabase
+    const { data: coordinadorCompras } = await anonClient()
       .from('coordinadores_area')
       .select('nombre, email')
       .eq('area', 'Compras')

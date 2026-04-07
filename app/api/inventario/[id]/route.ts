@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await adminClient()
     .from('inventario')
     .select('*')
     .eq('id', id)
@@ -36,7 +36,7 @@ export async function PUT(
     }
 
     // Verificar que el código no esté tomado por otro ítem
-    const { data: existente } = await supabaseAdmin
+    const { data: existente } = await adminClient()
       .from('inventario')
       .select('id')
       .eq('codigo', codigo)
@@ -47,7 +47,7 @@ export async function PUT(
       return NextResponse.json({ error: `El código ${codigo} ya está en uso por otro ítem` }, { status: 409 })
     }
 
-    const { error } = await supabaseAdmin
+    const { error } = await adminClient()
       .from('inventario')
       .update({
         codigo,

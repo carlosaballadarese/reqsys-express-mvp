@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServerClient } from '@/lib/anonClient()/server'
 import { registrarAuditoria } from '@/lib/auditoria'
-import { adminClient } from '@/lib/supabase/clients'
+import { adminClient, anonClient } from '@/lib/supabase/clients'
 
 
 async function verificarAdmin() {
-  const supabase = await createSupabaseServerClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const anonClient() = await createSupabaseServerClient()
+  const { data: { user } } = await anonClient().auth.getUser()
   if (!user) return null
-  const { data: perfil } = await supabaseAdmin
+  const { data: perfil } = await adminClient()
     .from('perfiles').select('rol').eq('id', user.id).single()
   return perfil?.rol === 'admin' ? user : null
 }
@@ -28,7 +28,7 @@ export async function PUT(
       return NextResponse.json({ error: 'nombre y rol son requeridos' }, { status: 400 })
     }
 
-    const { error } = await supabaseAdmin
+    const { error } = await adminClient()
       .from('perfiles')
       .update({ nombre, rol, activo: activo !== false })
       .eq('id', id)
@@ -36,7 +36,7 @@ export async function PUT(
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
     // Leer email del usuario afectado para la referencia
-    const { data: perfil } = await supabaseAdmin
+    const { data: perfil } = await adminClient()
       .from('perfiles').select('email').eq('id', id).single()
 
     await registrarAuditoria({
@@ -72,7 +72,7 @@ export async function PATCH(
     const { error } = await adminClient().auth.admin.updateUserById(id, { password })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    const { data: perfil } = await supabaseAdmin
+    const { data: perfil } = await adminClient()
       .from('perfiles').select('email').eq('id', id).single()
 
     await registrarAuditoria({

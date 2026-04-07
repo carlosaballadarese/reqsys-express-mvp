@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   const categoria = searchParams.get('categoria')
   const area      = searchParams.get('area')
 
-  let query = supabaseAdmin
+  let query = adminClient()
     .from('inventario')
     .select('id, codigo, descripcion, area, categoria, saldo_existencias, costo_unitario, locacion, marca')
     .order('codigo')
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'codigo y descripcion son requeridos' }, { status: 400 })
     }
 
-    const { data: existe } = await supabaseAdmin
+    const { data: existe } = await adminClient()
       .from('inventario')
       .select('id')
       .eq('codigo', codigo)
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `El código ${codigo} ya existe en inventario` }, { status: 409 })
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await adminClient()
       .from('inventario')
       .insert({
         codigo,

@@ -3,7 +3,7 @@ import { anonClient } from '@/lib/supabase/clients'
 
 
 export async function GET() {
-  const { data, error } = await supabase
+  const { data, error } = await anonClient()
     .from('inventario')
     .select('codigo')
     .like('codigo', 'AL-I%')

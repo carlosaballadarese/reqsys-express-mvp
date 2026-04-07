@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   const q        = searchParams.get('q')?.trim()
   const area     = searchParams.get('area')
 
-  let query = supabaseAdmin
+  let query = adminClient()
     .from('registro_compras')
     .select('id, numero_oc, numero_np, proveedor, area, tipo_compra, valor_total, valor_a_pagar, estado_oc, fecha_oc, created_at')
     .order('created_at', { ascending: false })
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     const valorTotal    = Number(valor_total)    || 0
     const valorRetenido = Number(valor_retenido) || 0
 
-    const { data: oc, error: errorOC } = await supabaseAdmin
+    const { data: oc, error: errorOC } = await adminClient()
       .from('registro_compras')
       .insert({
         proveedor_id:      proveedor_id || null,

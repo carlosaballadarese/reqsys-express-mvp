@@ -4,7 +4,7 @@ import { adminClient } from '@/lib/supabase/clients'
 
 // GET — devuelve el estado actual de la secuencia por año
 export async function GET() {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await adminClient()
     .from('np_secuencia')
     .select('año, ultimo_numero')
     .order('año', { ascending: false })
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
 
     // Upsert: si ya existe el año lo actualiza, si no lo crea
     // Se guarda ultimo_numero = numero_inicial - 1 porque la función incrementa antes de retornar
-    const { error } = await supabaseAdmin
+    const { error } = await adminClient()
       .from('np_secuencia')
       .upsert({ año, ultimo_numero: Math.max(0, Number(numero_inicial) - 1) }, { onConflict: 'año' })
 

@@ -53,7 +53,7 @@ async function fetchData(entidad: string): Promise<{ rows: Record<string, unknow
   const fecha = new Date().toISOString().slice(0, 10)
 
   if (entidad === 'nps') {
-    const { data: nps } = await supabaseAdmin
+    const { data: nps } = await adminClient()
       .from('notas_pedido')
       .select('numero, solicitante_nombre, solicitante_email, area, prioridad, tipo_compra, centro_costo, descripcion_general, estado, total_estimado, motivo_rechazo, created_at')
       .order('created_at', { ascending: false })
@@ -77,7 +77,7 @@ async function fetchData(entidad: string): Promise<{ rows: Record<string, unknow
   }
 
   if (entidad === 'ocs') {
-    const { data: ocs } = await supabaseAdmin
+    const { data: ocs } = await adminClient()
       .from('registro_compras')
       .select('numero_oc, numero_np, proveedor, area, tipo_compra, centro_costo, descripcion_oc, numero_factura, fecha_factura, valor_total, valor_retenido, valor_a_pagar, tipo_pago, banco, dias_credito, fecha_vencimiento, mes_pago, estado_oc, fecha_oc, created_at')
       .order('created_at', { ascending: false })
@@ -109,7 +109,7 @@ async function fetchData(entidad: string): Promise<{ rows: Record<string, unknow
   }
 
   if (entidad === 'inventario') {
-    const { data: inv } = await supabaseAdmin
+    const { data: inv } = await adminClient()
       .from('inventario')
       .select('codigo, descripcion, area, categoria, marca, saldo_existencias, costo_unitario, locacion, codigo_origen, descripcion_origen')
       .order('codigo')
@@ -131,7 +131,7 @@ async function fetchData(entidad: string): Promise<{ rows: Record<string, unknow
   }
 
   if (entidad === 'proveedores') {
-    const { data: provs } = await supabaseAdmin
+    const { data: provs } = await adminClient()
       .from('proveedores')
       .select('nombre, clasificacion, categoria, ciudad, direccion, telefono, email, contacto, activo')
       .order('nombre')
@@ -152,7 +152,7 @@ async function fetchData(entidad: string): Promise<{ rows: Record<string, unknow
   }
 
   if (entidad === 'coordinadores') {
-    const { data: coords } = await supabaseAdmin
+    const { data: coords } = await adminClient()
       .from('coordinadores_area')
       .select('area, nombre, email')
       .order('area')

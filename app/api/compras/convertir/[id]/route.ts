@@ -38,7 +38,7 @@ export async function POST(
     } = body
 
     // Verificar que la NP existe, está aprobada y no fue ya convertida
-    const { data: np, error } = await supabase
+    const { data: np, error } = await anonClient()
       .from('notas_pedido')
       .select('*')
       .eq('id', id)
@@ -62,7 +62,7 @@ export async function POST(
     const valorRetenido = Number(valor_retenido) || 0
 
     // Insertar en registro_compras
-    const { data: oc, error: errorOC } = await supabaseAdmin
+    const { data: oc, error: errorOC } = await adminClient()
       .from('registro_compras')
       .insert({
         nota_pedido_id:        np.id,
@@ -120,7 +120,7 @@ export async function POST(
     }
 
     // Marcar NP como convertida
-    await supabaseAdmin
+    await adminClient()
       .from('notas_pedido')
       .update({ convertida: true })
       .eq('id', np.id)

@@ -9,7 +9,7 @@ export async function GET(
 ) {
   const { id } = await params
 
-  const { data: oc, error } = await supabaseAdmin
+  const { data: oc, error } = await adminClient()
     .from('registro_compras')
     .select('*')
     .eq('id', id)
@@ -17,7 +17,7 @@ export async function GET(
 
   if (error || !oc) return NextResponse.json({ error: 'OC no encontrada' }, { status: 404 })
 
-  const { data: items } = await supabaseAdmin
+  const { data: items } = await adminClient()
     .from('items_oc')
     .select('*')
     .eq('registro_compras_id', id)
@@ -53,7 +53,7 @@ export async function PUT(
     const valorTotal    = Number(valor_total)    || 0
     const valorRetenido = Number(valor_retenido) || 0
 
-    const { error: errorOC } = await supabaseAdmin
+    const { error: errorOC } = await adminClient()
       .from('registro_compras')
       .update({
         proveedor_id:      proveedor_id || null,
@@ -98,7 +98,7 @@ export async function PUT(
     if (errorItems) return NextResponse.json({ error: errorItems.message }, { status: 500 })
 
     // Leer numero_oc para la referencia de auditoría
-    const { data: ocActual } = await supabaseAdmin
+    const { data: ocActual } = await adminClient()
       .from('registro_compras')
       .select('numero_oc')
       .eq('id', id)

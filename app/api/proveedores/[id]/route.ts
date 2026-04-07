@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await adminClient()
     .from('proveedores')
     .select('*')
     .eq('id', id)
@@ -31,7 +31,7 @@ export async function PUT(
       return NextResponse.json({ error: 'El nombre es requerido' }, { status: 400 })
     }
 
-    const { error } = await supabaseAdmin
+    const { error } = await adminClient()
       .from('proveedores')
       .update({
         nombre:        nombre.trim(),

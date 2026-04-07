@@ -18,7 +18,7 @@ export async function PATCH(
     }
 
     // Leer OC actual
-    const { data: ocActual } = await supabaseAdmin
+    const { data: ocActual } = await adminClient()
       .from('registro_compras')
       .select('numero_oc, estado_oc')
       .eq('id', id)
@@ -27,7 +27,7 @@ export async function PATCH(
     // ── Validación de inventario solo al aprobar ──────────────────────────────
     if (estado === 'aprobada') {
       // Obtener todos los ítems de la OC que tienen código de inventario
-      const { data: itemsOC, error: errorItems } = await supabaseAdmin
+      const { data: itemsOC, error: errorItems } = await adminClient()
         .from('items_oc')
         .select('codigo, descripcion, cantidad')
         .eq('registro_compras_id', id)
@@ -42,7 +42,7 @@ export async function PATCH(
       if (itemsConCodigo.length > 0) {
         // Buscar cada ítem en inventario
         const codigos = itemsConCodigo.map(i => i.codigo)
-        const { data: stockInventario, error: errorInv } = await supabaseAdmin
+        const { data: stockInventario, error: errorInv } = await adminClient()
           .from('inventario')
           .select('codigo, descripcion, saldo_existencias')
           .in('codigo', codigos)
@@ -87,7 +87,7 @@ export async function PATCH(
           const invItem = stockMap.get(item.codigo)!
           const nuevoSaldo = Number(invItem.saldo_existencias) - Number(item.cantidad)
 
-          const { error: errorUpdate } = await supabaseAdmin
+          const { error: errorUpdate } = await adminClient()
             .from('inventario')
             .update({ saldo_existencias: nuevoSaldo })
             .eq('codigo', item.codigo)
@@ -103,7 +103,7 @@ export async function PATCH(
     }
     // ── Fin validación ────────────────────────────────────────────────────────
 
-    const { error } = await supabaseAdmin
+    const { error } = await adminClient()
       .from('registro_compras')
       .update({ estado_oc: estado })
       .eq('id', id)

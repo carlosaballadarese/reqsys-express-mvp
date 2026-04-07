@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     const { encabezado, items } = body
 
     // 1. Buscar coordinador del área
-    const { data: coordinador, error: errorCoord } = await supabase
+    const { data: coordinador, error: errorCoord } = await anonClient()
       .from('coordinadores_area')
       .select('nombre, email')
       .eq('area', encabezado.area)
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
 
     // 3. Insertar NP
     const numero = await generarNumeroNP()
-    const { data: np, error: errorNP } = await supabase
+    const { data: np, error: errorNP } = await anonClient()
       .from('notas_pedido')
       .insert({
         numero,
@@ -174,7 +174,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  const { data, error } = await supabase
+  const { data, error } = await anonClient()
     .from('notas_pedido')
     .select('id, numero, solicitante_nombre, area, prioridad, estado, total_estimado, created_at')
     .order('created_at', { ascending: false })

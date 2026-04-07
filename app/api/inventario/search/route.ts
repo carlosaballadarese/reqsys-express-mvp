@@ -6,7 +6,7 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get('q')?.trim()
   if (!q || q.length < 2) return NextResponse.json([])
 
-  const { data, error } = await supabase
+  const { data, error } = await anonClient()
     .from('inventario')
     .select('id, codigo, descripcion, costo_unitario, saldo_existencias, categoria')
     .or(`descripcion.ilike.%${q}%,codigo.ilike.%${q}%`)

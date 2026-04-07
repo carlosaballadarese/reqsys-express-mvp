@@ -17,7 +17,7 @@ export async function POST(
     }
 
     // Buscar la NP por token
-    const { data: np, error } = await supabase
+    const { data: np, error } = await anonClient()
       .from('notas_pedido')
       .select('*')
       .eq('token_aprobacion', token)
@@ -33,7 +33,7 @@ export async function POST(
 
     // Actualizar estado
     const nuevoEstado = accion === 'aprobar' ? 'aprobada' : 'rechazada'
-    const { error: errorUpdate } = await supabase
+    const { error: errorUpdate } = await anonClient()
       .from('notas_pedido')
       .update({
         estado: nuevoEstado,
@@ -49,7 +49,7 @@ export async function POST(
     const esAprobada = accion === 'aprobar'
 
     // Obtener coordinador del área (actor de la acción)
-    const { data: coordinadorArea } = await supabase
+    const { data: coordinadorArea } = await anonClient()
       .from('coordinadores_area')
       .select('nombre, email')
       .eq('area', np.area)

@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServerClient } from '@/lib/anonClient()/server'
 import { registrarAuditoria } from '@/lib/auditoria'
-import { adminClient } from '@/lib/supabase/clients'
+import { adminClient, anonClient } from '@/lib/supabase/clients'
 
 
 async function verificarAdmin() {
-  const supabase = await createSupabaseServerClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const anonClient() = await createSupabaseServerClient()
+  const { data: { user } } = await anonClient().auth.getUser()
   if (!user) return null
 
-  const { data: perfil } = await supabaseAdmin
+  const { data: perfil } = await adminClient()
     .from('perfiles')
     .select('rol')
     .eq('id', user.id)
@@ -22,7 +22,7 @@ export async function GET() {
   const admin = await verificarAdmin()
   if (!admin) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await adminClient()
     .from('perfiles')
     .select('id, email, nombre, rol, activo, created_at')
     .order('created_at', { ascending: false })
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Crear perfil
-    const { error: perfilError } = await supabaseAdmin
+    const { error: perfilError } = await adminClient()
       .from('perfiles')
       .insert({ id: authData.user.id, email, nombre, rol, activo: true })
 
