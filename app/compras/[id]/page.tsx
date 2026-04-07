@@ -560,6 +560,11 @@ export default function DetalleNPPage() {
   const [cargando, setCargando]   = useState(true)
   const [error, setError]         = useState('')
   const [ultimaOC, setUltimaOC]  = useState('')
+  const [rol, setRol]             = useState('')
+
+  useEffect(() => {
+    fetch('/api/auth/perfil').then(r => r.json()).then(p => { if (p.rol) setRol(p.rol) })
+  }, [])
 
   function cargar() {
     setCargando(true)
@@ -723,8 +728,8 @@ export default function DetalleNPPage() {
           </CardContent>
         </Card>
 
-        {/* Formulario conversión — solo si aprobada y no convertida */}
-        {np.estado === 'aprobada' && !np.convertida && (
+        {/* Formulario conversión — solo compras y admin */}
+        {np.estado === 'aprobada' && !np.convertida && ['compras', 'admin'].includes(rol) && (
           <FormularioOC np={np} itemsNP={items} onConvertida={(numeroOC) => { setUltimaOC(numeroOC); cargar() }} />
         )}
 
