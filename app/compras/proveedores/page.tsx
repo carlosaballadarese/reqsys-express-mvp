@@ -55,9 +55,14 @@ export default function ProveedoresPage() {
       <div className="bg-blue-800 text-white px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <h1 className="text-lg font-bold">Proveedores</h1>
-          <Link href="/compras/proveedores/nueva">
-            <Button className="bg-white text-blue-800 hover:bg-blue-50 text-sm font-semibold">+ Nuevo Proveedor</Button>
-          </Link>
+          <div className="flex gap-2">
+            <a href="/api/exportar/proveedores" download>
+              <Button variant="outline" className="bg-transparent border-white/40 text-white hover:bg-white/10 text-sm">⬇ Excel</Button>
+            </a>
+            <Link href="/compras/proveedores/nueva">
+              <Button className="bg-white text-blue-800 hover:bg-blue-50 text-sm font-semibold">+ Nuevo Proveedor</Button>
+            </Link>
+          </div>
         </div>
       </div>
 

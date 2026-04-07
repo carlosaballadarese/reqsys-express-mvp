@@ -92,11 +92,16 @@ export default function ComprasPage() {
             <h1 className="text-lg font-bold">{esSolicitante ? 'Mis Notas de Pedido' : 'Notas de Pedido'}</h1>
             <p className="text-blue-300 text-xs mt-0.5">Listado y gestión de requerimientos</p>
           </div>
-          {puedeCrearNP && (
-            <Link href="/compras/nueva">
-              <Button className="bg-white text-blue-800 hover:bg-blue-50 text-sm font-semibold">+ Nueva NP</Button>
-            </Link>
-          )}
+          <div className="flex gap-2">
+            <a href="/api/exportar/nps" download>
+              <Button variant="outline" className="bg-transparent border-white/40 text-white hover:bg-white/10 text-sm">⬇ Excel</Button>
+            </a>
+            {puedeCrearNP && (
+              <Link href="/compras/nueva">
+                <Button className="bg-white text-blue-800 hover:bg-blue-50 text-sm font-semibold">+ Nueva NP</Button>
+              </Link>
+            )}
+          </div>
         </div>
       </div>
 

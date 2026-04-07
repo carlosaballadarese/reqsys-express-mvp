@@ -74,9 +74,14 @@ export default function OrdenesPage() {
           <div>
             <h1 className="text-lg font-bold">Órdenes de Compra</h1>
           </div>
-          <Link href="/compras/ordenes/nueva">
-            <Button className="bg-white text-blue-800 hover:bg-blue-50 text-sm font-semibold">+ Nueva OC</Button>
-          </Link>
+          <div className="flex gap-2">
+            <a href="/api/exportar/ocs" download>
+              <Button variant="outline" className="bg-transparent border-white/40 text-white hover:bg-white/10 text-sm">⬇ Excel</Button>
+            </a>
+            <Link href="/compras/ordenes/nueva">
+              <Button className="bg-white text-blue-800 hover:bg-blue-50 text-sm font-semibold">+ Nueva OC</Button>
+            </Link>
+          </div>
         </div>
       </div>
 

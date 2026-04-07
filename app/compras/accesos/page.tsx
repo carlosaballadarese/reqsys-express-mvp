@@ -137,10 +137,15 @@ export default function AccesosPage() {
             <Link href="/compras" className="text-blue-300 text-xs hover:text-white">← NPs</Link>
             <h1 className="text-xl font-bold mt-1">Gestión de Accesos</h1>
           </div>
-          <Button onClick={() => { setShowNuevo(true); setErrorNuevo('') }}
-            className="bg-white text-blue-800 hover:bg-blue-50 text-sm font-semibold">
-            + Nuevo Usuario
-          </Button>
+          <div className="flex gap-2">
+            <a href="/api/exportar/coordinadores" download>
+              <Button variant="outline" className="bg-transparent border-white/40 text-white hover:bg-white/10 text-sm">⬇ Coordinadores</Button>
+            </a>
+            <Button onClick={() => { setShowNuevo(true); setErrorNuevo('') }}
+              className="bg-white text-blue-800 hover:bg-blue-50 text-sm font-semibold">
+              + Nuevo Usuario
+            </Button>
+          </div>
         </div>
       </div>
 
