@@ -17,6 +17,9 @@ const COMPRAS_ONLY = [
 // Solo admin
 const ADMIN_ONLY = ['/compras/accesos']
 
+// Admin y compras
+const ADMIN_COMPRAS_ONLY = ['/compras/auditoria']
+
 function isPublic(pathname: string) {
   return PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
 }
@@ -27,6 +30,10 @@ function requiresCompras(pathname: string) {
 
 function requiresAdmin(pathname: string) {
   return ADMIN_ONLY.some(p => pathname === p || pathname.startsWith(p + '/'))
+}
+
+function requiresAdminOrCompras(pathname: string) {
+  return ADMIN_COMPRAS_ONLY.some(p => pathname === p || pathname.startsWith(p + '/'))
 }
 
 export async function middleware(req: NextRequest) {
@@ -127,6 +134,11 @@ export async function middleware(req: NextRequest) {
   // Admin only
   if (requiresAdmin(pathname) && rol !== 'admin') {
     return NextResponse.redirect(new URL('/', req.url))
+  }
+
+  // Admin o compras
+  if (requiresAdminOrCompras(pathname) && !['admin', 'compras'].includes(rol)) {
+    return NextResponse.redirect(new URL('/compras/dashboard', req.url))
   }
 
   // Rutas de compras/dashboard/nps — solo compras, gerencia, consulta, admin

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { registrarAuditoria } from '@/lib/auditoria'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -37,6 +38,19 @@ export async function PUT(
       .eq('id', id)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // Leer email del usuario afectado para la referencia
+    const { data: perfil } = await supabaseAdmin
+      .from('perfiles').select('email').eq('id', id).single()
+
+    await registrarAuditoria({
+      accion:     'editar_usuario',
+      entidad:    'usuario',
+      entidad_id: id,
+      referencia: perfil?.email ?? id,
+      detalle:    { nombre, rol, activo: activo !== false },
+    })
+
     return NextResponse.json({ success: true })
   } catch (err) {
     console.error(err)
@@ -61,6 +75,17 @@ export async function PATCH(
 
     const { error } = await supabaseAdmin.auth.admin.updateUserById(id, { password })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    const { data: perfil } = await supabaseAdmin
+      .from('perfiles').select('email').eq('id', id).single()
+
+    await registrarAuditoria({
+      accion:     'reset_password',
+      entidad:    'usuario',
+      entidad_id: id,
+      referencia: perfil?.email ?? id,
+    })
+
     return NextResponse.json({ success: true })
   } catch (err) {
     console.error(err)

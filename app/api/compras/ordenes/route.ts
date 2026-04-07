@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { registrarAuditoria } from '@/lib/auditoria'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -105,6 +106,14 @@ export async function POST(req: NextRequest) {
       console.error(errorItems)
       return NextResponse.json({ error: 'Error al guardar ítems' }, { status: 500 })
     }
+
+    await registrarAuditoria({
+      accion:      'crear_oc',
+      entidad:     'orden_compra',
+      entidad_id:  oc.id,
+      referencia:  numero_oc,
+      detalle:     { proveedor, area, tipo_compra, valor_total: valorTotal },
+    })
 
     return NextResponse.json({ success: true, oc_id: oc.id, numero_oc })
   } catch (err) {

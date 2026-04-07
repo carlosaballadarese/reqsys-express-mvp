@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { registrarAuditoria } from '@/lib/auditoria'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -66,6 +67,14 @@ export async function POST(req: NextRequest) {
       await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
       return NextResponse.json({ error: perfilError.message }, { status: 500 })
     }
+
+    await registrarAuditoria({
+      accion:     'crear_usuario',
+      entidad:    'usuario',
+      entidad_id: authData.user.id,
+      referencia: email,
+      detalle:    { nombre, rol },
+    })
 
     return NextResponse.json({ success: true, id: authData.user.id })
   } catch (err) {

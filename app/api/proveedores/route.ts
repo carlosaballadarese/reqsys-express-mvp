@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { registrarAuditoria } from '@/lib/auditoria'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -56,6 +57,15 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    await registrarAuditoria({
+      accion:     'crear_proveedor',
+      entidad:    'proveedor',
+      entidad_id: data.id,
+      referencia: data.nombre,
+      detalle:    { clasificacion, categoria, ciudad },
+    })
+
     return NextResponse.json({ success: true, proveedor: data })
   } catch (err) {
     console.error(err)

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { registrarAuditoria } from '@/lib/auditoria'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -99,6 +100,21 @@ export async function PUT(
 
     const { error: errorItems } = await supabaseAdmin.from('items_oc').insert(itemsOC)
     if (errorItems) return NextResponse.json({ error: errorItems.message }, { status: 500 })
+
+    // Leer numero_oc para la referencia de auditoría
+    const { data: ocActual } = await supabaseAdmin
+      .from('registro_compras')
+      .select('numero_oc')
+      .eq('id', id)
+      .single()
+
+    await registrarAuditoria({
+      accion:     'editar_oc',
+      entidad:    'orden_compra',
+      entidad_id: id,
+      referencia: ocActual?.numero_oc ?? id,
+      detalle:    { proveedor, area, tipo_compra, valor_total: valorTotal },
+    })
 
     return NextResponse.json({ success: true })
   } catch (err) {

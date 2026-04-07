@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { registrarAuditoria } from '@/lib/auditoria'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -139,6 +140,14 @@ export async function POST(
       actor_email:  null,
       actor_nombre: 'Compras',
       notas:        `Convertida a OC ${numero_oc} — Proveedor: ${proveedor}`,
+    })
+
+    await registrarAuditoria({
+      accion:     'convertir_np_a_oc',
+      entidad:    'orden_compra',
+      entidad_id: oc.id,
+      referencia: numero_oc,
+      detalle:    { numero_np: np.numero, proveedor },
     })
 
     return NextResponse.json({ success: true, oc_id: oc.id, numero_oc })
