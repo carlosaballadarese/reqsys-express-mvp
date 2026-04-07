@@ -334,7 +334,7 @@ export default function DetalleOCPage() {
   }
 
   async function handleCambiarEstado() {
-    if (!nuevoEstado || nuevoEstado === oc?.estado) return
+    if (!nuevoEstado || nuevoEstado === oc?.estado_oc) return
     setGuardandoEstado(true)
     try {
       const res  = await fetch(`/api/compras/ordenes/${id}/estado`, {
