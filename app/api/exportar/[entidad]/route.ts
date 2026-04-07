@@ -37,9 +37,10 @@ export async function GET(
     }))
     ws['!cols'] = colWidths
 
-    const buffer: Uint8Array = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+    const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
 
-    return new NextResponse(buffer, {
+    return new Response(arrayBuffer, {
       status: 200,
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
