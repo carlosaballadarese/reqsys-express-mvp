@@ -1,20 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { transporter } from '@/lib/mailer'
+import { adminClient, anonClient } from '@/lib/supabase/clients'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 async function generarNumeroNP(): Promise<string> {
   const year = new Date().getFullYear()
-  const { data, error } = await supabaseAdmin.rpc('siguiente_numero_np', { p_year: year })
+  const { data, error } = await adminClient().rpc('siguiente_numero_np', { p_year: year })
   if (error || data === null) throw new Error('Error al generar número de NP')
   return `NP-${year}-${String(data).padStart(4, '0')}`
 }
@@ -84,7 +76,7 @@ export async function POST(req: NextRequest) {
       precio_unitario: item.precio_unitario || 0,
     }))
 
-    const { error: errorItems } = await supabase.from('items_np').insert(itemsConNP)
+    const { error: errorItems } = await anonClient().from('items_np').insert(itemsConNP)
 
     if (errorItems) {
       return NextResponse.json({ error: 'Error al guardar los ítems' }, { status: 500 })
@@ -166,7 +158,7 @@ export async function POST(req: NextRequest) {
         </div>
       `,
     })
-    await supabaseAdmin.from('historial_np').insert({
+    await adminClient().from('historial_np').insert({
       np_id: np.id,
       estado: 'pendiente',
       actor_email: encabezado.solicitante_email,

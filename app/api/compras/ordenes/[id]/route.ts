@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { registrarAuditoria } from '@/lib/auditoria'
+import { adminClient } from '@/lib/supabase/clients'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 export async function GET(
   _req: NextRequest,
@@ -83,7 +79,7 @@ export async function PUT(
     if (errorOC) return NextResponse.json({ error: errorOC.message }, { status: 500 })
 
     // Reemplazar ítems
-    await supabaseAdmin.from('items_oc').delete().eq('registro_compras_id', id)
+    await adminClient().from('items_oc').delete().eq('registro_compras_id', id)
 
     const itemsOC = items.map((item: {
       codigo: string; descripcion: string; unidad: string
@@ -98,7 +94,7 @@ export async function PUT(
       precio_unitario:     item.precio_unitario || 0,
     }))
 
-    const { error: errorItems } = await supabaseAdmin.from('items_oc').insert(itemsOC)
+    const { error: errorItems } = await adminClient().from('items_oc').insert(itemsOC)
     if (errorItems) return NextResponse.json({ error: errorItems.message }, { status: 500 })
 
     // Leer numero_oc para la referencia de auditoría

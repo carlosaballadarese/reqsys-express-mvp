@@ -1,16 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { transporter } from '@/lib/mailer'
+import { adminClient, anonClient } from '@/lib/supabase/clients'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 export async function POST(
   req: NextRequest,
@@ -64,7 +56,7 @@ export async function POST(
       .single()
 
     // Registrar en historial
-    await supabaseAdmin.from('historial_np').insert({
+    await adminClient().from('historial_np').insert({
       np_id: np.id,
       estado: nuevoEstado,
       actor_email: coordinadorArea?.email ?? null,
@@ -75,9 +67,9 @@ export async function POST(
     // Si fue aprobada, notificar al coordinador de Compras
     if (esAprobada) {
       const [{ data: compras }, { data: aprobador }, { data: items }] = await Promise.all([
-        supabase.from('coordinadores_area').select('nombre, email').eq('area', 'Compras').single(),
-        supabase.from('coordinadores_area').select('nombre, email').eq('area', np.area).single(),
-        supabase.from('items_np').select('linea, codigo, descripcion, unidad, cantidad, precio_unitario, total').eq('nota_pedido_id', np.id).order('linea'),
+        anonClient().from('coordinadores_area').select('nombre, email').eq('area', 'Compras').single(),
+        anonClient().from('coordinadores_area').select('nombre, email').eq('area', np.area).single(),
+        anonClient().from('items_np').select('linea, codigo, descripcion, unidad, cantidad, precio_unitario, total').eq('nota_pedido_id', np.id).order('linea'),
       ])
 
       if (compras) {

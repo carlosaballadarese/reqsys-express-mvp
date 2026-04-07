@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { registrarAuditoria } from '@/lib/auditoria'
+import { adminClient } from '@/lib/supabase/clients'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 async function verificarAdmin() {
   const supabase = await createSupabaseServerClient()
@@ -47,7 +43,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Crear usuario en Supabase Auth
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+    const { data: authData, error: authError } = await adminClient().auth.admin.createUser({
       email,
       password,
       email_confirm: true,
@@ -64,7 +60,7 @@ export async function POST(req: NextRequest) {
 
     if (perfilError) {
       // Revertir: eliminar el usuario auth si falla el perfil
-      await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+      await adminClient().auth.admin.deleteUser(authData.user.id)
       return NextResponse.json({ error: perfilError.message }, { status: 500 })
     }
 

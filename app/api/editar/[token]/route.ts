@@ -1,17 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { transporter } from '@/lib/mailer'
+import { adminClient, anonClient } from '@/lib/supabase/clients'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 // Cliente con service role para operaciones que requieren bypass de RLS
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 // GET — cargar NP + items para pre-llenar el formulario
 export async function GET(
@@ -133,7 +125,7 @@ export async function POST(
       precio_unitario: item.precio_unitario || 0,
     }))
 
-    const { error: errorInsert } = await supabaseAdmin.from('items_np').insert(itemsConNP)
+    const { error: errorInsert } = await adminClient().from('items_np').insert(itemsConNP)
     if (errorInsert) {
       console.error('Error al insertar ítems:', errorInsert)
       return NextResponse.json({ error: 'Error al guardar los ítems corregidos' }, { status: 500 })
@@ -216,7 +208,7 @@ export async function POST(
       `,
     })
 
-    await supabaseAdmin.from('historial_np').insert({
+    await adminClient().from('historial_np').insert({
       np_id: np.id,
       estado: 'pendiente',
       actor_email: encabezado.solicitante_email,

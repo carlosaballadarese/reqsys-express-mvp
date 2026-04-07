@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { registrarAuditoria } from '@/lib/auditoria'
+import { adminClient } from '@/lib/supabase/clients'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 async function verificarAdmin() {
   const supabase = await createSupabaseServerClient()
@@ -73,7 +69,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'La contraseña debe tener al menos 8 caracteres' }, { status: 400 })
     }
 
-    const { error } = await supabaseAdmin.auth.admin.updateUserById(id, { password })
+    const { error } = await adminClient().auth.admin.updateUserById(id, { password })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
     const { data: perfil } = await supabaseAdmin

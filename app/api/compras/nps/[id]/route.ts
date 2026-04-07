@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { adminClient } from '@/lib/supabase/clients'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 export async function GET(
   _req: NextRequest,
@@ -14,9 +10,9 @@ export async function GET(
     const { id } = await params
 
     const [{ data: np, error }, { data: items }, { data: historial }] = await Promise.all([
-      supabaseAdmin.from('notas_pedido').select('*').eq('id', id).single(),
-      supabaseAdmin.from('items_np').select('*').eq('nota_pedido_id', id).order('linea'),
-      supabaseAdmin.from('historial_np').select('*').eq('np_id', id).order('fecha', { ascending: true }),
+      adminClient().from('notas_pedido').select('*').eq('id', id).single(),
+      adminClient().from('items_np').select('*').eq('nota_pedido_id', id).order('linea'),
+      adminClient().from('historial_np').select('*').eq('np_id', id).order('fecha', { ascending: true }),
     ])
 
     if (error || !np) return NextResponse.json({ error: 'NP no encontrada' }, { status: 404 })

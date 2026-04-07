@@ -1,16 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { registrarAuditoria } from '@/lib/auditoria'
+import { adminClient, anonClient } from '@/lib/supabase/clients'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 export async function POST(
   req: NextRequest,
@@ -22,7 +14,7 @@ export async function POST(
 
     // Generar número de OC secuencial
     const year = new Date().getFullYear()
-    const { data: seqData, error: seqError } = await supabaseAdmin.rpc('siguiente_numero_oc', { p_year: year })
+    const { data: seqData, error: seqError } = await adminClient().rpc('siguiente_numero_oc', { p_year: year })
     if (seqError || seqData === null) {
       return NextResponse.json({ error: 'Error al generar número de OC' }, { status: 500 })
     }
@@ -121,7 +113,7 @@ export async function POST(
       precio_unitario:     item.precio_unitario || 0,
     }))
 
-    const { error: errorItems } = await supabaseAdmin.from('items_oc').insert(itemsOC)
+    const { error: errorItems } = await adminClient().from('items_oc').insert(itemsOC)
     if (errorItems) {
       console.error(errorItems)
       return NextResponse.json({ error: 'Error al guardar ítems de la OC' }, { status: 500 })
@@ -134,7 +126,7 @@ export async function POST(
       .eq('id', np.id)
 
     // Registrar en historial
-    await supabaseAdmin.from('historial_np').insert({
+    await adminClient().from('historial_np').insert({
       np_id:        np.id,
       estado:       'convertida',
       actor_email:  null,
