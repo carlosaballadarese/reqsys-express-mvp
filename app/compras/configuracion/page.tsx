@@ -56,7 +56,7 @@ function PanelSecuencia() {
             <Label className="text-xs">Número inicial (próxima NP)</Label>
             <Input type="number" value={numeroInicial} onChange={e => setNumeroInicial(e.target.value)} className="mt-1 h-8 text-sm" min={1} />
           </div>
-          <Button onClick={handleGuardar} disabled={guardando} className="h-8 bg-blue-700 hover:bg-blue-800 text-sm">
+          <Button onClick={handleGuardar} disabled={guardando} className="h-8 btn-primary text-sm">
             {guardando ? 'Guardando...' : 'Establecer'}
           </Button>
         </div>
@@ -134,7 +134,7 @@ function PanelSecuenciaOC() {
             <Label className="text-xs">Número inicial (próxima OC)</Label>
             <Input type="number" value={numeroInicial} onChange={e => setNumeroInicial(e.target.value)} className="mt-1 h-8 text-sm" min={1} />
           </div>
-          <Button onClick={handleGuardar} disabled={guardando} className="h-8 bg-blue-700 hover:bg-blue-800 text-sm">
+          <Button onClick={handleGuardar} disabled={guardando} className="h-8 btn-primary text-sm">
             {guardando ? 'Guardando...' : 'Establecer'}
           </Button>
         </div>

@@ -136,7 +136,7 @@ export default function Dashboard() {
 
   return (
     <div className="bg-slate-50">
-      <div className="bg-blue-800 text-white px-6 py-4">
+      <div className="page-header px-6 py-4">
         <div className="max-w-7xl mx-auto">
           <h1 className="text-lg font-bold">Dashboard</h1>
           <p className="text-blue-300 text-xs mt-0.5">{compras.kpis.totalOCs.toLocaleString()} órdenes de compra</p>
@@ -154,7 +154,7 @@ export default function Dashboard() {
               <div className="flex gap-1">
                 <button
                   onClick={() => setYearFilter(null)}
-                  className={`px-3 py-1 text-xs rounded-md border transition-colors ${yearFilter === null ? 'bg-blue-700 text-white border-blue-700' : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400'}`}
+                  className={`px-3 py-1 text-xs rounded-md border transition-colors ${yearFilter === null ? 'bg-[#1a5252] text-white border-[#1a5252]' : 'bg-white text-slate-600 border-slate-300 hover:border-teal-400'}`}
                 >
                   Todos
                 </button>
@@ -162,7 +162,7 @@ export default function Dashboard() {
                   <button
                     key={y}
                     onClick={() => setYearFilter(y)}
-                    className={`px-3 py-1 text-xs rounded-md border transition-colors ${yearFilter === y ? 'bg-blue-700 text-white border-blue-700' : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400'}`}
+                    className={`px-3 py-1 text-xs rounded-md border transition-colors ${yearFilter === y ? 'bg-[#1a5252] text-white border-[#1a5252]' : 'bg-white text-slate-600 border-slate-300 hover:border-teal-400'}`}
                   >
                     {y}
                   </button>

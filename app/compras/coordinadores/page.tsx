@@ -109,7 +109,7 @@ export default function CoordinadoresPage() {
               <Button variant="outline" className="text-sm">⬇ Excel</Button>
             </a>
             <Button onClick={() => { setShowNuevo(true); setErrorNuevo(''); setNuevoForm(FORM_VACIO) }}
-              className="bg-blue-700 hover:bg-blue-800 text-sm">
+              className="btn-primary text-sm">
               + Nuevo Coordinador
             </Button>
           </div>
@@ -144,7 +144,7 @@ export default function CoordinadoresPage() {
               </div>
               {errorNuevo && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2 mt-3">{errorNuevo}</p>}
               <div className="flex gap-3 mt-4">
-                <Button onClick={handleCrear} disabled={guardandoNuevo} className="bg-blue-700 hover:bg-blue-800">
+                <Button onClick={handleCrear} disabled={guardandoNuevo} className="btn-primary">
                   {guardandoNuevo ? 'Guardando...' : 'Crear'}
                 </Button>
                 <Button variant="outline" onClick={() => setShowNuevo(false)}>Cancelar</Button>
@@ -201,7 +201,7 @@ export default function CoordinadoresPage() {
                             {errorEdit && <p className="text-red-600 text-xs mb-2">{errorEdit}</p>}
                             <div className="flex gap-2">
                               <Button onClick={handleGuardarEdit} disabled={guardandoEdit}
-                                className="h-7 text-xs bg-blue-700 hover:bg-blue-800 px-3">
+                                className="h-7 text-xs btn-primary px-3">
                                 {guardandoEdit ? 'Guardando...' : 'Guardar'}
                               </Button>
                               <button onClick={() => setEditandoId(null)} className="text-xs text-slate-500 hover:underline px-2">Cancelar</button>

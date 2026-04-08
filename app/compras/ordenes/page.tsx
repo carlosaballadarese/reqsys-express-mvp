@@ -69,7 +69,7 @@ export default function OrdenesPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="bg-blue-800 text-white px-6 py-4">
+      <div className="page-header px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold">Órdenes de Compra</h1>
@@ -79,7 +79,7 @@ export default function OrdenesPage() {
               <Button variant="outline" className="bg-transparent border-white/40 text-white hover:bg-white/10 text-sm">⬇ Excel</Button>
             </a>
             <Link href="/compras/ordenes/nueva">
-              <Button className="bg-white text-blue-800 hover:bg-blue-50 text-sm font-semibold">+ Nueva OC</Button>
+              <Button className="bg-white text-[#0d2e2e] hover:bg-slate-50 text-sm font-semibold">+ Nueva OC</Button>
             </Link>
           </div>
         </div>
@@ -114,7 +114,7 @@ export default function OrdenesPage() {
                 <option value="todas">Todas las áreas</option>
                 {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
               </select>
-              <Button onClick={cargar} className="h-9 bg-blue-700 hover:bg-blue-800">Buscar</Button>
+              <Button onClick={cargar} className="h-9 btn-primary">Buscar</Button>
             </div>
           </CardContent>
         </Card>

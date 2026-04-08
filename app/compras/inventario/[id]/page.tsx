@@ -97,7 +97,7 @@ export default function EditarItemPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="bg-blue-800 text-white px-6 py-5">
+      <div className="page-header px-6 py-5">
         <div className="max-w-2xl mx-auto">
           <Link href="/compras/inventario" className="text-blue-300 text-xs hover:text-white">← Inventario</Link>
           <h1 className="text-xl font-bold mt-1">Editar Ítem</h1>
@@ -167,7 +167,7 @@ export default function EditarItemPage() {
             {msg   && <p className="text-green-600 text-xs bg-green-50 border border-green-200 rounded px-3 py-2">{msg}</p>}
 
             <div className="flex gap-3 pt-2">
-              <Button onClick={handleGuardar} disabled={guardando} className="flex-1 bg-blue-700 hover:bg-blue-800">
+              <Button onClick={handleGuardar} disabled={guardando} className="flex-1 btn-primary">
                 {guardando ? 'Guardando...' : 'Guardar Cambios'}
               </Button>
               <Link href="/compras/inventario">

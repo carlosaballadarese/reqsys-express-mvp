@@ -262,7 +262,7 @@ export default function NuevaOCPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="bg-blue-800 text-white px-6 py-5">
+      <div className="page-header px-6 py-5">
         <div className="max-w-4xl mx-auto">
           <Link href="/compras/ordenes" className="text-blue-300 text-xs hover:text-white">← Órdenes de Compra</Link>
           <h1 className="text-xl font-bold mt-1">Nueva Orden de Compra</h1>
@@ -451,7 +451,7 @@ export default function NuevaOCPage() {
             {error && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>}
 
             <div className="flex gap-3">
-              <Button onClick={handleGuardar} disabled={enviando} className="flex-1 bg-blue-700 hover:bg-blue-800">
+              <Button onClick={handleGuardar} disabled={enviando} className="flex-1 btn-primary">
                 {enviando ? 'Guardando...' : 'Registrar Orden de Compra'}
               </Button>
               <Link href="/compras/ordenes">

@@ -369,7 +369,7 @@ export default function DetalleOCPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
-      <div className="bg-blue-800 text-white px-6 py-4">
+      <div className="page-header px-6 py-4">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div>
             <Link href="/compras/ordenes" className="text-blue-300 text-xs hover:text-white">← Órdenes de Compra</Link>
@@ -419,7 +419,7 @@ export default function DetalleOCPage() {
                       <option key={e} value={e}>{ESTADO_LABEL[e]}</option>
                     ))}
                   </select>
-                  <Button onClick={handleCambiarEstado} disabled={guardandoEstado || nuevoEstado === oc.estado_oc} className="h-8 bg-blue-700 hover:bg-blue-800 text-sm">
+                  <Button onClick={handleCambiarEstado} disabled={guardandoEstado || nuevoEstado === oc.estado_oc} className="h-8 btn-primary text-sm">
                     {guardandoEstado ? 'Validando...' : 'Confirmar'}
                   </Button>
                   <button onClick={() => { setCambiandoEstado(false); setNuevoEstado(oc.estado_oc); setErrorInventario(null) }} className="text-xs text-slate-500 hover:underline">Cancelar</button>
@@ -707,7 +707,7 @@ export default function DetalleOCPage() {
               {errorEdit && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2">{errorEdit}</p>}
 
               <div className="flex gap-3">
-                <Button onClick={handleGuardar} disabled={guardando} className="flex-1 bg-blue-700 hover:bg-blue-800">
+                <Button onClick={handleGuardar} disabled={guardando} className="flex-1 btn-primary">
                   {guardando ? 'Guardando...' : 'Guardar Cambios'}
                 </Button>
                 <Button variant="outline" onClick={() => setEditando(false)}>Cancelar</Button>

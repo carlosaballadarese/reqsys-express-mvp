@@ -131,7 +131,7 @@ export default function AccesosPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="bg-blue-800 text-white px-6 py-5">
+      <div className="page-header px-6 py-5">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div>
             <Link href="/compras" className="text-blue-300 text-xs hover:text-white">← NPs</Link>
@@ -142,7 +142,7 @@ export default function AccesosPage() {
               <Button variant="outline" className="bg-transparent border-white/40 text-white hover:bg-white/10 text-sm">⬇ Coordinadores</Button>
             </a>
             <Button onClick={() => { setShowNuevo(true); setErrorNuevo('') }}
-              className="bg-white text-blue-800 hover:bg-blue-50 text-sm font-semibold">
+              className="bg-white text-[#0d2e2e] hover:bg-slate-50 text-sm font-semibold">
               + Nuevo Usuario
             </Button>
           </div>
@@ -187,7 +187,7 @@ export default function AccesosPage() {
               </div>
               {errorNuevo && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2 mt-3">{errorNuevo}</p>}
               <div className="flex gap-3 mt-4">
-                <Button onClick={handleCrear} disabled={guardandoNuevo} className="bg-blue-700 hover:bg-blue-800">
+                <Button onClick={handleCrear} disabled={guardandoNuevo} className="btn-primary">
                   {guardandoNuevo ? 'Creando...' : 'Crear Usuario'}
                 </Button>
                 <Button variant="outline" onClick={() => setShowNuevo(false)}>Cancelar</Button>
@@ -236,7 +236,7 @@ export default function AccesosPage() {
                         </div>
                         {errorEdit && <p className="text-red-600 text-xs">{errorEdit}</p>}
                         <div className="flex gap-2">
-                          <Button onClick={handleGuardarEdit} disabled={guardandoEdit} className="h-7 text-xs bg-blue-700 hover:bg-blue-800 px-3">
+                          <Button onClick={handleGuardarEdit} disabled={guardandoEdit} className="h-7 text-xs btn-primary px-3">
                             {guardandoEdit ? 'Guardando...' : 'Guardar'}
                           </Button>
                           <button onClick={() => setResetId(resetId === u.id ? null : u.id)}

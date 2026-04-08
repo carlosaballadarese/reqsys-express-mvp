@@ -52,7 +52,7 @@ export default function ProveedoresPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="bg-blue-800 text-white px-6 py-4">
+      <div className="page-header px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <h1 className="text-lg font-bold">Proveedores</h1>
           <div className="flex gap-2">
@@ -60,7 +60,7 @@ export default function ProveedoresPage() {
               <Button variant="outline" className="bg-transparent border-white/40 text-white hover:bg-white/10 text-sm">⬇ Excel</Button>
             </a>
             <Link href="/compras/proveedores/nueva">
-              <Button className="bg-white text-blue-800 hover:bg-blue-50 text-sm font-semibold">+ Nuevo Proveedor</Button>
+              <Button className="bg-white text-[#0d2e2e] hover:bg-slate-50 text-sm font-semibold">+ Nuevo Proveedor</Button>
             </Link>
           </div>
         </div>
@@ -96,7 +96,7 @@ export default function ProveedoresPage() {
                 />
                 Solo activos
               </label>
-              <Button onClick={cargar} className="h-9 bg-blue-700 hover:bg-blue-800">Buscar</Button>
+              <Button onClick={cargar} className="h-9 btn-primary">Buscar</Button>
             </div>
           </CardContent>
         </Card>

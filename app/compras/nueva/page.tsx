@@ -465,7 +465,7 @@ export default function NuevaNotaPedido() {
           <Button
             type="submit"
             disabled={estado === 'enviando'}
-            className="w-full h-12 text-base bg-blue-700 hover:bg-blue-800"
+            className="w-full h-12 text-base btn-primary"
           >
             {estado === 'enviando' ? 'Enviando...' : 'Enviar Nota de Pedido'}
           </Button>

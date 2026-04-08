@@ -128,3 +128,15 @@
     @apply font-sans;
   }
 }
+/* ── Paleta REQSYS — teal/dorado ── */
+.page-header {
+  background: linear-gradient(90deg, #0d2e2e 0%, #1a5252 100%);
+  color: white;
+}
+.btn-primary {
+  background: linear-gradient(135deg, #1a5252 0%, #0d2e2e 100%);
+  color: white;
+}
+.btn-primary:hover {
+  background: linear-gradient(135deg, #0f3535 0%, #0a2020 100%);
+}

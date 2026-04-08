@@ -86,7 +86,7 @@ export default function ComprasPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
-      <div className="bg-blue-800 text-white px-6 py-4">
+      <div className="page-header px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold">{esSolicitante ? 'Mis Notas de Pedido' : 'Notas de Pedido'}</h1>
@@ -98,7 +98,7 @@ export default function ComprasPage() {
             </a>
             {puedeCrearNP && (
               <Link href="/compras/nueva">
-                <Button className="bg-white text-blue-800 hover:bg-blue-50 text-sm font-semibold">+ Nueva NP</Button>
+                <Button className="bg-white text-[#0d2e2e] hover:bg-slate-50 text-sm font-semibold">+ Nueva NP</Button>
               </Link>
             )}
           </div>
@@ -134,7 +134,7 @@ export default function ComprasPage() {
                 <option value="todas">Todas las áreas</option>
                 {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
               </select>
-              <Button onClick={cargar} className="h-9 bg-blue-700 hover:bg-blue-800">
+              <Button onClick={cargar} className="h-9 btn-primary">
                 Buscar
               </Button>
             </div>

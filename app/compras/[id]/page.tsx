@@ -540,7 +540,7 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
 
         {error && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>}
 
-        <Button onClick={handleConvertir} disabled={enviando} className="w-full bg-blue-700 hover:bg-blue-800">
+        <Button onClick={handleConvertir} disabled={enviando} className="w-full btn-primary">
           {enviando ? 'Procesando...' : '🛒 Registrar Orden de Compra'}
         </Button>
       </CardContent>
@@ -595,7 +595,7 @@ export default function DetalleNPPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
-      <div className="bg-blue-800 text-white px-6 py-4">
+      <div className="page-header px-6 py-4">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div>
             <Link href="/compras" className="text-blue-300 text-xs hover:text-white">← NPs</Link>
