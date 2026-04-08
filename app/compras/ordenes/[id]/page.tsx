@@ -243,7 +243,6 @@ export default function DetalleOCPage() {
   const [cambiandoEstado, setCambiandoEstado]   = useState(false)
   const [nuevoEstado, setNuevoEstado]           = useState('')
   const [guardandoEstado, setGuardandoEstado]   = useState(false)
-  const [errorInventario, setErrorInventario]   = useState<{ mensaje: string; detalle: string[] } | null>(null)
 
   function cargar() {
     setCargando(true)
@@ -337,7 +336,6 @@ export default function DetalleOCPage() {
   async function handleCambiarEstado() {
     if (!nuevoEstado || nuevoEstado === oc?.estado_oc) return
     setGuardandoEstado(true)
-    setErrorInventario(null)
     try {
       const res  = await fetch(`/api/compras/ordenes/${id}/estado`, {
         method: 'PATCH',
@@ -348,8 +346,6 @@ export default function DetalleOCPage() {
       if (data.success) {
         setCambiandoEstado(false)
         cargar()
-      } else if (res.status === 422) {
-        setErrorInventario({ mensaje: data.error, detalle: data.detalle ?? [] })
       }
     } finally { setGuardandoEstado(false) }
   }
@@ -420,30 +416,14 @@ export default function DetalleOCPage() {
                     ))}
                   </select>
                   <Button onClick={handleCambiarEstado} disabled={guardandoEstado || nuevoEstado === oc.estado_oc} className="h-8 btn-primary text-sm">
-                    {guardandoEstado ? 'Validando...' : 'Confirmar'}
+                    {guardandoEstado ? 'Guardando...' : 'Confirmar'}
                   </Button>
-                  <button onClick={() => { setCambiandoEstado(false); setNuevoEstado(oc.estado_oc); setErrorInventario(null) }} className="text-xs text-slate-500 hover:underline">Cancelar</button>
+                  <button onClick={() => { setCambiandoEstado(false); setNuevoEstado(oc.estado_oc) }} className="text-xs text-slate-500 hover:underline">Cancelar</button>
                 </>
               )}
             </div>
           </CardContent>
         </Card>
-
-        {/* Error de inventario al aprobar */}
-        {errorInventario && (
-          <div className="bg-red-50 border border-red-200 rounded-md p-4 space-y-2">
-            <p className="text-red-700 font-semibold text-sm">{errorInventario.mensaje}</p>
-            <ul className="space-y-1">
-              {errorInventario.detalle.map((e, i) => (
-                <li key={i} className="text-red-600 text-sm flex items-start gap-2">
-                  <span className="mt-0.5 shrink-0">✕</span>
-                  <span>{e}</span>
-                </li>
-              ))}
-            </ul>
-            <p className="text-xs text-red-500 pt-1">No se realizó ningún cambio en el inventario ni en el estado de la OC.</p>
-          </div>
-        )}
 
         {/* Vista detalle (sin edición) */}
         {!editando && (
