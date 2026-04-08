@@ -111,7 +111,7 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL('/compras/dashboard', req.url))
   }
 
-  // Rutas de compras/dashboard/nps — solo compras, gerencia, consulta, admin
+  // Rutas de compras/dashboard/nps — solo compras, gerencia, consulta, admin, bodega
   // solicitante no puede entrar
   if (requiresCompras(pathname)) {
     // solicitante solo puede ver /compras (sus NPs) — nada más
@@ -122,6 +122,16 @@ export async function proxy(req: NextRequest) {
       }
     }
 
+    // bodega: solo inventario y nueva NP
+    if (rol === 'bodega') {
+      const permitidasBodega = ['/compras/inventario', '/compras/nueva']
+      const permitida = permitidasBodega.some(
+        p => pathname === p || pathname.startsWith(p + '/')
+      )
+      if (!permitida) {
+        return NextResponse.redirect(new URL('/compras/inventario', req.url))
+      }
+    }
 
     // gerencia y consulta: solo lectura — pueden ver NPs, OCs, dashboard
     // pero NO pueden entrar a inventario, proveedores, accesos
@@ -135,7 +145,6 @@ export async function proxy(req: NextRequest) {
       const estaBloqueada = bloqueadas.some(
         b => pathname === b || pathname.startsWith(b + '/')
       )
-      // Para OCs y NPs en detalle: bloquear edición (se maneja en la página)
       if (estaBloqueada) {
         return NextResponse.redirect(new URL('/compras/dashboard', req.url))
       }

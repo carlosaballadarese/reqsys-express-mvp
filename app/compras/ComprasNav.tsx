@@ -18,6 +18,7 @@ const ROL_LABEL: Record<string, string> = {
   gerencia:    'Gerencia',
   consulta:    'Consulta',
   admin:       'Administrador',
+  bodega:      'Bodega',
 }
 
 type NavItem = {
@@ -28,15 +29,16 @@ type NavItem = {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: '/compras',              label: 'Mis NPs',           roles: ['solicitante'],                              exact: true },
-  { href: '/compras',              label: 'NPs',               roles: ['compras', 'admin', 'gerencia', 'consulta'], exact: true },
+  { href: '/compras',              label: 'Mis NPs',           roles: ['solicitante'],                                        exact: true },
+  { href: '/compras',              label: 'NPs',               roles: ['compras', 'admin', 'gerencia', 'consulta'],           exact: true },
+  { href: '/compras/nueva',        label: 'Nueva NP',          roles: ['bodega'] },
   { href: '/compras/ordenes',      label: 'Órdenes de Compra', roles: ['compras', 'admin', 'gerencia', 'consulta'] },
   { href: '/compras/proveedores',  label: 'Proveedores',       roles: ['compras', 'admin'] },
-  { href: '/compras/inventario',   label: 'Inventario',        roles: ['compras', 'admin'] },
-  { href: '/compras/coordinadores', label: 'Coordinadores',     roles: ['admin', 'compras'] },
+  { href: '/compras/inventario',   label: 'Inventario',        roles: ['compras', 'admin', 'bodega'] },
+  { href: '/compras/coordinadores', label: 'Coordinadores',    roles: ['admin', 'compras'] },
   { href: '/compras/accesos',      label: 'Accesos',           roles: ['admin'] },
   { href: '/compras/auditoria',    label: 'Auditoría',         roles: ['admin', 'compras'] },
-  { href: '/compras/configuracion', label: 'Configuración',   roles: ['admin', 'compras'] },
+  { href: '/compras/configuracion', label: 'Configuración',    roles: ['admin', 'compras'] },
   { href: '/compras/dashboard',    label: 'Dashboard',         roles: ['compras', 'admin', 'gerencia', 'consulta'] },
 ]
 

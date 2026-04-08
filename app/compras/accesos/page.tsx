@@ -18,10 +18,11 @@ type Usuario = {
   created_at: string
 }
 
-const ROLES = ['solicitante', 'compras', 'gerencia', 'consulta', 'admin']
+const ROLES = ['solicitante', 'bodega', 'compras', 'gerencia', 'consulta', 'admin']
 
 const ROL_BADGE: Record<string, string> = {
   solicitante: 'bg-slate-100 text-slate-600',
+  bodega:      'bg-amber-100 text-amber-700',
   compras:     'bg-blue-100 text-blue-700',
   gerencia:    'bg-purple-100 text-purple-700',
   consulta:    'bg-teal-100 text-teal-700',
@@ -30,6 +31,7 @@ const ROL_BADGE: Record<string, string> = {
 
 const ROL_LABEL: Record<string, string> = {
   solicitante: 'Solicitante',
+  bodega:      'Bodega',
   compras:     'Compras',
   gerencia:    'Gerencia',
   consulta:    'Consulta',

@@ -56,6 +56,8 @@ function LoginForm() {
     const rol = perfil.rol
     if (rol === 'solicitante') {
       router.push('/compras/nueva')
+    } else if (rol === 'bodega') {
+      router.push('/compras/inventario')
     } else if (nextPath && nextPath !== '/login' && nextPath !== '/' && nextPath !== '/compras/nueva') {
       router.push(nextPath)
     } else {
