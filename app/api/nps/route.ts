@@ -100,7 +100,8 @@ export async function POST(req: NextRequest) {
     const urlAprobar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=aprobar`
     const urlRechazar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=rechazar`
 
-    // 6. Enviar email al coordinador
+    // 6. Enviar email al coordinador (no bloquea si falla)
+    try {
     await transporter.sendMail({
       from: 'REQSYS <reqsys.cabe@gmail.com>',
       to: coordinador.email,
@@ -158,6 +159,10 @@ export async function POST(req: NextRequest) {
         </div>
       `,
     })
+    } catch (emailErr) {
+      console.error('Error al enviar email de NP:', emailErr)
+    }
+
     await adminClient().from('historial_np').insert({
       np_id: np.id,
       estado: 'pendiente',
