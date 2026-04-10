@@ -192,16 +192,12 @@ export async function POST(
     return NextResponse.json({ success: true, estado: nuevoEstado })
   } catch (err: unknown) {
     console.error(err)
-    // Si el error es de SMTP, devolver mensaje claro al coordinador
-    if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'EAUTH') {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const e = err as any
+    const smtpCodes = ['EAUTH', 'ECONNECTION', 'ECONNREFUSED', 'ETIMEDOUT', 'ESOCKET', 'EENVELOPE']
+    if (e?.code && smtpCodes.includes(e.code)) {
       return NextResponse.json({
-        error: 'No se pudo enviar el correo de notificación (credenciales SMTP inválidas). La NP NO fue modificada. Por favor comuníquese con el Jefe de Compras para gestionar esta aprobación directamente.',
-      }, { status: 500 })
-    }
-    if (err && typeof err === 'object' && ('code' in err) &&
-      ['ECONNECTION', 'ECONNREFUSED', 'ETIMEDOUT', 'ESOCKET'].includes((err as { code: string }).code)) {
-      return NextResponse.json({
-        error: 'No se pudo enviar el correo de notificación (error de conexión al servidor de correo). La NP NO fue modificada. Por favor comuníquese con el Jefe de Compras para gestionar esta aprobación directamente.',
+        error: `No se pudo enviar el correo de notificación (${e.code}). La NP NO fue modificada. Por favor comuníquese con el Jefe de Compras para gestionar esta aprobación directamente.`,
       }, { status: 500 })
     }
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })
