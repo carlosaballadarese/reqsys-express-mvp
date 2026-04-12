@@ -35,7 +35,7 @@ export default function CoordinadoresPage() {
 
   function cargar() {
     setCargando(true)
-    fetch('/api/coordinadores')
+    fetch('/api/compras/coordinadores')
       .then(r => r.json())
       .then(data => { setCoordinadores(Array.isArray(data) ? data : []); setCargando(false) })
       .catch(() => setCargando(false))
@@ -48,7 +48,7 @@ export default function CoordinadoresPage() {
       setErrorNuevo('Todos los campos son requeridos'); return
     }
     setGuardandoNuevo(true); setErrorNuevo('')
-    const res  = await fetch('/api/coordinadores', {
+    const res  = await fetch('/api/compras/coordinadores', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(nuevoForm),
@@ -74,7 +74,7 @@ export default function CoordinadoresPage() {
       setErrorEdit('Todos los campos son requeridos'); return
     }
     setGuardandoEdit(true); setErrorEdit('')
-    const res  = await fetch(`/api/coordinadores/${editandoId}`, {
+    const res  = await fetch(`/api/compras/coordinadores/${editandoId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(editForm),
@@ -86,7 +86,7 @@ export default function CoordinadoresPage() {
   }
 
   async function handleEliminar(id: string) {
-    const res  = await fetch(`/api/coordinadores/${id}`, { method: 'DELETE' })
+    const res  = await fetch(`/api/compras/coordinadores/${id}`, { method: 'DELETE' })
     const data = await res.json()
     if (data.success) { setEliminandoId(null); cargar() }
     else alert(data.error || 'Error al eliminar')

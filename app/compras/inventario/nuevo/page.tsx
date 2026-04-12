@@ -35,7 +35,7 @@ export default function NuevoItemPage() {
 
   // Sugerir próximo código AL-I automáticamente
   useEffect(() => {
-    fetch('/api/inventario/next-codigo')
+    fetch('/api/compras/inventario/next-codigo')
       .then(r => r.json())
       .then(data => { if (data.codigo) setForm(f => ({ ...f, codigo: data.codigo })) })
       .catch(() => {})
@@ -50,7 +50,7 @@ export default function NuevoItemPage() {
     }
     setGuardando(true); setError('')
     try {
-      const res  = await fetch('/api/inventario', {
+      const res  = await fetch('/api/compras/inventario', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

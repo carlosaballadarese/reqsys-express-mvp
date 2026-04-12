@@ -93,7 +93,7 @@ export default function Dashboard() {
   const [yearFilter, setYearFilter] = useState<number | null>(null)
 
   useEffect(() => {
-    const url = yearFilter ? `/api/dashboard?year=${yearFilter}` : '/api/dashboard'
+    const url = yearFilter ? `/api/compras/dashboard?year=${yearFilter}` : '/api/compras/dashboard'
     setData(null)
     fetch(url)
       .then(r => r.json())

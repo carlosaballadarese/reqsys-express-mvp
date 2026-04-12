@@ -34,7 +34,7 @@ export default function NuevoProveedorPage() {
     if (!form.nombre.trim()) { setError('El nombre es requerido'); return }
     setGuardando(true); setError('')
     try {
-      const res  = await fetch('/api/proveedores', {
+      const res  = await fetch('/api/compras/proveedores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),

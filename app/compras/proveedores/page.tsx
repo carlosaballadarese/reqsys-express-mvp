@@ -42,7 +42,7 @@ export default function ProveedoresPage() {
     if (clasificacion !== 'todas')      params.set('clasificacion', clasificacion)
     if (!soloActivos)                   params.set('activo', 'false')
 
-    fetch(`/api/proveedores?${params}`)
+    fetch(`/api/compras/proveedores?${params}`)
       .then(r => r.json())
       .then(data => { setProveedores(Array.isArray(data) ? data : []); setCargando(false) })
       .catch(() => setCargando(false))

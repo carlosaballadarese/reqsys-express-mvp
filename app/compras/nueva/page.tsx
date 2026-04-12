@@ -95,7 +95,7 @@ function InventarioSearch({ value, onChange, onSelect }: InventarioSearchProps) 
     timerRef.current = setTimeout(async () => {
       setCargando(true)
       try {
-        const res = await fetch(`/api/inventario/search?q=${encodeURIComponent(val)}`)
+        const res = await fetch(`/api/compras/inventario/search?q=${encodeURIComponent(val)}`)
         const data = await res.json()
         setResultados(data)
         setAbierto(true)
@@ -203,7 +203,7 @@ export default function NuevaNotaPedido() {
       precio_unitario: Number(item.precio_unitario) || 0,
     }))
     try {
-      const res = await fetch('/api/nps', {
+      const res = await fetch('/api/compras/nps', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ encabezado: data, items: itemsPayload }),

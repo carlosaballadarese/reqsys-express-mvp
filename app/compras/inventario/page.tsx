@@ -33,7 +33,7 @@ export default function InventarioPage() {
     if (q.trim())    params.set('q', q.trim())
     if (categoria)   params.set('categoria', categoria)
 
-    fetch(`/api/inventario?${params}`)
+    fetch(`/api/compras/inventario?${params}`)
       .then(r => r.json())
       .then(data => {
         const lista = Array.isArray(data) ? data : []

@@ -71,7 +71,7 @@ export default function AuditoriaPage() {
     if (filtroDesde)   params.set('desde', filtroDesde)
     if (filtroHasta)   params.set('hasta', filtroHasta)
 
-    const res = await fetch(`/api/auditoria?${params}`)
+    const res = await fetch(`/api/compras/auditoria?${params}`)
     if (res.ok) setRegistros(await res.json())
     setCargando(false)
   }, [filtroUsuario, filtroAccion, filtroEntidad, filtroDesde, filtroHasta])

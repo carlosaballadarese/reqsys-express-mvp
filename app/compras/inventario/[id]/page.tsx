@@ -35,7 +35,7 @@ export default function EditarItemPage() {
   })
 
   useEffect(() => {
-    fetch(`/api/inventario/${id}`)
+    fetch(`/api/compras/inventario/${id}`)
       .then(r => r.json())
       .then(data => {
         if (data.error) { setError(data.error); setCargando(false); return }
@@ -65,7 +65,7 @@ export default function EditarItemPage() {
     }
     setGuardando(true); setError(''); setMsg('')
     try {
-      const res  = await fetch(`/api/inventario/${id}`, {
+      const res  = await fetch(`/api/compras/inventario/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

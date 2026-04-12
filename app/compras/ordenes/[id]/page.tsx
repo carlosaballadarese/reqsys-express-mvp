@@ -113,7 +113,7 @@ function ProveedorSearch({ value, onChange, onSelect }: {
     timerRef.current = setTimeout(async () => {
       setCargando(true)
       try {
-        const res = await fetch(`/api/proveedores?q=${encodeURIComponent(val)}`)
+        const res = await fetch(`/api/compras/proveedores?q=${encodeURIComponent(val)}`)
         setResultados(await res.json())
         setAbierto(true)
       } finally { setCargando(false) }
@@ -183,7 +183,7 @@ function InventarioSearch({ value, onChange, onSelect }: {
     timerRef.current = setTimeout(async () => {
       setCargando(true)
       try {
-        const res = await fetch(`/api/inventario/search?q=${encodeURIComponent(val)}`)
+        const res = await fetch(`/api/compras/inventario/search?q=${encodeURIComponent(val)}`)
         setResultados(await res.json())
         setAbierto(true)
       } finally { setCargando(false) }

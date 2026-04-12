@@ -32,7 +32,7 @@ export default function EditarProveedorPage() {
   })
 
   useEffect(() => {
-    fetch(`/api/proveedores/${id}`)
+    fetch(`/api/compras/proveedores/${id}`)
       .then(r => r.json())
       .then(data => {
         if (data.error) { setError(data.error); setCargando(false); return }
@@ -60,7 +60,7 @@ export default function EditarProveedorPage() {
     if (!form.nombre.trim()) { setError('El nombre es requerido'); return }
     setGuardando(true); setError(''); setMsg('')
     try {
-      const res  = await fetch(`/api/proveedores/${id}`, {
+      const res  = await fetch(`/api/compras/proveedores/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
