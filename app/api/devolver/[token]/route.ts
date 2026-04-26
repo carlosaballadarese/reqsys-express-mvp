@@ -20,7 +20,7 @@ export async function POST(
     const { data: np, error } = await anonClient()
       .from('notas_pedido')
       .select('*')
-      .eq('token_aprobacion', token)
+      .eq('token_devolucion', token)
       .eq('estado', 'aprobada')
       .single()
 

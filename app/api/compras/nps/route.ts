@@ -13,6 +13,10 @@ async function generarNumeroNP(): Promise<string> {
 
 export async function POST(req: NextRequest) {
   try {
+    const supabase = await createSupabaseServerClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
     const body = await req.json()
     const { encabezado, items } = body
 

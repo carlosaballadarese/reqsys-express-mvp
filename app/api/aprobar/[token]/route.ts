@@ -122,7 +122,7 @@ export async function POST(
                   </tfoot>
                 </table>
                 <div style="margin-top:24px">
-                  <a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/devolver/${np.token_aprobacion}" style="display:block;background:#d97706;color:white;padding:14px;text-align:center;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">
+                  <a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/devolver/${np.token_devolucion}" style="display:block;background:#d97706;color:white;padding:14px;text-align:center;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">
                     ↩ Devolver al solicitante para corrección
                   </a>
                 </div>
