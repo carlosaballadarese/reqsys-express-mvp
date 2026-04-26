@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { transporter } from '@/lib/mailer'
 import { adminClient, anonClient } from '@/lib/supabase/clients'
 
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
 
 
 export async function POST(
@@ -155,7 +159,7 @@ export async function POST(
             ${!esAprobada && motivo_rechazo ? `
               <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:16px;margin-top:16px">
                 <p style="margin:0 0 8px;font-weight:600;color:#dc2626">Motivo de rechazo:</p>
-                <p style="margin:0">${motivo_rechazo}</p>
+                <p style="margin:0">${escapeHtml(motivo_rechazo)}</p>
               </div>
             ` : ''}
             ${esAprobada ? '<p style="color:#15803d">Tu requerimiento continuará el proceso de compras.</p>' : ''}

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { transporter } from '@/lib/mailer'
 import { adminClient, anonClient } from '@/lib/supabase/clients'
 
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
 
 
 export async function POST(
@@ -78,7 +82,7 @@ export async function POST(
             <p>El área de Compras ha devuelto tu Nota de Pedido <strong>${np.numero}</strong> para que realices las correcciones necesarias.</p>
             <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:16px;margin:16px 0">
               <p style="margin:0 0 8px;font-weight:600;color:#92400e">Motivo de devolución:</p>
-              <p style="margin:0;color:#78350f">${motivo_devolucion}</p>
+              <p style="margin:0;color:#78350f">${escapeHtml(motivo_devolucion)}</p>
             </div>
             <p>Haz clic en el botón para revisar y corregir tu solicitud:</p>
             <a href="${urlEditar}" style="display:block;background:#1e40af;color:white;padding:14px;text-align:center;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px;margin-top:16px">
