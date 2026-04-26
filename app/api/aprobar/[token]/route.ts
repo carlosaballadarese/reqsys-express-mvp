@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { transporter } from '@/lib/mailer'
 import { adminClient, anonClient } from '@/lib/supabase/clients'
-
-function escapeHtml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
+import { escapeHtml } from '@/lib/utils'
 
 
 
