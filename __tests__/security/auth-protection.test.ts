@@ -269,7 +269,25 @@ describe('POST /api/compras/nps', () => {
   })
 })
 
-// ── 8. Separación de tokens: devolver usa token_devolucion ───────────────────
+// ── 8. Importación masiva de inventario ──────────────────────────────────────
+
+describe('POST /api/compras/inventario/importar', () => {
+  const { POST } = require('@/app/api/compras/inventario/importar/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const fd = new FormData()
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/inventario/importar', {
+        method: 'POST',
+        body: fd,
+      })
+    )
+    expect(res.status).toBe(401)
+  })
+})
+
+// ── 9. Separación de tokens: devolver usa token_devolucion ───────────────────
 
 describe('POST /api/devolver/[token] — separación de tokens', () => {
   const { POST } = require('@/app/api/devolver/[token]/route')

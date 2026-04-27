@@ -31,6 +31,7 @@ export default function NuevoItemPage() {
     codigo_origen:      '',
     descripcion_origen: '',
     marca:              '',
+    observaciones:      '',
   })
 
   // Sugerir próximo código AL-I automáticamente
@@ -134,6 +135,17 @@ export default function NuevoItemPage() {
             <div>
               <Label className="text-xs">Descripción Origen</Label>
               <Input value={form.descripcion_origen} onChange={e => setField('descripcion_origen', e.target.value)} className="mt-1 h-8 text-sm" />
+            </div>
+
+            <div>
+              <Label className="text-xs">Observaciones</Label>
+              <textarea
+                value={form.observaciones}
+                onChange={e => setField('observaciones', e.target.value)}
+                rows={2}
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm resize-none"
+                placeholder="Observaciones adicionales..."
+              />
             </div>
 
             {error && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>}

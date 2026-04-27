@@ -37,7 +37,7 @@ export async function PUT(
     const {
       codigo, descripcion, area, categoria,
       saldo_existencias, costo_unitario,
-      locacion, codigo_origen, descripcion_origen, marca,
+      locacion, codigo_origen, descripcion_origen, marca, observaciones,
     } = body
 
     if (!codigo || !descripcion) {
@@ -69,6 +69,7 @@ export async function PUT(
         codigo_origen:      codigo_origen?.trim()      || null,
         descripcion_origen: descripcion_origen?.trim() || null,
         marca:              marca?.trim()              || null,
+        observaciones:      observaciones?.trim()      || null,
       })
       .eq('id', id)
 

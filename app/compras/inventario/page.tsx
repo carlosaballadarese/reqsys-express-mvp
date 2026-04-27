@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -20,12 +20,25 @@ type Item = {
   marca: string | null
 }
 
+type ImportResult = {
+  total: number
+  insertados: number
+  actualizados: number
+  errores: string[]
+}
+
 export default function InventarioPage() {
   const [items, setItems]         = useState<Item[]>([])
   const [cargando, setCargando]   = useState(true)
   const [q, setQ]                 = useState('')
   const [categoria, setCategoria] = useState('')
   const [categorias, setCategorias] = useState<string[]>([])
+
+  const [dialogOpen, setDialogOpen]       = useState(false)
+  const [importando, setImportando]       = useState(false)
+  const [importResult, setImportResult]   = useState<ImportResult | null>(null)
+  const [importError, setImportError]     = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const cargar = useCallback(() => {
     setCargando(true)
@@ -48,6 +61,30 @@ export default function InventarioPage() {
 
   useEffect(() => { cargar() }, [cargar])
 
+  async function handleImportar() {
+    const file = fileRef.current?.files?.[0]
+    if (!file) { setImportError('Seleccioná un archivo .xlsx'); return }
+    setImportando(true); setImportError(''); setImportResult(null)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/compras/inventario/importar', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (data.success) {
+        setImportResult(data)
+        cargar()
+      } else {
+        setImportError(data.error ?? 'Error al importar')
+      }
+    } catch { setImportError('Error de conexión') }
+    finally { setImportando(false) }
+  }
+
+  function abrirDialog() {
+    setDialogOpen(true); setImportResult(null); setImportError('')
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="page-header px-6 py-4">
@@ -57,6 +94,7 @@ export default function InventarioPage() {
             <a href="/api/exportar/inventario" download>
               <Button variant="outline" className="bg-transparent border-white/40 text-white hover:bg-white/10 text-sm">⬇ Excel</Button>
             </a>
+            <Button onClick={abrirDialog} variant="outline" className="bg-transparent border-white/40 text-white hover:bg-white/10 text-sm">↑ Importar Excel</Button>
             <Link href="/compras/inventario/nuevo">
               <Button className="bg-white text-[#0d2e2e] hover:bg-slate-50 text-sm font-semibold">+ Nuevo Ítem</Button>
             </Link>
@@ -149,6 +187,55 @@ export default function InventarioPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Dialog importación Excel */}
+      {dialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 p-6 space-y-4">
+            <h2 className="text-base font-semibold text-slate-800">Importar inventario desde Excel</h2>
+            <p className="text-xs text-slate-500">
+              Seleccioná el archivo <span className="font-mono font-medium">Control Inventario - ARLIFT.xlsx</span>.
+              La hoja <strong>PRODUCTOS</strong> debe tener encabezados en la fila 8.
+              Los registros existentes se actualizarán por código; los nuevos se insertarán.
+            </p>
+
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="block w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
+            />
+
+            {importError && (
+              <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2">{importError}</p>
+            )}
+
+            {importResult && (
+              <div className="bg-green-50 border border-green-200 rounded px-3 py-3 space-y-1">
+                <p className="text-green-700 text-sm font-medium">✓ Importación completada</p>
+                <p className="text-green-600 text-xs">Total procesados: <strong>{importResult.total}</strong></p>
+                <p className="text-green-600 text-xs">Actualizados: <strong>{importResult.actualizados}</strong> · Insertados: <strong>{importResult.insertados}</strong></p>
+                {importResult.errores.length > 0 && (
+                  <p className="text-amber-600 text-xs">Errores en lotes: {importResult.errores.join(', ')}</p>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-1">
+              {!importResult ? (
+                <Button onClick={handleImportar} disabled={importando} className="flex-1 btn-primary">
+                  {importando ? 'Procesando...' : 'Procesar archivo'}
+                </Button>
+              ) : (
+                <Button onClick={() => setDialogOpen(false)} className="flex-1 btn-primary">Cerrar</Button>
+              )}
+              {!importResult && (
+                <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={importando}>Cancelar</Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

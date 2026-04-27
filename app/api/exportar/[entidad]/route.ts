@@ -116,7 +116,7 @@ async function fetchData(entidad: string): Promise<{ rows: Record<string, unknow
   if (entidad === 'inventario') {
     const { data: inv } = await adminClient()
       .from('inventario')
-      .select('codigo, descripcion, area, categoria, marca, saldo_existencias, costo_unitario, locacion, codigo_origen, descripcion_origen')
+      .select('codigo, descripcion, area, categoria, marca, saldo_existencias, costo_unitario, locacion, codigo_origen, descripcion_origen, observaciones')
       .order('codigo')
 
     const rows = (inv ?? []).map(i => ({
@@ -130,6 +130,7 @@ async function fetchData(entidad: string): Promise<{ rows: Record<string, unknow
       'Locación':            i.locacion ?? '',
       'Código Origen':       i.codigo_origen ?? '',
       'Descripción Origen':  i.descripcion_origen ?? '',
+      'Observaciones':       i.observaciones ?? '',
     }))
 
     return { rows, filename: `REQSYS_Inventario_${fecha}.xlsx` }
