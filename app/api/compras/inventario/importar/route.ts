@@ -4,19 +4,65 @@ import { adminClient } from '@/lib/supabase/clients'
 // @ts-ignore — xlsx ships its own types
 import * as XLSX from 'xlsx'
 
-// Mapeo de encabezados del Excel (fila 8) a columnas de BD
+// Normaliza un encabezado: sin acentos, sin saltos de línea,
+// espacios colapsados, sin puntuación extra, minúsculas
+function norm(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')  // eliminar diacríticos
+    .replace(/[\r\n\t]+/g, ' ')       // saltos de línea → espacio
+    .replace(/\s+/g, ' ')             // espacios múltiples → uno
+    .replace(/[^\w\s]/g, '')          // eliminar puntuación (punto, coma, etc.)
+    .toLowerCase()
+    .trim()
+}
+
+// Mapeo normalizado → columna de BD
+// Cada clave es la forma normalizada del encabezado en el Excel.
+// Se incluyen variantes con/sin artículo, singular/plural, abreviaturas.
 const HEADER_MAP: Record<string, string> = {
-  'Código':               'codigo',
-  'Descripción Artículo': 'descripcion',
-  'Área':                 'area',
-  'Categoria':            'categoria',
-  'Saldo Existencias':    'saldo_existencias',
-  'Costo Unitario':       'costo_unitario',
-  'Locación':             'locacion',
-  'Código de Origen':     'codigo_origen',
-  'Descripción de Origen':'descripcion_origen',
-  'Marca':                'marca',
-  'OBSERVACIONES':        'observaciones',
+  // Código
+  'codigo':                    'codigo',
+  'cod':                       'codigo',
+  // Descripción Artículo
+  'descripcion articulo':      'descripcion',
+  'descripcion del articulo':  'descripcion',
+  'descripcion':               'descripcion',
+  'articulo':                  'descripcion',
+  // Área
+  'area':                      'area',
+  // Categoría
+  'categoria':                 'categoria',
+  'categorias':                'categoria',
+  // Saldo Existencias
+  'saldo existencias':         'saldo_existencias',
+  'saldo de existencias':      'saldo_existencias',
+  'saldo':                     'saldo_existencias',
+  'existencias':               'saldo_existencias',
+  'stock':                     'saldo_existencias',
+  // Costo Unitario
+  'costo unitario':            'costo_unitario',
+  'costo':                     'costo_unitario',
+  'precio unitario':           'costo_unitario',
+  'precio':                    'costo_unitario',
+  // Locación
+  'locacion':                  'locacion',
+  'ubicacion':                 'locacion',
+  // Código de Origen
+  'codigo de origen':          'codigo_origen',
+  'cod de origen':             'codigo_origen',
+  'codigo origen':             'codigo_origen',
+  'cod origen':                'codigo_origen',
+  // Descripción de Origen
+  'descripcion de origen':     'descripcion_origen',
+  'desc de origen':            'descripcion_origen',
+  'descripcion origen':        'descripcion_origen',
+  // Marca
+  'marca':                     'marca',
+  // Observaciones
+  'observaciones':             'observaciones',
+  'obs':                       'observaciones',
+  'notas':                     'observaciones',
 }
 
 export async function POST(req: NextRequest) {
@@ -55,10 +101,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No se encontró la fila de encabezados (fila 8)' }, { status: 400 })
     }
 
-    // Mapear índice de columna → campo de BD
+    // Mapear índice de columna → campo de BD (comparación normalizada)
     const colMap: Record<number, string> = {}
     headerRow.forEach((cell, idx) => {
-      const header = String(cell ?? '').trim()
+      const header = norm(String(cell ?? ''))
       if (HEADER_MAP[header]) colMap[idx] = HEADER_MAP[header]
     })
 
