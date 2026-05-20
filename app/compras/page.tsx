@@ -54,6 +54,14 @@ export default function ComprasPage() {
   const [area, setArea]         = useState('todas')
   const [esSolicitante, setEsSolicitante] = useState(false)
   const [puedeCrearNP, setPuedeCrearNP]   = useState(false)
+  const [areas, setAreas]                 = useState<string[]>([])
+
+  useEffect(() => {
+    fetch('/api/compras/areas')
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setAreas(data) })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient()
@@ -132,7 +140,7 @@ export default function ComprasPage() {
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm"
               >
                 <option value="todas">Todas las áreas</option>
-                {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
+                {areas.map(a => <option key={a} value={a}>{a}</option>)}
               </select>
               <Button onClick={cargar} className="h-9 btn-primary">
                 Buscar

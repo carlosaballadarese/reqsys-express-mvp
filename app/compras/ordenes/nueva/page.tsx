@@ -178,6 +178,14 @@ export default function NuevaOCPage() {
   const [error, setError]             = useState('')
   const [proveedorId, setProveedorId] = useState<string | null>(null)
   const [proximaOC, setProximaOC]     = useState('Cargando...')
+  const [areas, setAreas]             = useState<string[]>([])
+
+  useEffect(() => {
+    fetch('/api/compras/areas')
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setAreas(data) })
+      .catch(() => {})
+  }, [])
 
   const [form, setForm] = useState({
     proveedor:         '',
@@ -381,7 +389,7 @@ export default function NuevaOCPage() {
                 <Label className="text-xs">Área</Label>
                 <select value={form.area} onChange={e => setField('area', e.target.value)} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
                   <option value="">Selecciona...</option>
-                  {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
+                  {areas.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
               </div>
               <div>

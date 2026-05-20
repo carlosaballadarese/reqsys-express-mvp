@@ -21,6 +21,7 @@ export default function EditarItemPage() {
   const [guardando, setGuardando] = useState(false)
   const [error, setError]         = useState('')
   const [msg, setMsg]             = useState('')
+  const [areas, setAreas]         = useState<string[]>([])
   const [form, setForm] = useState({
     codigo:             '',
     descripcion:        '',
@@ -34,6 +35,13 @@ export default function EditarItemPage() {
     marca:              '',
     observaciones:      '',
   })
+
+  useEffect(() => {
+    fetch('/api/compras/areas')
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setAreas(data) })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     fetch(`/api/compras/inventario/${id}`)
@@ -139,7 +147,7 @@ export default function EditarItemPage() {
                 <Label className="text-xs">Área</Label>
                 <select value={form.area} onChange={e => setField('area', e.target.value)} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
                   <option value="">Sin área</option>
-                  {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
+                  {areas.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
               </div>
               <div>

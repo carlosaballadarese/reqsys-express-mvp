@@ -172,6 +172,16 @@ export default function NuevaNotaPedido() {
   const [estado, setEstado] = useState<EstadoEnvio>('idle')
   const [numeroNP, setNumeroNP] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
+  const [areas, setAreas] = useState<string[]>([])
+
+  useEffect(() => {
+    fetch('/api/compras/areas')
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setAreas(data)
+      })
+      .catch(() => {})
+  }, [])
 
   const {
     register,
@@ -288,7 +298,7 @@ export default function NuevaNotaPedido() {
                   className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <option value="">Selecciona un área...</option>
-                  {AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
+                  {areas.map((a) => <option key={a} value={a}>{a}</option>)}
                 </select>
                 {errors.area && <p className="text-red-500 text-xs mt-1">{errors.area.message}</p>}
               </div>

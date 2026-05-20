@@ -51,6 +51,14 @@ export default function OrdenesPage() {
   const [q, setQ]               = useState('')
   const [estado, setEstado]     = useState('todos')
   const [area, setArea]         = useState('todas')
+  const [areas, setAreas]       = useState<string[]>([])
+
+  useEffect(() => {
+    fetch('/api/compras/areas')
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setAreas(data) })
+      .catch(() => {})
+  }, [])
 
   const cargar = useCallback(() => {
     setCargando(true)
@@ -112,7 +120,7 @@ export default function OrdenesPage() {
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm"
               >
                 <option value="todas">Todas las áreas</option>
-                {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
+                {areas.map(a => <option key={a} value={a}>{a}</option>)}
               </select>
               <Button onClick={cargar} className="h-9 btn-primary">Buscar</Button>
             </div>
