@@ -82,9 +82,23 @@ export async function POST(
               <p style="margin:0;color:#78350f">${escapeHtml(motivo_devolucion)}</p>
             </div>
             <p>Haz clic en el botón para revisar y corregir tu solicitud:</p>
-            <a href="${urlEditar}" style="display:block;background:#1e40af;color:white;padding:14px;text-align:center;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px;margin-top:16px">
-              ✏ Corregir Nota de Pedido
-            </a>
+            
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="width:100%;margin-top:16px">
+              <tr>
+                <td align="center">
+                  <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                    <tr>
+                      <td style="border-radius:6px" bgcolor="#1e40af">
+                        <a href="${urlEditar}" style="display:inline-block;padding:14px 24px;font-family:sans-serif;font-size:16px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:6px">
+                          Corregir Nota de Pedido
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+
             <p style="margin-top:16px;font-size:13px;color:#64748b">Una vez corregida, el coordinador de tu área recibirá nuevamente la solicitud para aprobación.</p>
           </div>
           <div style="padding:16px;text-align:center;color:#94a3b8;font-size:12px">

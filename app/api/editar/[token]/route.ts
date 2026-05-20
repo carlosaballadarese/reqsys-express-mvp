@@ -192,14 +192,28 @@ export async function POST(
                 </tr>
               </tfoot>
             </table>
-            <div style="display:flex;gap:12px;margin-top:24px">
-              <a href="${urlAprobar}" style="flex:1;display:block;background:#16a34a;color:white;padding:14px;text-align:center;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">
-                ✓ Aprobar NP
-              </a>
-              <a href="${urlRechazar}" style="flex:1;display:block;background:#dc2626;color:white;padding:14px;text-align:center;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">
-                ✗ Rechazar NP
-              </a>
-            </div>
+
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="width:100%;margin-top:24px">
+              <tr>
+                <td align="center">
+                  <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                    <tr>
+                      <td style="border-radius:6px" bgcolor="#16a34a">
+                        <a href="${urlAprobar}" style="display:inline-block;padding:14px 24px;font-family:sans-serif;font-size:16px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:6px">
+                          Aprobar Nota de Pedido
+                        </a>
+                      </td>
+                      <td style="width:20px"></td>
+                      <td style="border-radius:6px" bgcolor="#dc2626">
+                        <a href="${urlRechazar}" style="display:inline-block;padding:14px 24px;font-family:sans-serif;font-size:16px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:6px">
+                          Rechazar Nota de Pedido
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
           </div>
           <div style="padding:16px;text-align:center;color:#94a3b8;font-size:12px">
             REQSYS — ARLIFT S.A. · Sistema de Gestión de Requerimientos
