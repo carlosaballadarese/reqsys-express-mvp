@@ -50,10 +50,18 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     fetch('/api/auth/perfil')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data && !data.error) setPerfil(data) })
+      .then(async r => {
+        if (r.status === 401) {
+          router.push('/login')
+          return null
+        }
+        return r.ok ? r.json() : null
+      })
+      .then(data => { 
+        if (data && !data.error) setPerfil(data) 
+      })
       .catch(() => {})
-  }, [])
+  }, [router])
 
   async function handleLogout() {
     const supabase = createSupabaseBrowserClient()
