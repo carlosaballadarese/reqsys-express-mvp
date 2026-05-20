@@ -66,82 +66,30 @@ export async function POST(
         await transporter.sendMail({
           from: 'REQSYS <reqsys.cabe@gmail.com>',
           to: compras.email,
-          subject: `[REQSYS] NP Aprobada — ${np.numero} · ${np.area}`,
+          subject: `[REQSYS] NP Aprobada — ${np.numero}`,
           html: `
-            <div style="font-family:sans-serif;max-width:640px;margin:0 auto">
-              <div style="background:#1e40af;padding:24px;border-radius:8px 8px 0 0">
-                <h1 style="color:white;margin:0;font-size:20px">Nueva NP para gestión de compras</h1>
-                <p style="color:#bfdbfe;margin:4px 0 0">${np.numero} — Aprobada</p>
+            <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#334155">
+              <h2 style="color:#1e40af">Nueva NP Aprobada</h2>
+              <p>La Nota de Pedido <strong>${np.numero}</strong> ha sido aprobada y requiere su gestión de compras.</p>
+              
+              <div style="background:#f1f5f9;padding:15px;border-radius:6px;margin:20px 0">
+                <p style="margin:5px 0"><strong>Área:</strong> ${np.area}</p>
+                <p style="margin:5px 0"><strong>Solicitante:</strong> ${np.solicitante_nombre}</p>
+                <p style="margin:5px 0"><strong>Total Est.:</strong> $${Number(np.total_estimado).toFixed(2)}</p>
               </div>
-              <div style="background:#f8fafc;padding:24px;border:1px solid #e2e8f0">
-                <p>Hola <strong>${compras.nombre}</strong>,</p>
-                <p>La Nota de Pedido <strong>${np.numero}</strong> fue aprobada y requiere tu gestión.</p>
 
-                <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
-                  <tr><td style="padding:6px 0;color:#64748b;width:160px">Área solicitante</td><td style="font-weight:600">${np.area}</td></tr>
-                  <tr><td style="padding:6px 0;color:#64748b">Prioridad</td><td style="text-transform:capitalize">${np.prioridad}</td></tr>
-                  <tr><td style="padding:6px 0;color:#64748b">Tipo de Compra</td><td style="text-transform:capitalize">${np.tipo_compra}</td></tr>
-                  <tr><td style="padding:6px 0;color:#64748b">Centro de Costo</td><td style="text-transform:capitalize">${np.centro_costo}</td></tr>
-                  <tr><td style="padding:6px 0;color:#64748b">Total Estimado</td><td style="font-weight:700;color:#1e40af">$${Number(np.total_estimado).toFixed(2)}</td></tr>
-                </table>
+              <p>Por favor, ingrese al sistema para procesar este requerimiento:</p>
+              
+              <p style="text-align:center;margin:30px 0">
+                <a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/compras/${np.id}" style="background:#1e40af;color:white;padding:12px 25px;text-decoration:none;border-radius:4px;font-weight:bold">
+                  Gestionar Requerimiento
+                </a>
+              </p>
 
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
-                  <div style="background:white;padding:14px;border-radius:6px;border:1px solid #e2e8f0">
-                    <p style="margin:0 0 6px;color:#64748b;font-size:12px;text-transform:uppercase">Solicitado por</p>
-                    <p style="margin:0;font-weight:600">${np.solicitante_nombre}</p>
-                    <p style="margin:2px 0 0;color:#64748b;font-size:13px">${np.solicitante_email}</p>
-                  </div>
-                  <div style="background:white;padding:14px;border-radius:6px;border:1px solid #e2e8f0">
-                    <p style="margin:0 0 6px;color:#64748b;font-size:12px;text-transform:uppercase">Aprobado por</p>
-                    <p style="margin:0;font-weight:600">${aprobador?.nombre ?? 'Coordinador'}</p>
-                    <p style="margin:2px 0 0;color:#64748b;font-size:13px">${aprobador?.email ?? ''}</p>
-                  </div>
-                </div>
-
-                <div style="background:white;padding:16px;border-radius:6px;border:1px solid #e2e8f0;margin-bottom:20px">
-                  <p style="margin:0 0 8px;color:#64748b;font-size:13px">DESCRIPCIÓN GENERAL</p>
-                  <p style="margin:0">${np.descripcion_general}</p>
-                </div>
-
-                <table style="width:100%;border-collapse:collapse;background:white;border-radius:6px;overflow:hidden;border:1px solid #e2e8f0">
-                  <thead>
-                    <tr style="background:#f1f5f9">
-                      <th style="padding:10px 12px;text-align:left;font-size:13px;color:#64748b">#</th>
-                      <th style="padding:10px 12px;text-align:left;font-size:13px;color:#64748b">Código</th>
-                      <th style="padding:10px 12px;text-align:left;font-size:13px;color:#64748b">Descripción</th>
-                      <th style="padding:10px 12px;text-align:center;font-size:13px;color:#64748b">Cantidad</th>
-                      <th style="padding:10px 12px;text-align:right;font-size:13px;color:#64748b">P. Unit.</th>
-                      <th style="padding:10px 12px;text-align:right;font-size:13px;color:#64748b">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>${tablaItems}</tbody>
-                  <tfoot>
-                    <tr style="background:#f8fafc">
-                      <td colspan="5" style="padding:10px 12px;text-align:right;font-weight:600">Total Estimado</td>
-                      <td style="padding:10px 12px;text-align:right;font-weight:700;color:#1e40af">$${Number(np.total_estimado).toFixed(2)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-
-                <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="width:100%;margin-top:24px">
-                  <tr>
-                    <td align="center">
-                      <table role="presentation" border="0" cellpadding="0" cellspacing="0">
-                        <tr>
-                          <td style="border-radius:6px" bgcolor="#d97706">
-                            <a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/devolver/${np.token_devolucion}" style="display:inline-block;padding:14px 24px;font-family:sans-serif;font-size:16px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:6px">
-                              Devolver al solicitante para corrección
-                            </a>
-                          </td>
-                        </tr>
-                      </table>
-                    </td>
-                  </tr>
-                </table>
-              </div>
-              <div style="padding:16px;text-align:center;color:#94a3b8;font-size:12px">
-                REQSYS — ARLIFT S.A. · Sistema de Gestión de Requerimientos
-              </div>
+              <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0" />
+              <p style="font-size:12px;color:#94a3b8;text-align:center">
+                REQSYS — ARLIFT S.A.
+              </p>
             </div>
           `,
         })
