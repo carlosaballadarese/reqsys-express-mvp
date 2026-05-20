@@ -122,11 +122,22 @@ export async function POST(
                     </tr>
                   </tfoot>
                 </table>
-                <div style="margin-top:24px">
-                  <a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/devolver/${np.token_devolucion}" style="display:block;background:#d97706;color:white;padding:14px;text-align:center;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px">
-                    ↩ Devolver al solicitante para corrección
-                  </a>
-                </div>
+
+                <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="width:100%;margin-top:24px">
+                  <tr>
+                    <td align="center">
+                      <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                        <tr>
+                          <td style="border-radius:6px" bgcolor="#d97706">
+                            <a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/devolver/${np.token_devolucion}" style="display:inline-block;padding:14px 24px;font-family:sans-serif;font-size:16px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:6px">
+                              Devolver al solicitante para corrección
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
               </div>
               <div style="padding:16px;text-align:center;color:#94a3b8;font-size:12px">
                 REQSYS — ARLIFT S.A. · Sistema de Gestión de Requerimientos
