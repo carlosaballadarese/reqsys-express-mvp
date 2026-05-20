@@ -50,9 +50,14 @@ export default function AccesosPage() {
 
   // Edición inline
   const [editandoId, setEditandoId]       = useState<string | null>(null)
-  const [editForm, setEditForm]           = useState({ nombre: '', rol: '', activo: true })
+  const [editForm, setEditForm]           = useState({ nombre: '', email: '', rol: '', activo: true })
   const [guardandoEdit, setGuardandoEdit] = useState(false)
   const [errorEdit, setErrorEdit]         = useState('')
+
+  // Eliminación
+  const [eliminandoId, setEliminandoId]   = useState<string | null>(null)
+  const [confirmarEliminar, setConfirmarEliminar] = useState('')
+  const [guardandoEliminar, setGuardandoEliminar] = useState(false)
 
   // Reset contraseña
   const [resetId, setResetId]             = useState<string | null>(null)
@@ -96,13 +101,14 @@ export default function AccesosPage() {
 
   function iniciarEdicion(u: Usuario) {
     setEditandoId(u.id)
-    setEditForm({ nombre: u.nombre, rol: u.rol, activo: u.activo })
+    setEditForm({ nombre: u.nombre, email: u.email, rol: u.rol, activo: u.activo })
     setErrorEdit('')
     setResetId(null)
+    setEliminandoId(null)
   }
 
   async function handleGuardarEdit() {
-    if (!editForm.nombre) { setErrorEdit('El nombre es requerido'); return }
+    if (!editForm.nombre || !editForm.email) { setErrorEdit('El nombre y email son requeridos'); return }
     setGuardandoEdit(true); setErrorEdit('')
     const res  = await fetch(`/api/admin/usuarios/${editandoId}`, {
       method: 'PUT',
@@ -113,6 +119,23 @@ export default function AccesosPage() {
     if (data.success) { setEditandoId(null); cargar() }
     else setErrorEdit(data.error || 'Error al guardar')
     setGuardandoEdit(false)
+  }
+
+  async function handleEliminar() {
+    if (confirmarEliminar !== 'ELIMINAR') {
+      alert('Por favor escribe ELIMINAR para confirmar'); return
+    }
+    setGuardandoEliminar(true)
+    const res = await fetch(`/api/admin/usuarios/${eliminandoId}`, { method: 'DELETE' })
+    const data = await res.json()
+    if (data.success) {
+      setEliminandoId(null)
+      setConfirmarEliminar('')
+      cargar()
+    } else {
+      alert(data.error || 'Error al eliminar')
+    }
+    setGuardandoEliminar(false)
   }
 
   async function handleResetPassword() {
@@ -215,10 +238,15 @@ export default function AccesosPage() {
                     {editandoId === u.id ? (
                       /* Edición inline */
                       <div className="space-y-3">
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                           <div>
                             <Label className="text-xs">Nombre</Label>
                             <Input value={editForm.nombre} onChange={e => setEditForm(f => ({ ...f, nombre: e.target.value }))}
+                              className="mt-1 h-8 text-sm" />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Email</Label>
+                            <Input type="email" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
                               className="mt-1 h-8 text-sm" />
                           </div>
                           <div>
@@ -237,16 +265,57 @@ export default function AccesosPage() {
                           </div>
                         </div>
                         {errorEdit && <p className="text-red-600 text-xs">{errorEdit}</p>}
-                        <div className="flex gap-2">
-                          <Button onClick={handleGuardarEdit} disabled={guardandoEdit} className="h-7 text-xs btn-primary px-3">
-                            {guardandoEdit ? 'Guardando...' : 'Guardar'}
-                          </Button>
-                          <button onClick={() => setResetId(resetId === u.id ? null : u.id)}
-                            className="text-xs text-orange-600 hover:underline px-2">
-                            Cambiar contraseña
+                        <div className="flex items-center justify-between">
+                          <div className="flex gap-2">
+                            <Button onClick={handleGuardarEdit} disabled={guardandoEdit} className="h-7 text-xs btn-primary px-3">
+                              {guardandoEdit ? 'Guardando...' : 'Guardar'}
+                            </Button>
+                            <button onClick={() => setResetId(resetId === u.id ? null : u.id)}
+                              className="text-xs text-orange-600 hover:underline px-2">
+                              Cambiar contraseña
+                            </button>
+                            <button onClick={() => setEditandoId(null)} className="text-xs text-slate-500 hover:underline px-2">Cancelar</button>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setEliminandoId(u.id)
+                              setConfirmarEliminar('')
+                            }}
+                            className="text-xs text-red-500 hover:text-red-700 font-medium"
+                          >
+                            Eliminar usuario
                           </button>
-                          <button onClick={() => setEditandoId(null)} className="text-xs text-slate-500 hover:underline px-2">Cancelar</button>
                         </div>
+
+                        {/* Confirmación eliminación */}
+                        {eliminandoId === u.id && (
+                          <div className="bg-red-50 border border-red-200 rounded p-3 space-y-2 mt-2">
+                            <p className="text-xs text-red-800 font-bold">⚠️ ¿ELIMINAR ESTE USUARIO?</p>
+                            <p className="text-xs text-red-700">Esta acción no se puede deshacer. Se borrará del sistema y de Supabase Auth.</p>
+                            <div className="flex gap-2">
+                              <Input
+                                value={confirmarEliminar}
+                                onChange={e => setConfirmarEliminar(e.target.value.toUpperCase())}
+                                placeholder="Escribe ELIMINAR para confirmar"
+                                className="h-8 text-xs flex-1 border-red-300"
+                              />
+                              <Button
+                                onClick={handleEliminar}
+                                disabled={guardandoEliminar || confirmarEliminar !== 'ELIMINAR'}
+                                className="h-8 text-xs bg-red-600 hover:bg-red-700 px-3 text-white"
+                              >
+                                {guardandoEliminar ? '...' : 'Confirmar'}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                onClick={() => setEliminandoId(null)}
+                                className="h-8 text-xs"
+                              >
+                                Cancelar
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                         {/* Reset contraseña inline */}
                         {resetId === u.id && (
                           <div className="bg-orange-50 border border-orange-200 rounded p-3 space-y-2">
