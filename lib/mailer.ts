@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer'
 import type { SendMailOptions } from 'nodemailer'
 
+// Configuración de transporte de correo (Gmail por defecto para mayor estabilidad)
 export const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
   port: parseInt(process.env.SMTP_PORT || '587'),
