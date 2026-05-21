@@ -64,7 +64,7 @@ export async function POST(
 
         // Email obligatorio — si falla, no se aprueba
         await transporter.sendMail({
-          from: 'REQSYS <reqsys.cabe@gmail.com>',
+          from: 'One ARLIFT <one.arlift@arlift.com.ec>',
           to: compras.email,
           subject: `[REQSYS] NP Aprobada — ${np.numero}`,
           html: `
@@ -98,7 +98,7 @@ export async function POST(
 
     // Email al solicitante — obligatorio
     await transporter.sendMail({
-      from: 'REQSYS <reqsys.cabe@gmail.com>',
+      from: 'One ARLIFT <one.arlift@arlift.com.ec>',
       to: np.solicitante_email,
       subject: `[REQSYS] Tu NP ${np.numero} fue ${esAprobada ? 'aprobada' : 'rechazada'}`,
       html: `
