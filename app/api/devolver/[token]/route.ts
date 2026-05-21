@@ -65,7 +65,7 @@ export async function POST(
     const urlEditar = `${baseUrl}/editar/${np.token_edicion}`
 
     await transporter.sendMail({
-      from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+      from: 'REQSYS <reqsys.cabe@gmail.com>',
       to: np.solicitante_email,
       subject: `[REQSYS] Tu NP ${np.numero} requiere correcciones`,
       html: `

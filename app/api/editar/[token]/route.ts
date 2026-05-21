@@ -151,7 +151,7 @@ export async function POST(
 
     // Notificar al coordinador del área para nueva aprobación
     await transporter.sendMail({
-      from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+      from: 'REQSYS <reqsys.cabe@gmail.com>',
       to: coordinador.email,
       subject: `[REQSYS] NP Corregida ${np.numero} — ${encabezado.area}`,
       html: `

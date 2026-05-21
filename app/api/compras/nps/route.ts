@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
     // 6. Enviar email al coordinador (no bloquea si falla)
     try {
       await transporter.sendMail({
-        from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+        from: 'REQSYS <reqsys.cabe@gmail.com>',
         to: coordinador.email,
         subject: `[REQSYS] Nueva Nota de Pedido ${numero} — ${encabezado.area}`,
         html: `
