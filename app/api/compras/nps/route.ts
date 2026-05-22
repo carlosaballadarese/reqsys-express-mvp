@@ -105,7 +105,8 @@ export async function POST(req: NextRequest) {
 
     // 6. Enviar email al coordinador (no bloquea si falla)
     try {
-      await transporter.sendMail({
+      console.log(`Intentando enviar email a: ${coordinador.email} desde: one.arlift@arlift.com.ec`)
+      const info = await transporter.sendMail({
         from: 'One ARLIFT <one.arlift@arlift.com.ec>',
         to: coordinador.email,
         subject: `[REQSYS] Nueva Nota de Pedido ${numero} — ${encabezado.area}`,
@@ -136,8 +137,9 @@ export async function POST(req: NextRequest) {
         </div>
       `,
       })
+      console.log('✅ Email enviado exitosamente:', info.messageId)
     } catch (emailErr) {
-      console.error('Error al enviar email de NP:', emailErr)
+      console.error('❌ ERROR CRÍTICO SMTP:', emailErr)
     }
 
     await adminClient().from('historial_np').insert({
