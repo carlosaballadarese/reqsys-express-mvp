@@ -76,7 +76,7 @@ export async function PATCH(
         ).join('')
 
         await transporter.sendMail({
-          from: 'REQSYS <reqsys.cabe@gmail.com>',
+          from: 'One ARLIFT <one.arlift@arlift.com.ec>',
           to: compras.email,
           subject: `[REQSYS] NP Aprobada — ${np.numero}`,
           html: `<p>Hola <strong>${compras.nombre}</strong>,</p><p>La NP ${np.numero} fue aprobada y requiere gestión.</p><table>${tablaItems}</table><p><a href="${process.env.NEXT_PUBLIC_APP_URL}/compras/${id}">Ver detalle en el sistema</a></p>`
@@ -89,7 +89,7 @@ export async function PATCH(
     if (accion === 'devolver') subject = `[REQSYS] Tu NP ${np.numero} requiere correcciones`
 
     await transporter.sendMail({
-      from: 'REQSYS <reqsys.cabe@gmail.com>',
+      from: 'One ARLIFT <one.arlift@arlift.com.ec>',
       to: np.solicitante_email,
       subject,
       html: `
