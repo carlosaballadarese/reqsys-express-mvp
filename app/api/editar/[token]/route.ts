@@ -155,69 +155,48 @@ export async function POST(
       to: coordinador.email,
       subject: `[REQSYS] NP Corregida ${np.numero} — ${encabezado.area}`,
       html: `
-        <div style="font-family:sans-serif;max-width:640px;margin:0 auto">
-          <div style="background:#1e40af;padding:24px;border-radius:8px 8px 0 0">
-            <h1 style="color:white;margin:0;font-size:20px">Nota de Pedido Corregida</h1>
-            <p style="color:#bfdbfe;margin:4px 0 0">${np.numero} — requiere tu aprobación nuevamente</p>
+        <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#334155">
+          <h2 style="color:#1e40af">Nota de Pedido Corregida</h2>
+          <p>El solicitante ha realizado las correcciones en la NP <strong>${np.numero}</strong> y requiere su aprobación:</p>
+          
+          <div style="background:#f1f5f9;padding:15px;border-radius:6px;margin:20px 0">
+            <p style="margin:5px 0"><strong>Número:</strong> ${np.numero}</p>
+            <p style="margin:5px 0"><strong>Solicitante:</strong> ${encabezado.solicitante_nombre}</p>
+            <p style="margin:5px 0"><strong>Área:</strong> ${encabezado.area}</p>
           </div>
-          <div style="background:#f8fafc;padding:24px;border:1px solid #e2e8f0">
-            <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
-              <tr><td style="padding:6px 0;color:#64748b;width:160px">Solicitante</td><td style="font-weight:600">${encabezado.solicitante_nombre}</td></tr>
-              <tr><td style="padding:6px 0;color:#64748b">Email</td><td>${encabezado.solicitante_email}</td></tr>
-              <tr><td style="padding:6px 0;color:#64748b">Área</td><td>${encabezado.area}</td></tr>
-              <tr><td style="padding:6px 0;color:#64748b">Prioridad</td><td style="text-transform:capitalize">${encabezado.prioridad}</td></tr>
-              <tr><td style="padding:6px 0;color:#64748b">Tipo de Compra</td><td style="text-transform:capitalize">${encabezado.tipo_compra}</td></tr>
-              <tr><td style="padding:6px 0;color:#64748b">Centro de Costo</td><td style="text-transform:capitalize">${encabezado.centro_costo}</td></tr>
-            </table>
-            <div style="background:white;padding:16px;border-radius:6px;border:1px solid #e2e8f0;margin-bottom:20px">
-              <p style="margin:0 0 8px;color:#64748b;font-size:13px">DESCRIPCIÓN GENERAL</p>
-              <p style="margin:0">${encabezado.descripcion_general}</p>
-            </div>
-            <table style="width:100%;border-collapse:collapse;background:white;border-radius:6px;overflow:hidden;border:1px solid #e2e8f0;margin-bottom:20px">
-              <thead>
-                <tr style="background:#f1f5f9">
-                  <th style="padding:10px 12px;text-align:left;font-size:13px;color:#64748b">#</th>
-                  <th style="padding:10px 12px;text-align:left;font-size:13px;color:#64748b">Código</th>
-                  <th style="padding:10px 12px;text-align:left;font-size:13px;color:#64748b">Descripción</th>
-                  <th style="padding:10px 12px;text-align:center;font-size:13px;color:#64748b">Cantidad</th>
-                  <th style="padding:10px 12px;text-align:right;font-size:13px;color:#64748b">P. Unit.</th>
-                  <th style="padding:10px 12px;text-align:right;font-size:13px;color:#64748b">Total</th>
-                </tr>
-              </thead>
-              <tbody>${tablaItems}</tbody>
-              <tfoot>
-                <tr style="background:#f8fafc">
-                  <td colspan="5" style="padding:10px 12px;text-align:right;font-weight:600">Total Estimado</td>
-                  <td style="padding:10px 12px;text-align:right;font-weight:700;color:#1e40af">$${totalEstimado.toFixed(2)}</td>
-                </tr>
-              </tfoot>
-            </table>
 
-            <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="width:100%;margin-top:24px">
-              <tr>
-                <td align="center">
-                  <table role="presentation" border="0" cellpadding="0" cellspacing="0">
-                    <tr>
-                      <td style="border-radius:6px" bgcolor="#16a34a">
-                        <a href="${urlAprobar}" style="display:inline-block;padding:14px 24px;font-family:sans-serif;font-size:16px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:6px">
-                          Aprobar Nota de Pedido
-                        </a>
-                      </td>
-                      <td style="width:20px"></td>
-                      <td style="border-radius:6px" bgcolor="#dc2626">
-                        <a href="${urlRechazar}" style="display:inline-block;padding:14px 24px;font-family:sans-serif;font-size:16px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:6px">
-                          Rechazar Nota de Pedido
-                        </a>
-                      </td>
-                    </tr>
-                  </table>
-                </td>
-              </tr>
-            </table>
-          </div>
-          <div style="padding:16px;text-align:center;color:#94a3b8;font-size:12px">
-            REQSYS — ARLIFT S.A. · Sistema de Gestión de Requerimientos
-          </div>
+          <p>Puede gestionar esta solicitud directamente con un solo clic:</p>
+          
+          <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="width:100%;margin:24px 0">
+            <tr>
+              <td align="center">
+                <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="border-radius:6px" bgcolor="#16a34a">
+                      <a href="${urlAprobar}" style="display:inline-block;padding:14px 24px;font-family:sans-serif;font-size:16px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:6px">
+                        Aprobar Nota de Pedido
+                      </a>
+                    </td>
+                    <td style="width:20px"></td>
+                    <td style="border-radius:6px" bgcolor="#dc2626">
+                      <a href="${urlRechazar}" style="display:inline-block;padding:14px 24px;font-family:sans-serif;font-size:16px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:6px">
+                        Rechazar Nota de Pedido
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+
+          <p style="text-align:center;margin:30px 0;font-size:14px">
+            O si lo prefiere, <a href="${baseUrl}/compras/${np.id}" style="color:#1e40af;text-decoration:underline">ver detalle completo en el sistema</a>.
+          </p>
+
+          <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0" />
+          <p style="font-size:12px;color:#94a3b8;text-align:center">
+            REQSYS — ARLIFT S.A.
+          </p>
         </div>
       `,
     })
