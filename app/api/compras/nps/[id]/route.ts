@@ -38,14 +38,39 @@ export async function PATCH(
       return NextResponse.json({ error: 'Acción inválida' }, { status: 400 })
     }
 
-    // 1. Verificar permisos (Admin, Gerencia o Compras para devolver)
+    // 1. Verificar permisos
     const supabase = await createSupabaseServerClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
     const { data: perfil } = await adminClient().from('perfiles').select('rol, nombre, email').eq('id', user.id).single()
-    const puedeGestionar = perfil && ['admin', 'gerencia', 'compras'].includes(perfil.rol)
-    if (!puedeGestionar) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+    if (!perfil) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+
+    const esRolPrivilegiado = ['admin', 'compras'].includes(perfil.rol)
+
+    // Los coordinadores de área pueden aprobar/rechazar NPs de su área aunque no tengan rol privilegiado
+    let esCoordinadorDelArea = false
+    if (!esRolPrivilegiado && (accion === 'aprobar' || accion === 'rechazar')) {
+      const { data: npPrevia } = await adminClient().from('notas_pedido').select('area').eq('id', id).single()
+      if (npPrevia) {
+        const { data: coord } = await adminClient()
+          .from('coordinadores_area')
+          .select('email')
+          .eq('area', npPrevia.area)
+          .eq('email', perfil.email)
+          .single()
+        esCoordinadorDelArea = !!coord
+      }
+    }
+
+    if (!esRolPrivilegiado && !esCoordinadorDelArea) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+    }
+
+    // Solo compras/admin pueden devolver
+    if (accion === 'devolver' && !esRolPrivilegiado) {
+      return NextResponse.json({ error: 'Solo Compras puede devolver una NP' }, { status: 403 })
+    }
 
     // 2. Buscar NP
     const { data: np, error: errorNP } = await adminClient().from('notas_pedido').select('*').eq('id', id).single()
@@ -62,7 +87,7 @@ export async function PATCH(
     const nuevoEstado = accion === 'aprobar' ? 'aprobada' : (accion === 'rechazar' ? 'rechazada' : 'devuelta')
     const esAprobada = accion === 'aprobar'
 
-    // 3. Notificaciones por Email (No bloquean si fallan)
+    // 3. Notificaciones por Email — texto plano sin URLs para evitar filtros antivirus
     try {
       if (esAprobada) {
         const { data: compras } = await anonClient().from('coordinadores_area').select('nombre, email').eq('area', 'Compras').single()
@@ -70,31 +95,39 @@ export async function PATCH(
           await transporter.sendMail({
             from: 'One ARLIFT <one.arlift@arlift.com.ec>',
             to: compras.email,
-            subject: `[REQSYS] NP Aprobada — ${np.numero}`,
-            text: `La NP ${np.numero} fue aprobada y requiere gestión de compras.\n\nVer en el sistema: ${process.env.NEXT_PUBLIC_APP_URL}/compras/nps/${id}\n\nREQSYS — ARLIFT S.A.`,
-            html: `<p>La NP ${np.numero} fue aprobada y requiere gestión de compras.</p><p><a href="${process.env.NEXT_PUBLIC_APP_URL}/compras/nps/${id}">VER EN EL SISTEMA</a></p><p>REQSYS — ARLIFT S.A.</p>`
+            subject: `REQSYS NP Aprobada ${np.numero} - ${np.area}`,
+            text: [
+              `Estimado/a ${compras.nombre},`,
+              '',
+              `La Nota de Pedido ${np.numero} del area ${np.area} fue aprobada y requiere su gestion.`,
+              `Total estimado: $${Number(np.total_estimado).toFixed(2)}`,
+              '',
+              `Ingrese al sistema REQSYS para gestionarla.`,
+              '',
+              'REQSYS - ARLIFT S.A.',
+            ].join('\n'),
           })
         }
       }
 
-      let subject = `[REQSYS] Tu NP ${np.numero} fue ${nuevoEstado}`
-      if (accion === 'devolver') subject = `[REQSYS] Tu NP ${np.numero} requiere correcciones`
-
+      const estadoTexto = accion === 'devolver' ? 'devuelta para correcciones' : nuevoEstado
       await transporter.sendMail({
         from: 'One ARLIFT <one.arlift@arlift.com.ec>',
         to: np.solicitante_email,
-        subject,
-        text: `Hola ${np.solicitante_nombre},\n\nTu NP ${np.numero} ha pasado a estado ${nuevoEstado}.\n\n${motivo ? `Notas: ${motivo}` : ''}\n\nVer mi Nota de Pedido: ${process.env.NEXT_PUBLIC_APP_URL}/compras/nps/${id}\n\nREQSYS — ARLIFT S.A.`,
-        html: `
-          <p>Hola <strong>${np.solicitante_nombre}</strong>,</p>
-          <p>Tu NP <strong>${np.numero}</strong> ha pasado a estado <strong>${nuevoEstado}</strong>.</p>
-          ${motivo ? `<p><strong>Notas:</strong> ${escapeHtml(motivo)}</p>` : ''}
-          <p><a href="${process.env.NEXT_PUBLIC_APP_URL}/compras/nps/${id}">VER MI NOTA DE PEDIDO</a></p>
-          <p>REQSYS — ARLIFT S.A.</p>
-        `
+        subject: `REQSYS NP ${np.numero} ${estadoTexto}`,
+        text: [
+          `Estimado/a ${np.solicitante_nombre},`,
+          '',
+          `La Nota de Pedido ${np.numero} ha sido ${estadoTexto}.`,
+          ...(motivo ? ['', `Notas: ${motivo}`] : []),
+          '',
+          `Ingrese al sistema REQSYS para ver el detalle.`,
+          '',
+          'REQSYS - ARLIFT S.A.',
+        ].join('\n'),
       })
     } catch (emailErr) {
-      console.error('❌ ERROR SMTP (Ignorado para continuar):', emailErr)
+      console.error('ERROR SMTP (ignorado):', emailErr)
     }
 
     // 4. Actualizar base de datos

@@ -565,9 +565,20 @@ export default function DetalleNPPage() {
   const [error, setError]         = useState('')
   const [ultimaOC, setUltimaOC]  = useState('')
   const [rol, setRol]             = useState('')
+  const [_emailUsuario, setEmailUsuario] = useState('')
+
+  // Acciones de aprobación
+  const [accionando, setAccionando]   = useState(false)
+  const [motivoRechazo, setMotivoRechazo] = useState('')
+  const [motivoDevolucion, setMotivoDevolucion] = useState('')
+  const [msgAccion, setMsgAccion]     = useState('')
+  const [errAccion, setErrAccion]     = useState('')
 
   useEffect(() => {
-    fetch('/api/auth/perfil').then(r => r.json()).then(p => { if (p.rol) setRol(p.rol) })
+    fetch('/api/auth/perfil').then(r => r.json()).then(p => {
+      if (p.rol)   setRol(p.rol)
+      if (p.email) setEmailUsuario(p.email)
+    })
   }, [])
 
   function cargar() {
@@ -585,6 +596,31 @@ export default function DetalleNPPage() {
   }
 
   useEffect(() => { cargar() }, [id])
+
+  async function ejecutarAccion(accion: 'aprobar' | 'rechazar' | 'devolver') {
+    if (accion === 'rechazar' && !motivoRechazo.trim()) { setErrAccion('El motivo de rechazo es requerido'); return }
+    if (accion === 'devolver' && !motivoDevolucion.trim()) { setErrAccion('El motivo de devolución es requerido'); return }
+    setAccionando(true); setErrAccion(''); setMsgAccion('')
+    try {
+      const res = await fetch(`/api/compras/nps/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accion,
+          motivo: accion === 'rechazar' ? motivoRechazo : accion === 'devolver' ? motivoDevolucion : undefined,
+        }),
+      })
+      const data = await res.json()
+      if (data.success) { setMsgAccion('Acción ejecutada correctamente'); cargar() }
+      else setErrAccion(data.error || 'Error al ejecutar la acción')
+    } catch { setErrAccion('Error de conexión') }
+    finally { setAccionando(false) }
+  }
+
+  // Mostrar botones de aprobación a cualquier rol que no sea solicitante/bodega
+  // El backend valida la autorización real (coordinador del área, compras, admin)
+  const mostrarAprobacion = np?.estado === 'pendiente' && !['solicitante', 'bodega', 'gerencia', 'consulta'].includes(rol)
+  const mostrarDevolucion = np?.estado === 'aprobada' && ['compras', 'admin'].includes(rol)
 
   if (cargando) return <div className="min-h-screen flex items-center justify-center text-slate-400">Cargando...</div>
   if (error || !np) return (
@@ -731,6 +767,61 @@ export default function DetalleNPPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Sección aprobación/rechazo — para coordinadores y roles con acceso */}
+        {mostrarAprobacion && (
+          <Card className="border-amber-200">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base text-amber-800">Gestionar Nota de Pedido</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label className="text-xs">Motivo de rechazo (requerido si rechaza)</Label>
+                <Textarea
+                  value={motivoRechazo}
+                  onChange={e => setMotivoRechazo(e.target.value)}
+                  placeholder="Indique el motivo de rechazo..."
+                  className="mt-1 text-sm min-h-[70px]"
+                />
+              </div>
+              {errAccion && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2">{errAccion}</p>}
+              {msgAccion && <p className="text-green-600 text-xs bg-green-50 border border-green-200 rounded px-3 py-2">{msgAccion}</p>}
+              <div className="flex gap-3">
+                <Button onClick={() => ejecutarAccion('aprobar')} disabled={accionando} className="flex-1 bg-green-600 hover:bg-green-700 text-white">
+                  {accionando ? 'Procesando...' : '✓ Aprobar NP'}
+                </Button>
+                <Button onClick={() => ejecutarAccion('rechazar')} disabled={accionando} variant="destructive" className="flex-1">
+                  {accionando ? 'Procesando...' : '✗ Rechazar NP'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Sección devolución — solo Compras/Admin sobre NPs aprobadas */}
+        {mostrarDevolucion && (
+          <Card className="border-amber-200">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base text-amber-800">Devolver al Solicitante</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label className="text-xs">Motivo de devolución *</Label>
+                <Textarea
+                  value={motivoDevolucion}
+                  onChange={e => setMotivoDevolucion(e.target.value)}
+                  placeholder="Indique qué debe corregir el solicitante..."
+                  className="mt-1 text-sm min-h-[70px]"
+                />
+              </div>
+              {errAccion && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2">{errAccion}</p>}
+              {msgAccion && <p className="text-green-600 text-xs bg-green-50 border border-green-200 rounded px-3 py-2">{msgAccion}</p>}
+              <Button onClick={() => ejecutarAccion('devolver')} disabled={accionando} className="w-full bg-amber-600 hover:bg-amber-700 text-white">
+                {accionando ? 'Procesando...' : '↩ Devolver para corrección'}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Formulario conversión — solo compras y admin */}
         {np.estado === 'aprobada' && !np.convertida && ['compras', 'admin'].includes(rol) && (

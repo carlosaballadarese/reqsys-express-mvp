@@ -86,10 +86,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Error al guardar los ítems' }, { status: 500 })
     }
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-    const urlAprobar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=aprobar`
-    const urlRechazar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=rechazar`
-
     // 5. Enviar email al coordinador
     const tablaItemsHtml = items.map((item: {
       codigo: string; descripcion: string; cantidad: number; unidad: string; precio_unitario: number
@@ -108,7 +104,7 @@ export async function POST(req: NextRequest) {
         from: 'One ARLIFT <one.arlift@arlift.com.ec>',
         to: coordinador.email,
         subject: `REQSYS Nueva NP ${numero} - ${encabezado.area}`,
-        text: `Nueva NP ${numero}\nSolicitante: ${encabezado.solicitante_nombre}\nArea: ${encabezado.area}\nTotal: $${totalEstimado.toFixed(2)}\n\nAPROBAR: ${urlAprobar}\nRECHAZAR: ${urlRechazar}`,
+        text: `Nueva NP ${numero}\nSolicitante: ${encabezado.solicitante_nombre}\nArea: ${encabezado.area}\nTotal: $${totalEstimado.toFixed(2)}\n\nIngrese al sistema REQSYS para gestionar esta solicitud:\n${process.env.NEXT_PUBLIC_APP_URL || 'https://reqsys-express.vercel.app'}/compras`,
         html: `
           <div style="font-family:sans-serif;max-width:640px;margin:0 auto;color:#1e293b">
             <div style="background:#1e40af;padding:20px 24px;border-radius:6px 6px 0 0">
@@ -147,9 +143,7 @@ export async function POST(req: NextRequest) {
                   </tr>
                 </tfoot>
               </table>
-              <p style="margin:0 0 6px;font-weight:600">Para gestionar esta solicitud:</p>
-              <p style="margin:0 0 4px">Aprobar: ${urlAprobar}</p>
-              <p style="margin:0">Rechazar: ${urlRechazar}</p>
+              <p style="margin:0"><a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://reqsys-express.vercel.app'}/compras" style="color:#1e40af">Ingrese al sistema REQSYS para gestionar esta solicitud</a></p>
             </div>
             <div style="padding:12px;text-align:center;color:#94a3b8;font-size:11px">
               REQSYS - ARLIFT S.A. Sistema de Gestion de Requerimientos
