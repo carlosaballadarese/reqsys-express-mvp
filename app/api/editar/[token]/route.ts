@@ -150,66 +150,33 @@ export async function POST(
     const urlRechazar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=rechazar`
 
     // Notificar al coordinador del área para nueva aprobación
-    await transporter.sendMail({
-      from: 'One ARLIFT <one.arlift@arlift.com.ec>',
-      to: coordinador.email,
-      subject: `[REQSYS] NP Corregida ${np.numero} — ${encabezado.area}`,
-      html: `
-        <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#334155">
-          <h2 style="color:#1e40af">Nota de Pedido Corregida</h2>
-          <p>El solicitante ha realizado las correcciones en la NP <strong>${np.numero}</strong> y requiere su aprobación:</p>
-          
-          <div style="background:#f1f5f9;padding:15px;border-radius:6px;margin:20px 0">
-            <p style="margin:5px 0"><strong>Número:</strong> ${np.numero}</p>
-            <p style="margin:5px 0"><strong>Solicitante:</strong> ${encabezado.solicitante_nombre}</p>
-            <p style="margin:5px 0"><strong>Área:</strong> ${encabezado.area}</p>
-          </div>
-
-          <p>Puede gestionar esta solicitud directamente con un solo clic:</p>
-          
-          <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="width:100%;margin:24px 0">
-            <tr>
-              <td align="center">
-                <table role="presentation" border="0" cellpadding="0" cellspacing="0">
-                  <tr>
-                    <td style="border-radius:6px" bgcolor="#16a34a">
-                      <a href="${urlAprobar}" style="display:inline-block;padding:14px 24px;font-family:sans-serif;font-size:16px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:6px">
-                        Aprobar Nota de Pedido
-                      </a>
-                    </td>
-                    <td style="width:20px"></td>
-                    <td style="border-radius:6px" bgcolor="#dc2626">
-                      <a href="${urlRechazar}" style="display:inline-block;padding:14px 24px;font-family:sans-serif;font-size:16px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:6px">
-                        Rechazar Nota de Pedido
-                      </a>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          </table>
-
-          <p style="text-align:center;margin:30px 0;font-size:14px">
-            O si lo prefiere, <a href="${baseUrl}/compras/${np.id}" style="color:#1e40af;text-decoration:underline">ver detalle completo en el sistema</a>.
+    try {
+      await transporter.sendMail({
+        from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+        to: coordinador.email,
+        subject: `[REQSYS] NP Corregida ${np.numero} — ${encabezado.area}`,
+        text: `Hola ${coordinador.nombre},\n\nLa Nota de Pedido ${np.numero} ha sido corregida por el solicitante y requiere su aprobación nuevamente.\n\nNúmero: ${np.numero}\nSolicitante: ${encabezado.solicitante_nombre}\nÁrea: ${encabezado.area}\n\nPara gestionar esta solicitud, use los siguientes enlaces:\n\nAPROBAR: ${urlAprobar}\nRECHAZAR: ${urlRechazar}\n\nREQSYS — ARLIFT S.A.`,
+        html: `
+          <p>Hola <strong>${coordinador.nombre}</strong>,</p>
+          <p>La Nota de Pedido <strong>${np.numero}</strong> ha sido corregida por el solicitante y requiere su aprobación nuevamente.</p>
+          <ul>
+            <li><strong>Número:</strong> ${np.numero}</li>
+            <li><strong>Solicitante:</strong> ${encabezado.solicitante_nombre}</li>
+            <li><strong>Área:</strong> ${encabezado.area}</li>
+          </ul>
+          <p>Puede gestionar esta solicitud haciendo clic en los siguientes enlaces:</p>
+          <p>
+            <a href="${urlAprobar}">APROBAR ESTA NP</a><br><br>
+            <a href="${urlRechazar}">RECHAZAR ESTA NP</a>
           </p>
+          <p>REQSYS — ARLIFT S.A.</p>
+        `,
+      })
+    } catch (err) {
+      console.error('Error enviando email de corrección:', err)
+    }
 
-          <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0" />
-          <p style="font-size:12px;color:#94a3b8;text-align:center">
-            REQSYS — ARLIFT S.A.
-          </p>
-        </div>
-      `,
-    })
-
-    await adminClient().from('historial_np').insert({
-      np_id: np.id,
-      estado: 'pendiente',
-      actor_email: encabezado.solicitante_email,
-      actor_nombre: encabezado.solicitante_nombre,
-      notas: 'NP corregida y reenviada para aprobación',
-    })
-
-    return NextResponse.json({ success: true, numero: np.numero })
+    return NextResponse.json({ success: true })
   } catch (err) {
     console.error(err)
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })

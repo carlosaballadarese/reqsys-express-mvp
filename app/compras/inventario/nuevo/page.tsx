@@ -10,11 +10,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
-const AREAS = [
-  'Operaciones - Bombeo Mecánico', 'Operaciones - Servicio Eléctrico', 'Operaciones - Niveles',
-  'Compras', 'QHSE', 'TTHH', 'Finanzas', 'Gerencia', 'Ventas',
-]
-
 export default function NuevoItemPage() {
   const router = useRouter()
 
@@ -35,19 +30,14 @@ export default function NuevoItemPage() {
     observaciones:      '',
   })
 
-  useEffect(() => {
-    fetch('/api/compras/areas')
-      .then(r => r.json())
-      .then(data => { if (Array.isArray(data)) setAreas(data) })
-      .catch(() => {})
-  }, [])
-
-  // Sugerir próximo código AL-I automáticamente
+  // Sugerir próximo código AL-I automáticamente y cargar áreas
   useEffect(() => {
     fetch('/api/compras/inventario/next-codigo')
       .then(r => r.json())
       .then(data => { if (data.codigo) setForm(f => ({ ...f, codigo: data.codigo })) })
       .catch(() => {})
+
+    fetch('/api/compras/areas').then(r => r.json()).then(setAreas).catch(console.error)
   }, [])
 
   function setField(key: string, val: string) { setForm(f => ({ ...f, [key]: val })) }

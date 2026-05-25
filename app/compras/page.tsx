@@ -37,13 +37,6 @@ const PRIORIDAD_BADGE: Record<string, string> = {
   baja:        'bg-slate-100 text-slate-600',
 }
 
-const AREAS = [
-  'Operaciones - Bombeo Mecánico',
-  'Operaciones - Servicio Eléctrico',
-  'Operaciones - Niveles',
-  'Compras', 'QHSE', 'TTHH', 'Finanzas', 'Gerencia', 'Ventas',
-]
-
 const ESTADOS = ['todos', 'pendiente', 'aprobada', 'rechazada', 'devuelta']
 
 export default function ComprasPage() {
@@ -52,18 +45,13 @@ export default function ComprasPage() {
   const [q, setQ]               = useState('')
   const [estado, setEstado]     = useState('todos')
   const [area, setArea]         = useState('todas')
+  const [areas, setAreas]       = useState<string[]>([])
   const [esSolicitante, setEsSolicitante] = useState(false)
   const [puedeCrearNP, setPuedeCrearNP]   = useState(false)
-  const [areas, setAreas]                 = useState<string[]>([])
 
   useEffect(() => {
-    fetch('/api/compras/areas')
-      .then(r => r.json())
-      .then(data => { if (Array.isArray(data)) setAreas(data) })
-      .catch(() => {})
-  }, [])
-
-  useEffect(() => {
+    fetch('/api/compras/areas').then(r => r.json()).then(setAreas).catch(console.error)
+    
     const supabase = createSupabaseBrowserClient()
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return
@@ -137,7 +125,7 @@ export default function ComprasPage() {
               <select
                 value={area}
                 onChange={e => setArea(e.target.value)}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="todas">Todas las áreas</option>
                 {areas.map(a => <option key={a} value={a}>{a}</option>)}

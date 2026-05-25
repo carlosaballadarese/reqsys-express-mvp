@@ -29,13 +29,6 @@ type ItemOC = {
   cantidad: string; precio_unitario: string
 }
 
-const UNIDADES = ['EA', 'UN', 'M', 'ML', 'KG', 'LT', 'GL', 'M2', 'M3', 'JGO', 'RLL', 'CJA', 'PAR', 'HRS']
-
-const AREAS = [
-  'Operaciones - Bombeo Mecánico', 'Operaciones - Servicio Eléctrico', 'Operaciones - Niveles',
-  'Compras', 'QHSE', 'TTHH', 'Finanzas', 'Gerencia', 'Ventas',
-]
-
 // ─── Autocomplete proveedor ───────────────────────────────────────────────────
 
 function ProveedorSearch({ value, onChange, onSelect }: {
@@ -179,13 +172,7 @@ export default function NuevaOCPage() {
   const [proveedorId, setProveedorId] = useState<string | null>(null)
   const [proximaOC, setProximaOC]     = useState('Cargando...')
   const [areas, setAreas]             = useState<string[]>([])
-
-  useEffect(() => {
-    fetch('/api/compras/areas')
-      .then(r => r.json())
-      .then(data => { if (Array.isArray(data)) setAreas(data) })
-      .catch(() => {})
-  }, [])
+  const [unidades, setUnidades]       = useState<string[]>(['EA'])
 
   const [form, setForm] = useState({
     proveedor:         '',
@@ -214,10 +201,13 @@ export default function NuevaOCPage() {
       .then(r => r.json())
       .then((data: { año: number; ultimo_numero: number }[]) => {
         const row = Array.isArray(data) ? data.find(s => s.año === year) : null
-        const sig = row ? row.ultimo_numero + 1 : 1
-        setProximaOC(`OC-${year}-${String(sig).padStart(4, '0')}`)
+        const siguiente = row ? row.ultimo_numero + 1 : 1
+        setProximaOC(`OC-${year}-${String(siguiente).padStart(4, '0')}`)
       })
-      .catch(() => setProximaOC('—'))
+      .catch(() => setProximaOC('Error al cargar'))
+
+    fetch('/api/compras/areas').then(r => r.json()).then(setAreas).catch(console.error)
+    fetch('/api/compras/unidades').then(r => r.json()).then(setUnidades).catch(console.error)
   }, [])
 
   function setField(key: string, val: string) { setForm(f => ({ ...f, [key]: val })) }
@@ -326,7 +316,7 @@ export default function NuevaOCPage() {
                       <div>
                         <Label className="text-xs text-slate-500">Unidad</Label>
                         <select value={item.unidad} onChange={e => setItem(i, 'unidad', e.target.value)} className="mt-0.5 h-7 rounded-md border border-input bg-background px-1 text-xs w-16 block">
-                          {UNIDADES.map(u => <option key={u} value={u}>{u}</option>)}
+                          {unidades.map(u => <option key={u} value={u}>{u}</option>)}
                         </select>
                       </div>
                       <div>

@@ -80,13 +80,6 @@ const ESTADO_BADGE: Record<string, string> = {
   aprobada:                 'bg-green-100 text-green-800',
 }
 
-const UNIDADES = ['EA', 'UN', 'M', 'ML', 'KG', 'LT', 'GL', 'M2', 'M3', 'JGO', 'RLL', 'CJA', 'PAR', 'HRS']
-
-const AREAS = [
-  'Operaciones - Bombeo Mecánico', 'Operaciones - Servicio Eléctrico', 'Operaciones - Niveles',
-  'Compras', 'QHSE', 'TTHH', 'Finanzas', 'Gerencia', 'Ventas',
-]
-
 // ─── Autocomplete proveedor ───────────────────────────────────────────────────
 
 function ProveedorSearch({ value, onChange, onSelect }: {
@@ -235,6 +228,8 @@ export default function DetalleOCPage() {
   const [editando, setEditando]       = useState(false)
   const [guardando, setGuardando]     = useState(false)
   const [errorEdit, setErrorEdit]     = useState('')
+  const [areas, setAreas]             = useState<string[]>([])
+  const [unidades, setUnidades]       = useState<string[]>(['EA'])
   const [proveedorId, setProveedorId] = useState<string | null>(null)
   const [form, setForm]               = useState<Record<string, string>>({})
   const [itemsEdit, setItemsEdit]     = useState<ItemOC[]>([])
@@ -258,7 +253,11 @@ export default function DetalleOCPage() {
       .catch(() => { setErrorMsg('Error de conexión'); setCargando(false) })
   }
 
-  useEffect(() => { cargar() }, [id])
+  useEffect(() => {
+    cargar()
+    fetch('/api/compras/areas').then(r => r.json()).then(setAreas).catch(console.error)
+    fetch('/api/compras/unidades').then(r => r.json()).then(setUnidades).catch(console.error)
+  }, [id])
 
   function iniciarEdicion() {
     if (!oc) return
@@ -557,7 +556,7 @@ export default function DetalleOCPage() {
                         <div>
                           <Label className="text-xs text-slate-500">Unidad</Label>
                           <select value={item.unidad} onChange={e => setItemEdit(i, 'unidad', e.target.value)} className="mt-0.5 h-7 rounded-md border border-input bg-background px-1 text-xs w-16 block">
-                            {UNIDADES.map(u => <option key={u} value={u}>{u}</option>)}
+                            {unidades.map(u => <option key={u} value={u}>{u}</option>)}
                           </select>
                         </div>
                         <div>
@@ -618,7 +617,7 @@ export default function DetalleOCPage() {
                   <Label className="text-xs">Área</Label>
                   <select value={form.area ?? ''} onChange={e => setField('area', e.target.value)} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
                     <option value="">Selecciona...</option>
-                    {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
+                    {areas.map(a => <option key={a} value={a}>{a}</option>)}
                   </select>
                 </div>
                 <div>

@@ -260,8 +260,6 @@ type ItemOC = {
   precio_unitario: string
 }
 
-const UNIDADES = ['EA', 'UN', 'M', 'ML', 'KG', 'LT', 'GL', 'M2', 'M3', 'JGO', 'RLL', 'CJA', 'PAR', 'HRS']
-
 // ─── Formulario conversión a OC ──────────────────────────────────────────────
 
 function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; onConvertida: (numeroOC: string) => void }) {
@@ -269,6 +267,7 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
   const [error, setError]           = useState('')
   const [proveedorId, setProveedorId] = useState<string | null>(null)
   const [proximaOC, setProximaOC]   = useState<string>('Cargando...')
+  const [unidades, setUnidades]     = useState<string[]>(['EA'])
   const [form, setForm]             = useState({
     proveedor:         '',
     fecha_oc:          '',
@@ -293,6 +292,11 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
         setProximaOC(`OC-${year}-${String(siguiente).padStart(4, '0')}`)
       })
       .catch(() => setProximaOC('Error al cargar'))
+
+    fetch('/api/compras/unidades')
+      .then(r => r.json())
+      .then(data => setUnidades(data))
+      .catch(err => console.error('Error cargando unidades:', err))
   }, [])
 
   // Ítems de la OC pre-cargados desde la NP
@@ -375,11 +379,9 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
   }
 
   return (
-    <Card className="border-blue-200 shadow-sm">
+    <Card className="border-blue-200">
       <CardHeader className="pb-3">
-        <CardTitle className="text-base text-blue-800 flex items-center gap-2">
-          🛒 Convertir a Orden de Compra
-        </CardTitle>
+        <CardTitle className="text-base text-blue-800">Convertir a Orden de Compra</CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
 
@@ -429,7 +431,7 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
                   <div>
                     <Label className="text-xs text-slate-500">Unidad</Label>
                     <select value={item.unidad} onChange={e => setItem(i, 'unidad', e.target.value)} className="mt-0.5 h-7 rounded-md border border-input bg-background px-1 text-xs w-16 block">
-                      {UNIDADES.map(u => <option key={u} value={u}>{u}</option>)}
+                      {unidades.map(u => <option key={u} value={u}>{u}</option>)}
                     </select>
                   </div>
                   <div>
@@ -545,108 +547,6 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
         <Button onClick={handleConvertir} disabled={enviando} className="w-full btn-primary">
           {enviando ? 'Procesando...' : '🛒 Registrar Orden de Compra'}
         </Button>
-      </CardContent>
-    </Card>
-  )
-}
-
-// ─── Panel de acciones coordinadores/admin ───────────────────────────────────
-
-function PanelAcciones({ np, onAccion }: { np: NP; onAccion: () => void }) {
-  const [enviando, setEnviando] = useState(false)
-  const [motivo, setMotivo]     = useState('')
-  const [showMotivo, setShowMotivo] = useState<'rechazar' | 'devolver' | null>(null)
-
-  async function handlePatch(accion: 'aprobar' | 'rechazar' | 'devolver') {
-    if ((accion === 'rechazar' || accion === 'devolver') && !motivo.trim()) {
-      alert('Por favor ingresa un motivo')
-      return
-    }
-    setEnviando(true)
-    try {
-      const res = await fetch(`/api/compras/nps/${np.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accion, motivo }),
-      })
-      if (res.ok) {
-        onAccion()
-      } else {
-        const data = await res.json()
-        alert(data.error || 'Error al procesar acción')
-      }
-    } catch {
-      alert('Error de conexión')
-    } finally {
-      setEnviando(false)
-    }
-  }
-
-  return (
-    <Card className="border-orange-200 shadow-sm bg-orange-50/30">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base text-orange-800 flex items-center gap-2">
-          ⚡ Gestión de Requerimiento
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {showMotivo ? (
-          <div className="space-y-3 animate-in fade-in slide-in-from-top-1">
-            <Label className="text-sm font-semibold text-slate-700 capitalize">
-              Motivo de {showMotivo === 'rechazar' ? 'rechazo' : 'devolución'}
-            </Label>
-            <Textarea
-              value={motivo}
-              onChange={e => setMotivo(e.target.value)}
-              placeholder={`Explica por qué vas a ${showMotivo === 'rechazar' ? 'rechazar' : 'devolver'} esta NP...`}
-              className="bg-white border-orange-200 focus:ring-orange-500 min-h-[100px]"
-            />
-            <div className="flex gap-2">
-              <Button
-                onClick={() => handlePatch(showMotivo)}
-                disabled={enviando}
-                className={showMotivo === 'rechazar' ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'}
-              >
-                {enviando ? 'Procesando...' : `Confirmar ${showMotivo === 'rechazar' ? 'Rechazo' : 'Devolución'}`}
-              </Button>
-              <Button variant="outline" onClick={() => { setShowMotivo(null); setMotivo('') }} disabled={enviando}>
-                Cancelar
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-3">
-            {np.estado === 'pendiente' && (
-              <>
-                <Button
-                  onClick={() => handlePatch('aprobar')}
-                  disabled={enviando}
-                  className="bg-green-600 hover:bg-green-700 font-semibold"
-                >
-                  Aprobar Nota de Pedido
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setShowMotivo('rechazar')}
-                  disabled={enviando}
-                  className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
-                >
-                  Rechazar
-                </Button>
-              </>
-            )}
-            {np.estado === 'aprobada' && (
-              <Button
-                variant="outline"
-                onClick={() => setShowMotivo('devolver')}
-                disabled={enviando}
-                className="border-amber-200 text-amber-700 hover:bg-amber-50 hover:text-amber-800"
-              >
-                Devolver para corrección
-              </Button>
-            )}
-          </div>
-        )}
       </CardContent>
     </Card>
   )
@@ -831,11 +731,6 @@ export default function DetalleNPPage() {
             )}
           </CardContent>
         </Card>
-
-        {/* Panel de acciones — solo admin, gerencia o compras */}
-        {(np.estado === 'pendiente' || (np.estado === 'aprobada' && !np.convertida)) && ['admin', 'gerencia', 'compras'].includes(rol) && (
-          <PanelAcciones np={np} onAccion={cargar} />
-        )}
 
         {/* Formulario conversión — solo compras y admin */}
         {np.estado === 'aprobada' && !np.convertida && ['compras', 'admin'].includes(rol) && (

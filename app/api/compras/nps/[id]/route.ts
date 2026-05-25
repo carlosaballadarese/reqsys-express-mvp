@@ -4,7 +4,6 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { transporter } from '@/lib/mailer'
 import { escapeHtml } from '@/lib/utils'
 
-
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -63,44 +62,42 @@ export async function PATCH(
     const nuevoEstado = accion === 'aprobar' ? 'aprobada' : (accion === 'rechazar' ? 'rechazada' : 'devuelta')
     const esAprobada = accion === 'aprobar'
 
-    // 3. Si es APROBAR, enviar email a Compras
-    if (esAprobada) {
-      const [{ data: compras }, { data: items }] = await Promise.all([
-        anonClient().from('coordinadores_area').select('nombre, email').eq('area', 'Compras').single(),
-        anonClient().from('items_np').select('*').eq('nota_pedido_id', id).order('linea'),
-      ])
-
-      if (compras) {
-        const tablaItems = (items ?? []).map(item =>
-          `<tr><td style="padding:8px;border-bottom:1px solid #eee">${item.linea}</td><td style="padding:8px;border-bottom:1px solid #eee">${item.descripcion}</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${item.cantidad} ${item.unidad}</td></tr>`
-        ).join('')
-
-        await transporter.sendMail({
-          from: 'One ARLIFT <one.arlift@arlift.com.ec>',
-          to: compras.email,
-          subject: `[REQSYS] NP Aprobada — ${np.numero}`,
-          html: `<p>Hola <strong>${compras.nombre}</strong>,</p><p>La NP ${np.numero} fue aprobada y requiere gestión.</p><table>${tablaItems}</table><p><a href="${process.env.NEXT_PUBLIC_APP_URL}/compras/${id}">Ver detalle en el sistema</a></p>`
-        })
+    // 3. Notificaciones por Email (No bloquean si fallan)
+    try {
+      if (esAprobada) {
+        const { data: compras } = await anonClient().from('coordinadores_area').select('nombre, email').eq('area', 'Compras').single()
+        if (compras) {
+          await transporter.sendMail({
+            from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+            to: compras.email,
+            subject: `[REQSYS] NP Aprobada — ${np.numero}`,
+            text: `La NP ${np.numero} fue aprobada y requiere gestión de compras.\n\nVer en el sistema: ${process.env.NEXT_PUBLIC_APP_URL}/compras/nps/${id}\n\nREQSYS — ARLIFT S.A.`,
+            html: `<p>La NP ${np.numero} fue aprobada y requiere gestión de compras.</p><p><a href="${process.env.NEXT_PUBLIC_APP_URL}/compras/nps/${id}">VER EN EL SISTEMA</a></p><p>REQSYS — ARLIFT S.A.</p>`
+          })
+        }
       }
+
+      let subject = `[REQSYS] Tu NP ${np.numero} fue ${nuevoEstado}`
+      if (accion === 'devolver') subject = `[REQSYS] Tu NP ${np.numero} requiere correcciones`
+
+      await transporter.sendMail({
+        from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+        to: np.solicitante_email,
+        subject,
+        text: `Hola ${np.solicitante_nombre},\n\nTu NP ${np.numero} ha pasado a estado ${nuevoEstado}.\n\n${motivo ? `Notas: ${motivo}` : ''}\n\nVer mi Nota de Pedido: ${process.env.NEXT_PUBLIC_APP_URL}/compras/nps/${id}\n\nREQSYS — ARLIFT S.A.`,
+        html: `
+          <p>Hola <strong>${np.solicitante_nombre}</strong>,</p>
+          <p>Tu NP <strong>${np.numero}</strong> ha pasado a estado <strong>${nuevoEstado}</strong>.</p>
+          ${motivo ? `<p><strong>Notas:</strong> ${escapeHtml(motivo)}</p>` : ''}
+          <p><a href="${process.env.NEXT_PUBLIC_APP_URL}/compras/nps/${id}">VER MI NOTA DE PEDIDO</a></p>
+          <p>REQSYS — ARLIFT S.A.</p>
+        `
+      })
+    } catch (emailErr) {
+      console.error('❌ ERROR SMTP (Ignorado para continuar):', emailErr)
     }
 
-    // 4. Email al solicitante
-    let subject = `[REQSYS] Tu NP ${np.numero} fue ${nuevoEstado}`
-    if (accion === 'devolver') subject = `[REQSYS] Tu NP ${np.numero} requiere correcciones`
-
-    await transporter.sendMail({
-      from: 'One ARLIFT <one.arlift@arlift.com.ec>',
-      to: np.solicitante_email,
-      subject,
-      html: `
-        <p>Hola <strong>${np.solicitante_nombre}</strong>,</p>
-        <p>Tu NP <strong>${np.numero}</strong> ha pasado a estado <strong>${nuevoEstado}</strong>.</p>
-        ${motivo ? `<p><strong>Motivo/Observaciones:</strong> ${escapeHtml(motivo)}</p>` : ''}
-        <p><a href="${process.env.NEXT_PUBLIC_APP_URL}/compras/${id}">Ver mi Nota de Pedido</a></p>
-      `
-    })
-
-    // 5. Actualizar base de datos
+    // 4. Actualizar base de datos
     const updateData: any = { estado: nuevoEstado }
     if (accion === 'rechazar') updateData.motivo_rechazo = motivo
     if (accion === 'devolver') updateData.motivo_devolucion = motivo

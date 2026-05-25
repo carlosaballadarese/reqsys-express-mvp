@@ -103,65 +103,36 @@ export async function POST(req: NextRequest) {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
     const urlAprobar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=aprobar`
     const urlRechazar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=rechazar`
-    const urlDetalle = `${baseUrl}/compras/${np.id}`
+    const urlDetalle = `${baseUrl}/compras/nps/${np.id}`
 
     // 6. Enviar email al coordinador (no bloquea si falla)
     try {
       console.log(`Intentando enviar email a: ${coordinador.email} desde: one.arlift@arlift.com.ec`)
-      const info = await transporter.sendMail({
+      await transporter.sendMail({
         from: 'One ARLIFT <one.arlift@arlift.com.ec>',
         to: coordinador.email,
         subject: `[REQSYS] Nueva Nota de Pedido ${numero} — ${encabezado.area}`,
+        text: `Hola,\n\nSe ha registrado una nueva Nota de Pedido que requiere su revisión:\n\nNúmero: ${numero}\nSolicitante: ${encabezado.solicitante_nombre}\nÁrea: ${encabezado.area}\n\nPara gestionar esta solicitud, use los siguientes enlaces:\n\nAPROBAR: ${urlAprobar}\nRECHAZAR: ${urlRechazar}\n\nVer detalle: ${urlDetalle}\n\nREQSYS — ARLIFT S.A.`,
         html: `
-        <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#334155">
-          <h2 style="color:#1e40af">Nueva Nota de Pedido</h2>
-          <p>Se ha registrado un nuevo requerimiento que requiere su revisión:</p>
-          
-          <div style="background:#f1f5f9;padding:15px;border-radius:6px;margin:20px 0">
-            <p style="margin:5px 0"><strong>Número:</strong> ${numero}</p>
-            <p style="margin:5px 0"><strong>Solicitante:</strong> ${encabezado.solicitante_nombre}</p>
-            <p style="margin:5px 0"><strong>Área:</strong> ${encabezado.area}</p>
-            <p style="margin:5px 0"><strong>Prioridad:</strong> ${encabezado.prioridad}</p>
-          </div>
-
-          <p>Puede gestionar esta solicitud directamente con un solo clic:</p>
-          
-          <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="width:100%;margin:24px 0">
-            <tr>
-              <td align="center">
-                <table role="presentation" border="0" cellpadding="0" cellspacing="0">
-                  <tr>
-                    <td style="border-radius:6px" bgcolor="#16a34a">
-                      <a href="${urlAprobar}" style="display:inline-block;padding:14px 24px;font-family:sans-serif;font-size:16px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:6px">
-                        Aprobar Nota de Pedido
-                      </a>
-                    </td>
-                    <td style="width:20px"></td>
-                    <td style="border-radius:6px" bgcolor="#dc2626">
-                      <a href="${urlRechazar}" style="display:inline-block;padding:14px 24px;font-family:sans-serif;font-size:16px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:6px">
-                        Rechazar Nota de Pedido
-                      </a>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          </table>
-
-          <p style="text-align:center;margin:30px 0;font-size:14px">
-            O si lo prefiere, <a href="${urlDetalle}" style="color:#1e40af;text-decoration:underline">ver detalle completo en el sistema</a>.
+          <p>Hola,</p>
+          <p>Se ha registrado una nueva Nota de Pedido que requiere su revisión:</p>
+          <ul>
+            <li><strong>Número:</strong> ${numero}</li>
+            <li><strong>Solicitante:</strong> ${encabezado.solicitante_nombre}</li>
+            <li><strong>Área:</strong> ${encabezado.area}</li>
+          </ul>
+          <p>Puede gestionar esta solicitud haciendo clic en los siguientes enlaces:</p>
+          <p>
+            <a href="${urlAprobar}">APROBAR ESTA NP</a><br><br>
+            <a href="${urlRechazar}">RECHAZAR ESTA NP</a>
           </p>
-
-          <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0" />
-          <p style="font-size:12px;color:#94a3b8;text-align:center">
-            REQSYS — ARLIFT S.A.
-          </p>
-        </div>
-      `,
+          <p>O vea el detalle completo en: <a href="${urlDetalle}">${urlDetalle}</a></p>
+          <p>REQSYS — ARLIFT S.A.</p>
+        `,
       })
-      console.log('✅ Email enviado exitosamente:', info.messageId)
+      console.log('✅ Email enviado exitosamente')
     } catch (emailErr) {
-      console.error('❌ ERROR CRÍTICO SMTP:', emailErr)
+      console.error('❌ ERROR SMTP (Ignorado para continuar):', emailErr)
     }
 
     await adminClient().from('historial_np').insert({

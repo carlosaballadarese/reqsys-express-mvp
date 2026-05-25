@@ -40,20 +40,6 @@ type ItemPayload = {
   precio_unitario: number
 }
 
-const AREAS = [
-  'Operaciones - Bombeo Mecánico',
-  'Operaciones - Servicio Eléctrico',
-  'Operaciones - Niveles',
-  'Compras',
-  'QHSE',
-  'TTHH',
-  'Finanzas',
-  'Gerencia',
-  'Ventas',
-]
-
-const UNIDADES = ['EA', 'UN', 'M', 'ML', 'KG', 'LT', 'GL', 'M2', 'M3', 'JGO', 'RLL', 'CJA', 'PAR', 'HRS']
-
 type EstadoEnvio = 'idle' | 'enviando' | 'exitoso' | 'error'
 
 type InvItem = {
@@ -173,14 +159,22 @@ export default function NuevaNotaPedido() {
   const [numeroNP, setNumeroNP] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
   const [areas, setAreas] = useState<string[]>([])
+  const [unidades, setUnidades] = useState<string[]>(['EA'])
 
   useEffect(() => {
-    fetch('/api/compras/areas')
-      .then(r => r.json())
-      .then(data => {
-        if (Array.isArray(data)) setAreas(data)
-      })
-      .catch(() => {})
+    async function loadCatalogs() {
+      try {
+        const [resAreas, resUnidades] = await Promise.all([
+          fetch('/api/compras/areas'),
+          fetch('/api/compras/unidades')
+        ])
+        if (resAreas.ok) setAreas(await resAreas.json())
+        if (resUnidades.ok) setUnidades(await resUnidades.json())
+      } catch (err) {
+        console.error('Error cargando catálogos:', err)
+      }
+    }
+    loadCatalogs()
   }, [])
 
   const {
@@ -396,7 +390,7 @@ export default function NuevaNotaPedido() {
                       {...register(`items.${index}.unidad`)}
                       className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm h-8"
                     >
-                      {UNIDADES.map((u) => <option key={u} value={u}>{u}</option>)}
+                      {unidades.map((u) => <option key={u} value={u}>{u}</option>)}
                     </select>
                   </div>
                   <div className="col-span-4 sm:col-span-2">

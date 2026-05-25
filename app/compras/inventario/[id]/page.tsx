@@ -8,11 +8,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
-const AREAS = [
-  'Operaciones - Bombeo Mecánico', 'Operaciones - Servicio Eléctrico', 'Operaciones - Niveles',
-  'Compras', 'QHSE', 'TTHH', 'Finanzas', 'Gerencia', 'Ventas',
-]
-
 export default function EditarItemPage() {
   const params = useParams()
   const id     = params.id as string
@@ -37,13 +32,6 @@ export default function EditarItemPage() {
   })
 
   useEffect(() => {
-    fetch('/api/compras/areas')
-      .then(r => r.json())
-      .then(data => { if (Array.isArray(data)) setAreas(data) })
-      .catch(() => {})
-  }, [])
-
-  useEffect(() => {
     fetch(`/api/compras/inventario/${id}`)
       .then(r => r.json())
       .then(data => {
@@ -64,6 +52,8 @@ export default function EditarItemPage() {
         setCargando(false)
       })
       .catch(() => { setError('Error de conexión'); setCargando(false) })
+
+    fetch('/api/compras/areas').then(r => r.json()).then(setAreas).catch(console.error)
   }, [id])
 
   function setField(key: string, val: string) { setForm(f => ({ ...f, [key]: val })) }

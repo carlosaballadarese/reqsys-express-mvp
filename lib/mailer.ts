@@ -1,18 +1,19 @@
 import nodemailer from 'nodemailer'
 import type { SendMailOptions } from 'nodemailer'
 
-// Configuración de transporte de correo corporativo ARLIFT (Puerto 465 SSL)
-export const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'mail.arlift.com.ec',
-  port: Number(process.env.SMTP_PORT) || 465,
-  secure: true, // Siempre true para puerto 465
-  auth: {
-    user: process.env.SMTP_USER || 'one.arlift@arlift.com.ec',
-    pass: process.env.SMTP_PASS || 'One2686Lift0620',
+// Crea una nueva conexión SMTP en cada envío para garantizar
+// que siempre usa las credenciales actuales del entorno.
+export const transporter = {
+  sendMail(options: SendMailOptions) {
+    const t = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: Number(process.env.SMTP_PORT) === 465,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    })
+    return t.sendMail(options)
   },
-  tls: {
-    // Necesario para muchos servidores cPanel/empresariales
-    rejectUnauthorized: false,
-    minVersion: 'TLSv1.2'
-  }
-})
+}

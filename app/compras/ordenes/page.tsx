@@ -40,11 +40,6 @@ const ESTADO_LABEL: Record<string, string> = {
 
 const ESTADOS = ['todos', 'en_proceso', 'en_aprobacion_gerencia', 'en_aprobacion_compras', 'rechazada', 'aprobada']
 
-const AREAS = [
-  'Operaciones - Bombeo Mecánico', 'Operaciones - Servicio Eléctrico', 'Operaciones - Niveles',
-  'Compras', 'QHSE', 'TTHH', 'Finanzas', 'Gerencia', 'Ventas',
-]
-
 export default function OrdenesPage() {
   const [ocs, setOcs]           = useState<OC[]>([])
   const [cargando, setCargando] = useState(true)
@@ -54,10 +49,7 @@ export default function OrdenesPage() {
   const [areas, setAreas]       = useState<string[]>([])
 
   useEffect(() => {
-    fetch('/api/compras/areas')
-      .then(r => r.json())
-      .then(data => { if (Array.isArray(data)) setAreas(data) })
-      .catch(() => {})
+    fetch('/api/compras/areas').then(r => r.json()).then(setAreas).catch(console.error)
   }, [])
 
   const cargar = useCallback(() => {
@@ -117,7 +109,7 @@ export default function OrdenesPage() {
               <select
                 value={area}
                 onChange={e => setArea(e.target.value)}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="todas">Todas las áreas</option>
                 {areas.map(a => <option key={a} value={a}>{a}</option>)}
