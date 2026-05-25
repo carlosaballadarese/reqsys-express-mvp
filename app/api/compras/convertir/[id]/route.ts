@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { adminClient, anonClient } from '@/lib/supabase/clients'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 
 
@@ -9,6 +10,20 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Spec: endpoint protegido — compras, admin y asistente_compras autenticados
+    const supabase = await createSupabaseServerClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
+    const { data: perfil } = await adminClient()
+      .from('perfiles')
+      .select('rol, nombre, email')
+      .eq('id', user.id)
+      .single()
+
+    if (!perfil || !['compras', 'admin', 'asistente_compras'].includes(perfil.rol))
+      return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+
     const { id } = await params
     const body = await req.json()
 
@@ -53,6 +68,10 @@ export async function POST(
       )
     }
 
+    // Spec: asistente solo puede convertir NPs asignadas a él
+    if (perfil.rol === 'asistente_compras' && np.asignado_a !== user.id)
+      return NextResponse.json({ error: 'Solo puedes convertir NPs asignadas a ti' }, { status: 403 })
+
     if (!items || items.length === 0) {
       return NextResponse.json({ error: 'La OC debe tener al menos un ítem' }, { status: 400 })
     }
@@ -61,7 +80,7 @@ export async function POST(
     const valorTotal    = Number(valor_total) || 0
     const valorRetenido = Number(valor_retenido) || 0
 
-    // Insertar en registro_compras
+    // Insertar en registro_compras — Spec: guardar creado_por para scope de edición
     const { data: oc, error: errorOC } = await adminClient()
       .from('registro_compras')
       .insert({
@@ -87,6 +106,8 @@ export async function POST(
         dias_credito:          Number(dias_credito) || 0,
         fecha_vencimiento:     fecha_vencimiento || null,
         estado_oc:             'en_proceso',
+        creado_por_id:         user.id,
+        creado_por_nombre:     perfil.nombre,
       })
       .select()
       .single()
@@ -125,12 +146,12 @@ export async function POST(
       .update({ convertida: true })
       .eq('id', np.id)
 
-    // Registrar en historial
+    // Registrar en historial con actor real
     await adminClient().from('historial_np').insert({
       np_id:        np.id,
       estado:       'convertida',
-      actor_email:  null,
-      actor_nombre: 'Compras',
+      actor_email:  perfil.email,
+      actor_nombre: perfil.nombre,
       notas:        `Convertida a OC ${numero_oc} — Proveedor: ${proveedor}`,
     })
 

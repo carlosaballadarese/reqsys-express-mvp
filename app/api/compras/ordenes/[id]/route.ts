@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { adminClient } from '@/lib/supabase/clients'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 
 export async function GET(
@@ -31,7 +32,33 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Spec: endpoint protegido — compras, admin y asistente_compras (solo sus OCs)
+    const supabase = await createSupabaseServerClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
+    const { data: perfil } = await adminClient()
+      .from('perfiles')
+      .select('rol')
+      .eq('id', user.id)
+      .single()
+
+    if (!perfil || !['compras', 'admin', 'asistente_compras'].includes(perfil.rol))
+      return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+
     const { id } = await params
+
+    // Spec: asistente solo puede editar OCs que él generó
+    if (perfil.rol === 'asistente_compras') {
+      const { data: oc } = await adminClient()
+        .from('registro_compras')
+        .select('creado_por_id')
+        .eq('id', id)
+        .single()
+      if (!oc || oc.creado_por_id !== user.id)
+        return NextResponse.json({ error: 'Solo puedes editar OCs que tú generaste' }, { status: 403 })
+    }
+
     const body   = await req.json()
 
     const {

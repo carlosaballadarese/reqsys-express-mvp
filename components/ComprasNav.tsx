@@ -30,21 +30,22 @@ const PASS_VACIO: PassForm = {
 }
 
 const ROL_LABEL: Record<string, string> = {
-  solicitante: 'Solicitante',
-  compras:     'Compras',
-  gerencia:    'Gerencia',
-  consulta:    'Consulta',
-  admin:       'Administrador',
-  bodega:      'Bodega',
-  coordinador: 'Coordinador',
+  solicitante:       'Solicitante',
+  compras:           'Compras',
+  gerencia:          'Gerencia',
+  consulta:          'Consulta',
+  admin:             'Administrador',
+  bodega:            'Bodega',
+  coordinador:       'Coordinador',
+  asistente_compras: 'Asistente Compras',
 }
 
 const NAV: NavGroup[] = [
   { label: 'Mis NPs',   href: '/compras', roles: ['solicitante'],                                                    exact: true },
-  { label: 'NPs',       href: '/compras', roles: ['compras','admin','gerencia','consulta','coordinador','bodega'],   exact: true },
-  { label: 'Dashboard', href: '/compras/dashboard', roles: ['compras','admin','gerencia','consulta','coordinador','solicitante','bodega'] },
+  { label: 'NPs',       href: '/compras', roles: ['compras','admin','gerencia','consulta','coordinador','bodega','asistente_compras'],   exact: true },
+  { label: 'Dashboard', href: '/compras/dashboard', roles: ['compras','admin','gerencia','consulta','coordinador','solicitante','bodega','asistente_compras'] },
   {
-    label: 'Compras', roles: ['compras','admin','gerencia','consulta'],
+    label: 'Compras', roles: ['compras','admin','gerencia','consulta','asistente_compras'],
     children: [
       { href: '/compras/ordenes',     label: 'Órdenes de Compra' },
       { href: '/compras/proveedores', label: 'Proveedores' },

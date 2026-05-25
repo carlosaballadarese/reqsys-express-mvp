@@ -18,26 +18,28 @@ type Usuario = {
   created_at: string
 }
 
-const ROLES = ['solicitante', 'bodega', 'coordinador', 'compras', 'gerencia', 'consulta', 'admin']
+const ROLES = ['solicitante', 'bodega', 'coordinador', 'asistente_compras', 'compras', 'gerencia', 'consulta', 'admin']
 
 const ROL_BADGE: Record<string, string> = {
-  solicitante:  'bg-slate-100 text-slate-600',
-  bodega:       'bg-amber-100 text-amber-700',
-  coordinador:  'bg-green-100 text-green-700',
-  compras:      'bg-blue-100 text-blue-700',
-  gerencia:     'bg-purple-100 text-purple-700',
-  consulta:     'bg-teal-100 text-teal-700',
-  admin:        'bg-red-100 text-red-700',
+  solicitante:       'bg-slate-100 text-slate-600',
+  bodega:            'bg-amber-100 text-amber-700',
+  coordinador:       'bg-green-100 text-green-700',
+  asistente_compras: 'bg-cyan-100 text-cyan-700',
+  compras:           'bg-blue-100 text-blue-700',
+  gerencia:          'bg-purple-100 text-purple-700',
+  consulta:          'bg-teal-100 text-teal-700',
+  admin:             'bg-red-100 text-red-700',
 }
 
 const ROL_LABEL: Record<string, string> = {
-  solicitante:  'Solicitante',
-  bodega:       'Bodega',
-  coordinador:  'Coordinador',
-  compras:      'Compras',
-  gerencia:     'Gerencia',
-  consulta:     'Consulta',
-  admin:        'Administrador',
+  solicitante:       'Solicitante',
+  bodega:            'Bodega',
+  coordinador:       'Coordinador',
+  asistente_compras: 'Asistente Compras',
+  compras:           'Compras',
+  gerencia:          'Gerencia',
+  consulta:          'Consulta',
+  admin:             'Administrador',
 }
 
 export default function AccesosPage() {

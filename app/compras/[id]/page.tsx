@@ -28,7 +28,12 @@ type NP = {
   motivo_rechazo: string | null
   motivo_devolucion: string | null
   created_at: string
+  asignado_a:      string | null
+  asignado_nombre: string | null
+  asignado_email:  string | null
 }
+
+type Asistente = { id: string; nombre: string; email: string }
 
 type Item = {
   id: string
@@ -53,19 +58,31 @@ type Historial = {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const ESTADO_COLOR: Record<string, string> = {
-  pendiente:  'bg-yellow-100 text-yellow-800',
-  aprobada:   'bg-green-100 text-green-800',
-  rechazada:  'bg-red-100 text-red-800',
-  devuelta:   'bg-amber-100 text-amber-800',
-  convertida: 'bg-blue-100 text-blue-800',
+  pendiente:     'bg-yellow-100 text-yellow-800',
+  aprobada:      'bg-green-100 text-green-800',
+  rechazada:     'bg-red-100 text-red-800',
+  devuelta:      'bg-amber-100 text-amber-800',
+  convertida:    'bg-blue-100 text-blue-800',
+  asignacion:    'bg-cyan-100 text-cyan-800',
+  reasignacion:  'bg-cyan-100 text-cyan-800',
+  toma_control:  'bg-purple-100 text-purple-800',
 }
 
 const HISTORIAL_ICON: Record<string, string> = {
-  pendiente:  '📋',
-  aprobada:   '✅',
-  rechazada:  '❌',
-  devuelta:   '↩',
-  convertida: '🛒',
+  pendiente:    '📋',
+  aprobada:     '✅',
+  rechazada:    '❌',
+  devuelta:     '↩',
+  convertida:   '🛒',
+  asignacion:   '👤',
+  reasignacion: '🔄',
+  toma_control: '🎯',
+}
+
+const HISTORIAL_LABEL: Record<string, string> = {
+  asignacion:   'Asignación',
+  reasignacion: 'Reasignación',
+  toma_control: 'Toma de control',
 }
 
 function usd(n: number) {
@@ -565,7 +582,14 @@ export default function DetalleNPPage() {
   const [error, setError]         = useState('')
   const [ultimaOC, setUltimaOC]  = useState('')
   const [rol, setRol]             = useState('')
+  const [userId, setUserId]       = useState('')
   const [puedeAprobar, setPuedeAprobar] = useState(false)
+
+  // Asignación (compras/admin)
+  const [asistentes, setAsistentes]     = useState<Asistente[]>([])
+  const [asistenteSelec, setAsistenteSelec] = useState('')
+  const [asignando, setAsignando]       = useState(false)
+  const [errorAsignar, setErrorAsignar] = useState('')
 
   // Acciones de aprobación
   const [accionando, setAccionando]   = useState(false)
@@ -577,6 +601,9 @@ export default function DetalleNPPage() {
   useEffect(() => {
     fetch('/api/auth/perfil').then(r => r.json()).then(p => {
       if (p.rol) setRol(p.rol)
+      if (p.id)  setUserId(p.id)
+      if (['compras', 'admin'].includes(p.rol))
+        fetch('/api/compras/asistentes').then(r => r.json()).then(setAsistentes).catch(console.error)
     })
   }, [])
 
@@ -615,6 +642,24 @@ export default function DetalleNPPage() {
       else setErrAccion(data.error || 'Error al ejecutar la acción')
     } catch { setErrAccion('Error de conexión') }
     finally { setAccionando(false) }
+  }
+
+  async function handleAsignar(accion: 'asignar' | 'reasignar' | 'tomar_control') {
+    if (accion !== 'tomar_control' && !asistenteSelec) return
+    setAsignando(true)
+    setErrorAsignar('')
+    const body: Record<string, string> = { accion }
+    if (accion !== 'tomar_control') body.asistente_id = asistenteSelec
+    const res = await fetch(`/api/compras/nps/${id}/asignar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const data = await res.json()
+    setAsignando(false)
+    if (!res.ok) { setErrorAsignar(data.error ?? 'Error'); return }
+    setAsistenteSelec('')
+    cargar()
   }
 
   const mostrarAprobacion = np?.estado === 'pendiente' && puedeAprobar
@@ -662,6 +707,14 @@ export default function DetalleNPPage() {
               <div><p className="text-xs text-slate-500">Total Estimado</p><p className="font-bold text-blue-700">{usd(np.total_estimado)}</p></div>
               <div><p className="text-xs text-slate-500">Fecha Solicitud</p><p className="font-medium">{new Date(np.created_at).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })}</p></div>
               <div><p className="text-xs text-slate-500">OC Generada</p><p className={`font-medium ${np.convertida ? 'text-blue-600' : 'text-slate-400'}`}>{np.convertida ? '✓ Sí' : 'No'}</p></div>
+              {['compras', 'admin'].includes(rol) && (
+                <div>
+                  <p className="text-xs text-slate-500">Asignada a</p>
+                  {np.asignado_nombre
+                    ? <p className="font-medium text-cyan-700">👤 {np.asignado_nombre}</p>
+                    : <p className="text-slate-400 text-sm">Sin asignar</p>}
+                </div>
+              )}
             </div>
             {np.descripcion_general && (
               <div className="mt-4 bg-slate-50 rounded-md p-3 text-sm">
@@ -748,7 +801,7 @@ export default function DetalleNPPage() {
                     <div className="pb-4 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${ESTADO_COLOR[h.estado] ?? 'bg-slate-100 text-slate-700'}`}>
-                          {h.estado}
+                          {HISTORIAL_LABEL[h.estado] ?? h.estado}
                         </span>
                         <span className="text-xs text-slate-400">
                           {new Date(h.fecha).toLocaleString('es-VE', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
@@ -821,8 +874,62 @@ export default function DetalleNPPage() {
           </Card>
         )}
 
-        {/* Formulario conversión — solo compras y admin */}
+        {/* Panel asignación — solo compras/admin, NP aprobada no convertida */}
         {np.estado === 'aprobada' && !np.convertida && ['compras', 'admin'].includes(rol) && (
+          <Card className="border-cyan-200">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base text-cyan-800">Asignación a Asistente</CardTitle>
+                {np.asignado_nombre && (
+                  <span className="text-xs bg-cyan-100 text-cyan-800 px-2 py-0.5 rounded-full font-medium">
+                    👤 {np.asignado_nombre}
+                  </span>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div>
+                <Label className="text-xs">Asistente de Compras</Label>
+                <select
+                  value={asistenteSelec}
+                  onChange={e => setAsistenteSelec(e.target.value)}
+                  className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm"
+                >
+                  <option value="">— Seleccionar asistente —</option>
+                  {asistentes.map(a => (
+                    <option key={a.id} value={a.id}>{a.nombre} ({a.email})</option>
+                  ))}
+                </select>
+              </div>
+              {errorAsignar && (
+                <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2">{errorAsignar}</p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => handleAsignar(np.asignado_a ? 'reasignar' : 'asignar')}
+                  disabled={asignando || !asistenteSelec}
+                  className="btn-primary h-8 text-xs px-4"
+                >
+                  {asignando ? 'Procesando...' : np.asignado_a ? 'Reasignar' : 'Asignar'}
+                </Button>
+                {np.asignado_a && (
+                  <Button
+                    onClick={() => handleAsignar('tomar_control')}
+                    disabled={asignando}
+                    variant="outline"
+                    className="h-8 text-xs text-purple-700 border-purple-300 hover:bg-purple-50"
+                  >
+                    {asignando ? '...' : '🎯 Tomar control'}
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Formulario conversión — compras, admin, y asistente asignado */}
+        {np.estado === 'aprobada' && !np.convertida &&
+          (['compras', 'admin'].includes(rol) || (rol === 'asistente_compras' && np.asignado_a === userId)) && (
           <FormularioOC np={np} itemsNP={items} onConvertida={(numeroOC) => { setUltimaOC(numeroOC); cargar() }} />
         )}
 

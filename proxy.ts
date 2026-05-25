@@ -111,10 +111,8 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL('/compras/dashboard', req.url))
   }
 
-  // Rutas de compras/dashboard/nps — solo compras, gerencia, consulta, admin, bodega
-  // solicitante no puede entrar
   if (requiresCompras(pathname)) {
-    // solicitante solo puede ver /compras (sus NPs) — nada más
+    // solicitante: solo sus NPs y dashboard
     if (rol === 'solicitante') {
       const permitidasSolicitante = ['/compras', '/compras/dashboard']
       const permitida = permitidasSolicitante.includes(pathname) || /^\/compras\/[^/]+$/.test(pathname)
@@ -158,6 +156,21 @@ export async function proxy(req: NextRequest) {
     if (rol === 'coordinador') {
       const permitida = pathname === '/compras' || /^\/compras\/[^/]+$/.test(pathname)
       if (!permitida) {
+        return NextResponse.redirect(new URL('/compras', req.url))
+      }
+    }
+
+    // Spec: asistente_compras — NPs, dashboard, ordenes, proveedores, nueva NP, detalle NP
+    if (rol === 'asistente_compras') {
+      const bloqueadas = [
+        '/compras/inventario',
+        '/compras/coordinadores',
+        '/compras/accesos',
+        '/compras/auditoria',
+        '/compras/configuracion',
+      ]
+      const bloqueada = bloqueadas.some(b => pathname === b || pathname.startsWith(b + '/'))
+      if (bloqueada) {
         return NextResponse.redirect(new URL('/compras', req.url))
       }
     }

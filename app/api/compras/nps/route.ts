@@ -177,12 +177,13 @@ export async function GET(req: NextRequest) {
     const area    = searchParams.get('area')
     const q       = searchParams.get('q')?.trim()
 
-    // Leer sesión para determinar si es solicitante
     const supabase = await createSupabaseServerClient()
     const { data: { user } } = await supabase.auth.getUser()
 
-    let emailFiltro: string | null = null
-    let areasFiltro: string[] | null = null
+    let emailFiltro:    string | null   = null
+    let areasFiltro:    string[] | null = null
+    let asistenteId:    string | null   = null  // UUID del asistente_compras autenticado
+    let rolActual:      string          = ''
 
     if (user) {
       const { data: perfil } = await adminClient()
@@ -190,6 +191,8 @@ export async function GET(req: NextRequest) {
         .select('rol, email')
         .eq('id', user.id)
         .single()
+
+      rolActual = perfil?.rol ?? ''
 
       if (perfil?.rol === 'solicitante') {
         emailFiltro = perfil.email
@@ -202,11 +205,42 @@ export async function GET(req: NextRequest) {
           .eq('email', perfil.email)
         areasFiltro = coords?.map(c => c.area) ?? []
       }
+
+      // Spec: asistente_compras ve sus NPs propias + las asignadas a él
+      if (perfil?.rol === 'asistente_compras') {
+        emailFiltro = perfil.email
+        asistenteId = user.id
+      }
+    }
+
+    const SELECT = 'id, numero, solicitante_nombre, solicitante_email, area, prioridad, tipo_compra, centro_costo, estado, total_estimado, convertida, created_at, descripcion_general, asignado_a, asignado_nombre, asignado_email'
+
+    // Asistente: OR(propias por email, asignadas por UUID)
+    if (asistenteId) {
+      let query = adminClient()
+        .from('notas_pedido')
+        .select(SELECT)
+        .or(`solicitante_email.eq.${emailFiltro},asignado_a.eq.${asistenteId}`)
+        .order('created_at', { ascending: false })
+
+      if (estado && estado !== 'todos') query = query.eq('estado', estado)
+      if (area   && area   !== 'todas') query = query.eq('area', area)
+      if (q) query = query.or(`numero.ilike.%${q}%,solicitante_nombre.ilike.%${q}%`)
+
+      const { data, error } = await query
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+      // Marcar origen para diferenciación visual en el frontend
+      const enriched = (data ?? []).map((np: any) => ({
+        ...np,
+        origen: np.asignado_a === asistenteId ? 'asignada' : 'propia',
+      }))
+      return NextResponse.json(enriched)
     }
 
     let query = adminClient()
       .from('notas_pedido')
-      .select('id, numero, solicitante_nombre, solicitante_email, area, prioridad, tipo_compra, centro_costo, estado, total_estimado, convertida, created_at, descripcion_general')
+      .select(SELECT)
       .order('created_at', { ascending: false })
 
     if (emailFiltro) query = query.eq('solicitante_email', emailFiltro)
@@ -222,7 +256,7 @@ export async function GET(req: NextRequest) {
     const { data, error } = await query
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    return NextResponse.json(data)
+    return NextResponse.json(data ?? [])
   } catch (err) {
     console.error(err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })

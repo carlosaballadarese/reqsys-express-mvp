@@ -308,6 +308,72 @@ describe('POST /api/auth/cambiar-password', () => {
   })
 })
 
+// ── 11. Asistentes — solo compras/admin ──────────────────────────────────────
+
+describe('GET /api/compras/asistentes', () => {
+  const { GET } = require('@/app/api/compras/asistentes/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/asistentes'))
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 cuando el rol no es compras ni admin', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/compras/asistentes'))
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 200 con rol compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    // Primera llamada: perfil → rol compras
+    // Segunda llamada: lista asistentes → []
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+    chain.order  = jest.fn(() => Promise.resolve({ data: [], error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/compras/asistentes'))
+    expect(res.status).toBe(200)
+  })
+})
+
+// ── 12. Asignar NP — solo compras/admin ──────────────────────────────────────
+
+describe('POST /api/compras/nps/[id]/asignar', () => {
+  const { POST } = require('@/app/api/compras/nps/[id]/asignar/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-123/asignar', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'asignar', asistente_id: 'user-abc' }),
+      }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 cuando el rol no es compras ni admin', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-123/asignar', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'asignar', asistente_id: 'user-abc' }),
+      }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+})
+
 // ── 10. Separación de tokens: devolver usa token_devolucion ──────────────────
 
 describe('POST /api/devolver/[token] — separación de tokens', () => {
