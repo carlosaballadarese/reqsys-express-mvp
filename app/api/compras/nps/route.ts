@@ -182,6 +182,7 @@ export async function GET(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser()
 
     let emailFiltro: string | null = null
+    let areasFiltro: string[] | null = null
 
     if (user) {
       const { data: perfil } = await adminClient()
@@ -193,6 +194,14 @@ export async function GET(req: NextRequest) {
       if (perfil?.rol === 'solicitante') {
         emailFiltro = perfil.email
       }
+
+      if (perfil?.rol === 'coordinador') {
+        const { data: coords } = await adminClient()
+          .from('coordinadores_area')
+          .select('area')
+          .eq('email', perfil.email)
+        areasFiltro = coords?.map(c => c.area) ?? []
+      }
     }
 
     let query = adminClient()
@@ -200,8 +209,11 @@ export async function GET(req: NextRequest) {
       .select('id, numero, solicitante_nombre, solicitante_email, area, prioridad, tipo_compra, centro_costo, estado, total_estimado, convertida, created_at, descripcion_general')
       .order('created_at', { ascending: false })
 
-    // Solicitante solo ve sus propias NPs
     if (emailFiltro) query = query.eq('solicitante_email', emailFiltro)
+    if (areasFiltro !== null) {
+      if (areasFiltro.length === 0) return NextResponse.json([])
+      query = query.in('area', areasFiltro)
+    }
 
     if (estado && estado !== 'todos') query = query.eq('estado', estado)
     if (area   && area   !== 'todas') query = query.eq('area', area)

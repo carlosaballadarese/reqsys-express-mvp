@@ -565,7 +565,7 @@ export default function DetalleNPPage() {
   const [error, setError]         = useState('')
   const [ultimaOC, setUltimaOC]  = useState('')
   const [rol, setRol]             = useState('')
-  const [_emailUsuario, setEmailUsuario] = useState('')
+  const [puedeAprobar, setPuedeAprobar] = useState(false)
 
   // Acciones de aprobación
   const [accionando, setAccionando]   = useState(false)
@@ -576,8 +576,7 @@ export default function DetalleNPPage() {
 
   useEffect(() => {
     fetch('/api/auth/perfil').then(r => r.json()).then(p => {
-      if (p.rol)   setRol(p.rol)
-      if (p.email) setEmailUsuario(p.email)
+      if (p.rol) setRol(p.rol)
     })
   }, [])
 
@@ -590,6 +589,7 @@ export default function DetalleNPPage() {
         setNp(data.np)
         setItems(data.items)
         setHistorial(data.historial)
+        setPuedeAprobar(data.puedeAprobar ?? false)
         setCargando(false)
       })
       .catch(() => { setError('Error de conexión'); setCargando(false) })
@@ -617,9 +617,7 @@ export default function DetalleNPPage() {
     finally { setAccionando(false) }
   }
 
-  // Mostrar botones de aprobación a cualquier rol que no sea solicitante/bodega
-  // El backend valida la autorización real (coordinador del área, compras, admin)
-  const mostrarAprobacion = np?.estado === 'pendiente' && !['solicitante', 'bodega', 'consulta'].includes(rol)
+  const mostrarAprobacion = np?.estado === 'pendiente' && puedeAprobar
   const mostrarDevolucion = np?.estado === 'aprobada' && ['compras', 'admin'].includes(rol)
 
   if (cargando) return <div className="min-h-screen flex items-center justify-center text-slate-400">Cargando...</div>

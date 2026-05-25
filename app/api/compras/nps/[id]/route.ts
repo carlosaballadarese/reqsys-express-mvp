@@ -5,7 +5,7 @@ import { transporter } from '@/lib/mailer'
 import { escapeHtml } from '@/lib/utils'
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -19,7 +19,31 @@ export async function GET(
 
     if (error || !np) return NextResponse.json({ error: 'NP no encontrada' }, { status: 404 })
 
-    return NextResponse.json({ np, items: items ?? [], historial: historial ?? [] })
+    // Calcular si el usuario autenticado puede aprobar esta NP
+    let puedeAprobar = false
+    try {
+      const supabase = await createSupabaseServerClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: perfil } = await adminClient()
+          .from('perfiles').select('rol, email').eq('id', user.id).single()
+        if (perfil) {
+          if (['admin', 'compras'].includes(perfil.rol)) {
+            puedeAprobar = true
+          } else {
+            const { data: coord } = await adminClient()
+              .from('coordinadores_area')
+              .select('id')
+              .eq('area', np.area)
+              .eq('email', perfil.email)
+              .maybeSingle()
+            puedeAprobar = !!coord
+          }
+        }
+      }
+    } catch {}
+
+    return NextResponse.json({ np, items: items ?? [], historial: historial ?? [], puedeAprobar })
   } catch (err) {
     console.error(err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })
