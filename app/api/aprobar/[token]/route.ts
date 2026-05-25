@@ -52,7 +52,6 @@ export async function POST(
 
       if (compras) {
         try {
-          const urlDevolver = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/devolver/${np.token_devolucion}`
           const tablaItemsHtml = (items ?? []).map(item => `
             <tr style="border-bottom:1px solid #e5e7eb">
               <td style="padding:6px 10px">${item.linea}</td>
@@ -67,7 +66,7 @@ export async function POST(
             from: 'One ARLIFT <one.arlift@arlift.com.ec>',
             to: compras.email,
             subject: `REQSYS NP Aprobada ${np.numero} - ${np.area}`,
-            text: `NP Aprobada ${np.numero}\nArea: ${np.area}\nAprobada por: ${aprobador?.nombre ?? 'coordinador'}\nTotal: $${Number(np.total_estimado).toFixed(2)}\n\nDevolver al solicitante: ${urlDevolver}`,
+            text: `NP Aprobada ${np.numero}\nArea: ${np.area}\nAprobada por: ${aprobador?.nombre ?? 'coordinador'}\nTotal: $${Number(np.total_estimado).toFixed(2)}\n\nIngrese al sistema REQSYS para gestionar esta solicitud.`,
             html: `
               <div style="font-family:sans-serif;max-width:640px;margin:0 auto;color:#1e293b">
                 <div style="background:#1e40af;padding:20px 24px;border-radius:6px 6px 0 0">
@@ -113,8 +112,7 @@ export async function POST(
                       </tr>
                     </tfoot>
                   </table>
-                  <p style="margin:0 0 4px;font-weight:600">Para devolver al solicitante con correcciones:</p>
-                  <p style="margin:0">${urlDevolver}</p>
+                  <p style="margin:0;font-weight:600">Ingrese al sistema REQSYS para gestionar esta solicitud.</p>
                 </div>
                 <div style="padding:12px;text-align:center;color:#94a3b8;font-size:11px">
                   REQSYS - ARLIFT S.A. Sistema de Gestion de Requerimientos

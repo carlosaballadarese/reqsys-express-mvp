@@ -145,32 +145,26 @@ export async function POST(
       )
       .join('')
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-    const urlAprobar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=aprobar`
-    const urlRechazar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=rechazar`
-
     // Notificar al coordinador del área para nueva aprobación
     try {
       await transporter.sendMail({
         from: 'One ARLIFT <one.arlift@arlift.com.ec>',
         to: coordinador.email,
-        subject: `[REQSYS] NP Corregida ${np.numero} — ${encabezado.area}`,
-        text: `Hola ${coordinador.nombre},\n\nLa Nota de Pedido ${np.numero} ha sido corregida por el solicitante y requiere su aprobación nuevamente.\n\nNúmero: ${np.numero}\nSolicitante: ${encabezado.solicitante_nombre}\nÁrea: ${encabezado.area}\n\nPara gestionar esta solicitud, use los siguientes enlaces:\n\nAPROBAR: ${urlAprobar}\nRECHAZAR: ${urlRechazar}\n\nREQSYS — ARLIFT S.A.`,
-        html: `
-          <p>Hola <strong>${coordinador.nombre}</strong>,</p>
-          <p>La Nota de Pedido <strong>${np.numero}</strong> ha sido corregida por el solicitante y requiere su aprobación nuevamente.</p>
-          <ul>
-            <li><strong>Número:</strong> ${np.numero}</li>
-            <li><strong>Solicitante:</strong> ${encabezado.solicitante_nombre}</li>
-            <li><strong>Área:</strong> ${encabezado.area}</li>
-          </ul>
-          <p>Puede gestionar esta solicitud haciendo clic en los siguientes enlaces:</p>
-          <p>
-            <a href="${urlAprobar}">APROBAR ESTA NP</a><br><br>
-            <a href="${urlRechazar}">RECHAZAR ESTA NP</a>
-          </p>
-          <p>REQSYS — ARLIFT S.A.</p>
-        `,
+        subject: `REQSYS NP Corregida ${np.numero} - ${encabezado.area}`,
+        text: [
+          `Estimado/a ${coordinador.nombre},`,
+          '',
+          `La Nota de Pedido ${np.numero} ha sido corregida por el solicitante y requiere su aprobacion nuevamente.`,
+          '',
+          `Numero: ${np.numero}`,
+          `Solicitante: ${encabezado.solicitante_nombre}`,
+          `Area: ${encabezado.area}`,
+          `Total: $${totalEstimado.toFixed(2)}`,
+          '',
+          'Ingrese al sistema REQSYS para gestionar esta solicitud.',
+          '',
+          'REQSYS - ARLIFT S.A.',
+        ].join('\n'),
       })
     } catch (err) {
       console.error('Error enviando email de corrección:', err)

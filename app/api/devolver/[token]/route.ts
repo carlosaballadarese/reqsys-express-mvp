@@ -60,10 +60,7 @@ export async function POST(
       notas: `Devuelta por Compras: ${motivo_devolucion}`,
     })
 
-    // Enviar email al solicitante con link para editar
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-    const urlEditar = `${baseUrl}/editar/${np.token_edicion}`
-
+    // Enviar email al solicitante
     try {
       await transporter.sendMail({
         from: 'One ARLIFT <one.arlift@arlift.com.ec>',
@@ -76,8 +73,7 @@ export async function POST(
           '',
           `Motivo: ${motivo_devolucion}`,
           '',
-          `Para corregir y reenviar ingrese a:`,
-          urlEditar,
+          'Ingrese al sistema REQSYS para ver el detalle y corregir su solicitud.',
           '',
           'REQSYS - ARLIFT S.A.',
         ].join('\n'),
