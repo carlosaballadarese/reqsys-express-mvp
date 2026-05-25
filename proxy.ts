@@ -149,6 +149,14 @@ export async function proxy(req: NextRequest) {
         return NextResponse.redirect(new URL('/compras/dashboard', req.url))
       }
     }
+
+    // coordinador: solo lista de NPs y detalle de NP individual
+    if (rol === 'coordinador') {
+      const permitida = pathname === '/compras' || /^\/compras\/[^/]+$/.test(pathname)
+      if (!permitida) {
+        return NextResponse.redirect(new URL('/compras', req.url))
+      }
+    }
   }
 
   return res

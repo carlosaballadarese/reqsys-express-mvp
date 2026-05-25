@@ -13,12 +13,13 @@ type Perfil = {
 }
 
 const ROL_LABEL: Record<string, string> = {
-  solicitante: 'Solicitante',
-  compras:     'Compras',
-  gerencia:    'Gerencia',
-  consulta:    'Consulta',
-  admin:       'Administrador',
-  bodega:      'Bodega',
+  solicitante:  'Solicitante',
+  compras:      'Compras',
+  gerencia:     'Gerencia',
+  consulta:     'Consulta',
+  admin:        'Administrador',
+  bodega:       'Bodega',
+  coordinador:  'Coordinador',
 }
 
 type NavItem = {
@@ -30,7 +31,7 @@ type NavItem = {
 
 const NAV_ITEMS: NavItem[] = [
   { href: '/compras',              label: 'Mis NPs',           roles: ['solicitante'],                                        exact: true },
-  { href: '/compras',              label: 'NPs',               roles: ['compras', 'admin', 'gerencia', 'consulta'],           exact: true },
+  { href: '/compras',              label: 'NPs',               roles: ['compras', 'admin', 'gerencia', 'consulta', 'coordinador'], exact: true },
   { href: '/compras/nueva',        label: 'Nueva NP',          roles: ['bodega'] },
   { href: '/compras/ordenes',      label: 'Órdenes de Compra', roles: ['compras', 'admin', 'gerencia', 'consulta'] },
   { href: '/compras/proveedores',  label: 'Proveedores',       roles: ['compras', 'admin'] },
