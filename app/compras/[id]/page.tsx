@@ -619,7 +619,7 @@ export default function DetalleNPPage() {
 
   // Mostrar botones de aprobación a cualquier rol que no sea solicitante/bodega
   // El backend valida la autorización real (coordinador del área, compras, admin)
-  const mostrarAprobacion = np?.estado === 'pendiente' && !['solicitante', 'bodega', 'gerencia', 'consulta'].includes(rol)
+  const mostrarAprobacion = np?.estado === 'pendiente' && !['solicitante', 'bodega', 'consulta'].includes(rol)
   const mostrarDevolucion = np?.estado === 'aprobada' && ['compras', 'admin'].includes(rol)
 
   if (cargando) return <div className="min-h-screen flex items-center justify-center text-slate-400">Cargando...</div>
