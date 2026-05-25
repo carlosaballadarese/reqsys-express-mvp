@@ -14,11 +14,11 @@ const COMPRAS_ONLY = [
   '/compras',
 ]
 
-// Solo admin
-const ADMIN_ONLY = ['/compras/accesos']
+// Solo admin (ninguna ruta exclusiva de admin por ahora)
+const ADMIN_ONLY: string[] = []
 
 // Admin y compras
-const ADMIN_COMPRAS_ONLY = ['/compras/auditoria', '/compras/configuracion']
+const ADMIN_COMPRAS_ONLY = ['/compras/auditoria', '/compras/configuracion', '/compras/accesos']
 
 function isPublic(pathname: string) {
   return PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
@@ -123,22 +123,25 @@ export async function proxy(req: NextRequest) {
       }
     }
 
-    // bodega: solo inventario y nueva NP
+    // bodega: inventario, nueva NP, lista NPs, detalle NP, dashboard
     if (rol === 'bodega') {
-      const permitidasBodega = ['/compras/inventario', '/compras/nueva']
-      const permitida = permitidasBodega.some(
-        p => pathname === p || pathname.startsWith(p + '/')
-      )
-      if (!permitida) {
+      const bloqueadas = [
+        '/compras/ordenes',
+        '/compras/proveedores',
+        '/compras/coordinadores',
+        '/compras/accesos',
+        '/compras/auditoria',
+        '/compras/configuracion',
+      ]
+      const bloqueada = bloqueadas.some(b => pathname === b || pathname.startsWith(b + '/'))
+      if (bloqueada) {
         return NextResponse.redirect(new URL('/compras/inventario', req.url))
       }
     }
 
-    // gerencia y consulta: solo lectura — pueden ver NPs, OCs, dashboard
-    // pero NO pueden entrar a inventario, proveedores, accesos
+    // gerencia y consulta: solo lectura
     if (rol === 'gerencia' || rol === 'consulta') {
       const bloqueadas = [
-        '/compras/inventario',
         '/compras/proveedores',
         '/compras/accesos',
         '/compras/ordenes/nueva',

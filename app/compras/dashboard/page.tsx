@@ -36,18 +36,100 @@ function usd(n: number) {
   return new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 }
 
-const ESTADO_COLOR: Record<string, string> = {
-  pendiente:  'bg-amber-100 text-amber-800',
-  aprobada:   'bg-green-100 text-green-800',
-  rechazada:  'bg-red-100 text-red-800',
-  devuelta:   'bg-orange-100 text-orange-800',
-  convertida: 'bg-blue-100 text-blue-800',
+const ESTADO_HEX: Record<string, string> = {
+  pendiente:  '#f59e0b',
+  aprobada:   '#22c55e',
+  rechazada:  '#ef4444',
+  devuelta:   '#f97316',
+  convertida: '#3b82f6',
 }
 
-const PRIORIDAD_COLOR: Record<string, string> = {
-  alta:   'bg-red-100 text-red-700',
-  media:  'bg-amber-100 text-amber-700',
-  baja:   'bg-green-100 text-green-700',
+const PRIORIDAD_HEX: Record<string, string> = {
+  alta:  '#ef4444',
+  media: '#f59e0b',
+  baja:  '#22c55e',
+}
+
+// ─── Gráfico de pastel SVG ────────────────────────────────────────────────────
+
+function PieChart({ data }: { data: { label: string; value: number; color: string }[] }) {
+  const total = data.reduce((s, d) => s + d.value, 0)
+  if (total === 0) return <p className="text-xs text-slate-400 italic">Sin datos</p>
+
+  const R = 70; const cx = 80; const cy = 80
+
+  function polar(angle: number) {
+    const rad = (angle * Math.PI) / 180
+    return { x: cx + R * Math.cos(rad), y: cy + R * Math.sin(rad) }
+  }
+
+  let start = -90
+  const slices = data.map(d => {
+    const sweep = (d.value / total) * 360
+    const s = { ...d, start, sweep }
+    start += sweep
+    return s
+  })
+
+  return (
+    <div className="flex items-center gap-6 flex-wrap">
+      <svg width="160" height="160" viewBox="0 0 160 160" className="shrink-0">
+        {slices.map(s => {
+          if (s.sweep >= 359.9) {
+            return <circle key={s.label} cx={cx} cy={cy} r={R} fill={s.color} />
+          }
+          const p1 = polar(s.start)
+          const p2 = polar(s.start + s.sweep)
+          const large = s.sweep > 180 ? 1 : 0
+          return (
+            <path
+              key={s.label}
+              d={`M${cx},${cy} L${p1.x},${p1.y} A${R},${R} 0 ${large} 1 ${p2.x},${p2.y} Z`}
+              fill={s.color}
+              stroke="white"
+              strokeWidth="2"
+            />
+          )
+        })}
+      </svg>
+      <div className="space-y-2">
+        {slices.map(s => (
+          <div key={s.label} className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-sm shrink-0" style={{ background: s.color }} />
+            <span className="text-xs text-slate-600 capitalize w-24">{s.label}</span>
+            <span className="text-xs font-bold text-slate-800">{s.value}</span>
+            <span className="text-xs text-slate-400">({Math.round(s.value / total * 100)}%)</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Gráfico de barras vertical SVG ──────────────────────────────────────────
+
+function BarChartV({ data }: { data: { label: string; value: number; color: string }[] }) {
+  if (data.length === 0) return <p className="text-xs text-slate-400 italic">Sin datos</p>
+  const max = Math.max(...data.map(d => d.value), 1)
+  const H = 110; const BW = 56
+
+  return (
+    <div className="flex items-end justify-center gap-6 pt-4 pb-2">
+      {data.map(d => {
+        const barH = Math.max(4, (d.value / max) * H)
+        return (
+          <div key={d.label} className="flex flex-col items-center gap-1">
+            <span className="text-sm font-bold text-slate-700">{d.value}</span>
+            <div
+              className="rounded-t-md transition-all"
+              style={{ width: BW, height: barH, background: d.color }}
+            />
+            <span className="text-xs text-slate-500 capitalize mt-1">{d.label}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
@@ -193,41 +275,35 @@ export default function DashboardPage() {
           <KpiCard label="Total Estimado" value={usd(kpis.totalEstimado)}      colorBar="border-l-[#1a5252]" />
         </div>
 
-        {/* ── Distribución por estado ── */}
-        <div className={`grid grid-cols-1 ${esGlobal ? 'lg:grid-cols-2' : ''} gap-4`}>
+        {/* ── Distribución por estado + prioridad ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm text-slate-700">Distribución por Estado</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {porEstado.map(({ estado, count }) => (
-                  <div key={estado} className={`flex items-center gap-2 px-3 py-2 rounded-lg ${ESTADO_COLOR[estado] ?? 'bg-slate-100 text-slate-700'}`}>
-                    <span className="text-xs font-medium capitalize">{estado}</span>
-                    <span className="text-lg font-bold">{count}</span>
-                    <span className="text-xs opacity-70">({kpis.total > 0 ? Math.round(count / kpis.total * 100) : 0}%)</span>
-                  </div>
-                ))}
-                {porEstado.length === 0 && <p className="text-xs text-slate-400 italic">Sin datos</p>}
-              </div>
+              <PieChart
+                data={porEstado.map(({ estado, count }) => ({
+                  label: estado,
+                  value: count,
+                  color: ESTADO_HEX[estado] ?? '#94a3b8',
+                }))}
+              />
             </CardContent>
           </Card>
 
-          {/* ── Por prioridad ── */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm text-slate-700">Por Prioridad</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {porPrioridad.map(({ prioridad, count }) => (
-                  <div key={prioridad} className={`flex items-center gap-2 px-3 py-2 rounded-lg ${PRIORIDAD_COLOR[prioridad] ?? 'bg-slate-100 text-slate-700'}`}>
-                    <span className="text-xs font-medium capitalize">{prioridad}</span>
-                    <span className="text-lg font-bold">{count}</span>
-                  </div>
-                ))}
-                {porPrioridad.length === 0 && <p className="text-xs text-slate-400 italic">Sin datos</p>}
-              </div>
+              <BarChartV
+                data={porPrioridad.map(({ prioridad, count }) => ({
+                  label: prioridad,
+                  value: count,
+                  color: PRIORIDAD_HEX[prioridad] ?? '#94a3b8',
+                }))}
+              />
             </CardContent>
           </Card>
         </div>
