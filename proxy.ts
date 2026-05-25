@@ -116,8 +116,9 @@ export async function proxy(req: NextRequest) {
   if (requiresCompras(pathname)) {
     // solicitante solo puede ver /compras (sus NPs) — nada más
     if (rol === 'solicitante') {
-      const permitidasSolicitante = pathname === '/compras' || /^\/compras\/[^/]+$/.test(pathname)
-      if (!permitidasSolicitante) {
+      const permitidasSolicitante = ['/compras', '/compras/dashboard']
+      const permitida = permitidasSolicitante.includes(pathname) || /^\/compras\/[^/]+$/.test(pathname)
+      if (!permitida) {
         return NextResponse.redirect(new URL('/compras', req.url))
       }
     }

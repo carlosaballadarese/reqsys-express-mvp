@@ -40,7 +40,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/compras/accesos',      label: 'Accesos',           roles: ['admin'] },
   { href: '/compras/auditoria',    label: 'Auditoría',         roles: ['admin', 'compras'] },
   { href: '/compras/configuracion', label: 'Configuración',    roles: ['admin', 'compras'] },
-  { href: '/compras/dashboard',    label: 'Dashboard',         roles: ['compras', 'admin', 'gerencia', 'consulta'] },
+  { href: '/compras/dashboard',    label: 'Dashboard',         roles: ['compras', 'admin', 'gerencia', 'consulta', 'coordinador', 'solicitante'] },
 ]
 
 export default function ComprasNav({ children }: { children: React.ReactNode }) {

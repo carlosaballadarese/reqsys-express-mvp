@@ -3,36 +3,31 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
-// ─── Tipos ───────────────────────────────────────────────────────────────────
+// ─── Tipos ────────────────────────────────────────────────────────────────────
 
-type DashboardData = {
-  compras: {
-    kpis: {
-      totalGasto: number
-      totalOCs: number
-      cerradas: number
-      abiertas: number
-      pctCerrado: number
-      totalPorPagar: number
-    }
-    porArea: { area: string; total: number }[]
-    topProveedores: { proveedor: string; total: number; ocs: number }[]
-    porMes: { mes: string; total: number }[]
-    porTipo: { tipo: string; total: number }[]
-    años: number[]
-  }
-  inventario: {
-    kpis: {
-      totalItemsInv: number
-      itemsConStock: number
-      valorInventario: number
-    }
-    porArea: { area: string; items: number; valor: number }[]
-    porCategoria: { categoria: string; items: number; conStock: number }[]
-  }
+type Kpis = {
+  total: number
+  pendientes: number
+  aprobadas: number
+  rechazadas: number
+  devueltas: number
+  convertidas: number
+  totalEstimado: number
+}
+
+type DashData = {
+  rol: string
+  scope: 'personal' | 'area' | 'global'
+  kpis: Kpis
+  porEstado:    { estado: string; count: number }[]
+  porArea:      { area: string; count: number; total: number }[]
+  porPrioridad: { prioridad: string; count: number }[]
+  porTipo:      { tipo: string; count: number }[]
+  porMes:       { mes: string; count: number; total: number }[]
+  years:        number[]
+  areas:        string[]
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -41,279 +36,287 @@ function usd(n: number) {
   return new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 }
 
-function pct(n: number, total: number) {
-  if (!total) return 0
-  return Math.round((n / total) * 100)
+const ESTADO_COLOR: Record<string, string> = {
+  pendiente:  'bg-amber-100 text-amber-800',
+  aprobada:   'bg-green-100 text-green-800',
+  rechazada:  'bg-red-100 text-red-800',
+  devuelta:   'bg-orange-100 text-orange-800',
+  convertida: 'bg-blue-100 text-blue-800',
 }
 
-// ─── Barra CSS horizontal ────────────────────────────────────────────────────
-
-function BarRow({ label, value, max, format }: { label: string; value: number; max: number; format: (n: number) => string }) {
-  const w = max > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0
-  return (
-    <div className="flex items-center gap-3 py-1.5">
-      <span className="text-xs text-slate-600 w-44 truncate shrink-0" title={label}>{label}</span>
-      <div className="flex-1 bg-slate-100 rounded-full h-4 overflow-hidden">
-        <div
-          className="h-4 rounded-full bg-blue-600 transition-all"
-          style={{ width: `${w}%` }}
-        />
-      </div>
-      <span className="text-xs font-medium text-slate-700 w-24 text-right shrink-0">{format(value)}</span>
-    </div>
-  )
+const PRIORIDAD_COLOR: Record<string, string> = {
+  alta:   'bg-red-100 text-red-700',
+  media:  'bg-amber-100 text-amber-700',
+  baja:   'bg-green-100 text-green-700',
 }
 
-// ─── KPI Card ────────────────────────────────────────────────────────────────
+// ─── KPI Card ─────────────────────────────────────────────────────────────────
 
-function KpiCard({ label, value, sub, color = 'blue' }: { label: string; value: string; sub?: string; color?: string }) {
-  const ring: Record<string, string> = {
-    blue: 'border-l-blue-600',
-    green: 'border-l-green-600',
-    amber: 'border-l-amber-500',
-    red: 'border-l-red-500',
-    slate: 'border-l-slate-500',
-  }
+function KpiCard({ label, value, sub, colorBar }: { label: string; value: string; sub?: string; colorBar: string }) {
   return (
-    <Card className={`border-l-4 ${ring[color] ?? ring.blue}`}>
-      <CardContent className="pt-5 pb-4">
+    <Card className={`border-l-4 ${colorBar}`}>
+      <CardContent className="pt-4 pb-3">
         <p className="text-xs text-slate-500 uppercase tracking-wide">{label}</p>
         <p className="text-2xl font-bold text-slate-800 mt-1">{value}</p>
-        {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
+        {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
       </CardContent>
     </Card>
   )
 }
 
-// ─── Componente principal ────────────────────────────────────────────────────
+// ─── Barra horizontal ─────────────────────────────────────────────────────────
 
-export default function Dashboard() {
-  const [data, setData] = useState<DashboardData | null>(null)
-  const [error, setError] = useState('')
-  const [yearFilter, setYearFilter] = useState<number | null>(null)
+function BarRow({ label, value, max, badge, badgeClass }: {
+  label: string; value: number; max: number; badge?: string; badgeClass?: string
+}) {
+  const w = max > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0
+  return (
+    <div className="flex items-center gap-3 py-1.5">
+      <div className="flex items-center gap-2 w-48 shrink-0">
+        <span className="text-xs text-slate-600 truncate">{label}</span>
+        {badge && <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium shrink-0 ${badgeClass}`}>{badge}</span>}
+      </div>
+      <div className="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden">
+        <div className="h-3 rounded-full bg-[#1a5252] transition-all" style={{ width: `${w}%` }} />
+      </div>
+      <span className="text-xs font-semibold text-slate-700 w-8 text-right shrink-0">{value}</span>
+    </div>
+  )
+}
 
-  useEffect(() => {
-    const url = yearFilter ? `/api/compras/dashboard?year=${yearFilter}` : '/api/compras/dashboard'
-    setData(null)
-    fetch(url)
+// ─── Página principal ─────────────────────────────────────────────────────────
+
+export default function DashboardPage() {
+  const [data, setData]       = useState<DashData | null>(null)
+  const [error, setError]     = useState('')
+  const [cargando, setCargando] = useState(true)
+  const [areaFiltro, setAreaFiltro] = useState('todas')
+  const [yearFiltro, setYearFiltro] = useState<number | null>(null)
+
+  function cargar(area: string, year: number | null) {
+    setCargando(true)
+    const params = new URLSearchParams()
+    if (area !== 'todas') params.set('area', area)
+    if (year) params.set('year', String(year))
+    fetch(`/api/compras/dashboard?${params}`)
       .then(r => r.json())
       .then(d => {
-        if (d.error) setError(d.error)
-        else setData(d)
+        if (d.error) { setError(d.error); setCargando(false); return }
+        setData(d)
+        setCargando(false)
       })
-      .catch(() => setError('Error de conexión al cargar el dashboard'))
-  }, [yearFilter])
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center bg-slate-50 py-24">
-        <Card className="max-w-md w-full">
-          <CardContent className="pt-8 pb-8 text-center space-y-3">
-            <p className="text-red-600 font-medium">{error}</p>
-            <p className="text-sm text-slate-500">
-              Verifica que las tablas <code>registro_compras</code> e <code>inventario</code> existan en Supabase.
-            </p>
-            <Link href="/" className="text-blue-600 text-sm hover:underline block">← Volver al inicio</Link>
-          </CardContent>
-        </Card>
-      </div>
-    )
+      .catch(() => { setError('Error de conexión'); setCargando(false) })
   }
 
-  if (!data) {
-    return (
-      <div className="flex items-center justify-center bg-slate-50 py-24">
-        <div className="text-slate-400 text-sm">Cargando dashboard...</div>
-      </div>
-    )
-  }
+  useEffect(() => { cargar(areaFiltro, yearFiltro) }, [areaFiltro, yearFiltro])
 
-  const { compras, inventario } = data
-  const maxArea   = Math.max(...compras.porArea.map(r => r.total), 1)
-  const maxProv   = Math.max(...compras.topProveedores.map(r => r.total), 1)
-  const maxMes    = Math.max(...compras.porMes.map(r => r.total), 1)
-  const maxTipo   = Math.max(...compras.porTipo.map(r => r.total), 1)
+  if (error) return (
+    <div className="flex items-center justify-center py-24">
+      <Card className="max-w-sm w-full">
+        <CardContent className="pt-8 pb-8 text-center">
+          <p className="text-red-600 font-medium">{error}</p>
+        </CardContent>
+      </Card>
+    </div>
+  )
+
+  if (cargando || !data) return (
+    <div className="flex items-center justify-center py-24 text-slate-400 text-sm">Cargando dashboard...</div>
+  )
+
+  const { kpis, porEstado, porArea, porPrioridad, porTipo, porMes, scope, years, areas } = data
+  const esGlobal  = scope === 'global'
+  const maxArea   = Math.max(...porArea.map(r => r.count), 1)
+  const maxTipo   = Math.max(...porTipo.map(r => r.count), 1)
+  const maxMes    = Math.max(...porMes.map(r => r.count), 1)
+  const pctAprob  = kpis.total > 0 ? Math.round((kpis.aprobadas / kpis.total) * 100) : 0
+  const pctPend   = kpis.total > 0 ? Math.round((kpis.pendientes / kpis.total) * 100) : 0
+
+  const scopeLabel = scope === 'personal' ? 'Mis NPs' : scope === 'area' ? 'NPs de mi área' : 'Todas las NPs'
 
   return (
-    <div className="bg-slate-50">
+    <div className="bg-slate-50 min-h-screen">
+
+      {/* Header */}
       <div className="page-header px-6 py-4">
-        <div className="max-w-7xl mx-auto">
-          <h1 className="text-lg font-bold">Dashboard</h1>
-          <p className="text-blue-300 text-xs mt-0.5">{compras.kpis.totalOCs.toLocaleString()} órdenes de compra</p>
-        </div>
-      </div>
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-lg font-bold">Dashboard — Notas de Pedido</h1>
+            <p className="text-blue-300 text-xs mt-0.5">{scopeLabel} · {kpis.total} NPs en total</p>
+          </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
-
-        {/* ── KPIs Compras ── */}
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-widest">Compras</h2>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">Año:</span>
+          {/* Filtros solo para vista global */}
+          {esGlobal && (
+            <div className="flex flex-wrap items-center gap-3">
+              {areas.length > 0 && (
+                <select
+                  value={areaFiltro}
+                  onChange={e => setAreaFiltro(e.target.value)}
+                  className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:border-teal-500"
+                >
+                  <option value="todas">Todas las áreas</option>
+                  {areas.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              )}
               <div className="flex gap-1">
                 <button
-                  onClick={() => setYearFilter(null)}
-                  className={`px-3 py-1 text-xs rounded-md border transition-colors ${yearFilter === null ? 'bg-[#1a5252] text-white border-[#1a5252]' : 'bg-white text-slate-600 border-slate-300 hover:border-teal-400'}`}
+                  onClick={() => setYearFiltro(null)}
+                  className={`px-3 py-1 text-xs rounded-md border transition-colors ${yearFiltro === null ? 'bg-[#1a5252] text-white border-[#1a5252]' : 'bg-white text-slate-600 border-slate-300 hover:border-teal-400'}`}
                 >
                   Todos
                 </button>
-                {(data.compras.años ?? []).map(y => (
+                {years.map(y => (
                   <button
                     key={y}
-                    onClick={() => setYearFilter(y)}
-                    className={`px-3 py-1 text-xs rounded-md border transition-colors ${yearFilter === y ? 'bg-[#1a5252] text-white border-[#1a5252]' : 'bg-white text-slate-600 border-slate-300 hover:border-teal-400'}`}
+                    onClick={() => setYearFiltro(y)}
+                    className={`px-3 py-1 text-xs rounded-md border transition-colors ${yearFiltro === y ? 'bg-[#1a5252] text-white border-[#1a5252]' : 'bg-white text-slate-600 border-slate-300 hover:border-teal-400'}`}
                   >
                     {y}
                   </button>
                 ))}
               </div>
             </div>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <KpiCard label="Gasto Total" value={usd(compras.kpis.totalGasto)} color="blue" />
-            <KpiCard label="Total OCs" value={compras.kpis.totalOCs.toLocaleString()} color="slate" />
-            <KpiCard label="Cerradas" value={`${compras.kpis.cerradas.toLocaleString()}`} sub={`${compras.kpis.pctCerrado}% del total`} color="green" />
-            <KpiCard label="Abiertas" value={compras.kpis.abiertas.toLocaleString()} color="amber" />
-            <KpiCard label="Saldo por Pagar" value={usd(compras.kpis.totalPorPagar)} color="red" />
-            <KpiCard label="Tasa de Cierre" value={`${compras.kpis.pctCerrado}%`} color={compras.kpis.pctCerrado >= 80 ? 'green' : 'amber'} />
-          </div>
-        </section>
+          )}
+        </div>
+      </div>
 
-        {/* ── Gasto por Área + Top Proveedores ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+
+        {/* ── KPIs principales ── */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+          <KpiCard label="Total NPs"      value={kpis.total.toString()}       colorBar="border-l-slate-400" />
+          <KpiCard label="Pendientes"     value={kpis.pendientes.toString()}   sub={`${pctPend}% del total`}  colorBar="border-l-amber-500" />
+          <KpiCard label="Aprobadas"      value={kpis.aprobadas.toString()}    sub={`${pctAprob}% del total`} colorBar="border-l-green-600" />
+          <KpiCard label="Rechazadas"     value={kpis.rechazadas.toString()}   colorBar="border-l-red-500" />
+          <KpiCard label="Devueltas"      value={kpis.devueltas.toString()}    colorBar="border-l-orange-500" />
+          <KpiCard label="Convertidas"    value={kpis.convertidas.toString()}  colorBar="border-l-blue-600" />
+          <KpiCard label="Total Estimado" value={usd(kpis.totalEstimado)}      colorBar="border-l-[#1a5252]" />
+        </div>
+
+        {/* ── Distribución por estado ── */}
+        <div className={`grid grid-cols-1 ${esGlobal ? 'lg:grid-cols-2' : ''} gap-4`}>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-700">Gasto por Área</CardTitle>
+              <CardTitle className="text-sm text-slate-700">Distribución por Estado</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-0.5">
-              {compras.porArea.map(r => (
-                <BarRow key={r.area} label={r.area} value={r.total} max={maxArea} format={usd} />
-              ))}
+            <CardContent>
+              <div className="flex flex-wrap gap-2">
+                {porEstado.map(({ estado, count }) => (
+                  <div key={estado} className={`flex items-center gap-2 px-3 py-2 rounded-lg ${ESTADO_COLOR[estado] ?? 'bg-slate-100 text-slate-700'}`}>
+                    <span className="text-xs font-medium capitalize">{estado}</span>
+                    <span className="text-lg font-bold">{count}</span>
+                    <span className="text-xs opacity-70">({kpis.total > 0 ? Math.round(count / kpis.total * 100) : 0}%)</span>
+                  </div>
+                ))}
+                {porEstado.length === 0 && <p className="text-xs text-slate-400 italic">Sin datos</p>}
+              </div>
             </CardContent>
           </Card>
 
+          {/* ── Por prioridad ── */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-700">Top 10 Proveedores por Gasto</CardTitle>
+              <CardTitle className="text-sm text-slate-700">Por Prioridad</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-0.5">
-              {compras.topProveedores.map(r => (
-                <BarRow
-                  key={r.proveedor}
-                  label={r.proveedor}
-                  value={r.total}
-                  max={maxProv}
-                  format={v => `${usd(v)} (${r.ocs} OC)`}
-                />
-              ))}
+            <CardContent>
+              <div className="flex flex-wrap gap-2">
+                {porPrioridad.map(({ prioridad, count }) => (
+                  <div key={prioridad} className={`flex items-center gap-2 px-3 py-2 rounded-lg ${PRIORIDAD_COLOR[prioridad] ?? 'bg-slate-100 text-slate-700'}`}>
+                    <span className="text-xs font-medium capitalize">{prioridad}</span>
+                    <span className="text-lg font-bold">{count}</span>
+                  </div>
+                ))}
+                {porPrioridad.length === 0 && <p className="text-xs text-slate-400 italic">Sin datos</p>}
+              </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* ── Gasto por Mes + Por Tipo ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-700">Gasto por Mes de Pago</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-0.5">
-              {compras.porMes.map(r => (
-                <BarRow key={r.mes} label={r.mes} value={r.total} max={maxMes} format={usd} />
-              ))}
-            </CardContent>
-          </Card>
+        {/* ── Por área (solo global y area) ── */}
+        {porArea.length > 0 && (scope === 'global' || scope === 'area') && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-slate-700">NPs por Área</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-0.5">
+                {porArea.map(r => (
+                  <BarRow
+                    key={r.area}
+                    label={r.area}
+                    value={r.count}
+                    max={maxArea}
+                  />
+                ))}
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-700">Top 10 Tipos de Compra</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-0.5">
-              {compras.porTipo.map(r => (
-                <BarRow key={r.tipo} label={r.tipo} value={r.total} max={maxTipo} format={usd} />
-              ))}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* ── KPIs Inventario ── */}
-        <section>
-          <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-widest mb-4">Inventario</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <KpiCard label="Total SKUs" value={inventario.kpis.totalItemsInv.toLocaleString()} color="slate" />
-            <KpiCard
-              label="SKUs con Stock"
-              value={inventario.kpis.itemsConStock.toLocaleString()}
-              sub={`${pct(inventario.kpis.itemsConStock, inventario.kpis.totalItemsInv)}% del catálogo`}
-              color="green"
-            />
-            <KpiCard label="Valor Inventario" value={usd(inventario.kpis.valorInventario)} color="blue" />
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-slate-700">Total Estimado por Área</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-xs text-slate-500 uppercase">
+                      <th className="text-left py-2">Área</th>
+                      <th className="text-right py-2">NPs</th>
+                      <th className="text-right py-2">Total Estimado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {porArea.map(r => (
+                      <tr key={r.area} className="border-b last:border-0 hover:bg-slate-50">
+                        <td className="py-1.5 text-slate-700 text-xs">{r.area}</td>
+                        <td className="py-1.5 text-right text-slate-600 text-xs">{r.count}</td>
+                        <td className="py-1.5 text-right font-semibold text-[#1a5252] text-xs">{usd(r.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
           </div>
-        </section>
+        )}
 
-        {/* ── Inventario por Área + Categorías ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* ── Por tipo de compra + evolución mensual ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-700">Inventario por Área</CardTitle>
+              <CardTitle className="text-sm text-slate-700">Por Tipo de Compra</CardTitle>
             </CardHeader>
-            <CardContent>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-xs text-slate-500 uppercase">
-                    <th className="text-left py-2">Área</th>
-                    <th className="text-right py-2">SKUs</th>
-                    <th className="text-right py-2">Valor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {inventario.porArea.map(r => (
-                    <tr key={r.area} className="border-b last:border-0 hover:bg-slate-50">
-                      <td className="py-2 text-slate-700">{r.area}</td>
-                      <td className="py-2 text-right text-slate-600">{r.items}</td>
-                      <td className="py-2 text-right font-medium text-blue-700">{usd(r.valor)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <CardContent className="space-y-0.5">
+              {porTipo.length > 0
+                ? porTipo.map(r => (
+                    <BarRow key={r.tipo} label={r.tipo} value={r.count} max={maxTipo} />
+                  ))
+                : <p className="text-xs text-slate-400 italic">Sin datos</p>
+              }
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-700">Inventario por Categoría (Top 12)</CardTitle>
+              <CardTitle className="text-sm text-slate-700">Evolución Mensual (últimos 12 meses)</CardTitle>
             </CardHeader>
-            <CardContent>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-xs text-slate-500 uppercase">
-                    <th className="text-left py-2">Categoría</th>
-                    <th className="text-right py-2">SKUs</th>
-                    <th className="text-right py-2">Con Stock</th>
-                    <th className="text-right py-2">Cobertura</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {inventario.porCategoria.map(r => (
-                    <tr key={r.categoria} className="border-b last:border-0 hover:bg-slate-50">
-                      <td className="py-2 text-slate-700 truncate max-w-[160px]" title={r.categoria}>{r.categoria}</td>
-                      <td className="py-2 text-right text-slate-600">{r.items}</td>
-                      <td className="py-2 text-right text-green-700 font-medium">{r.conStock}</td>
-                      <td className="py-2 text-right">
-                        <span className={`text-xs font-medium ${pct(r.conStock, r.items) >= 50 ? 'text-green-600' : 'text-amber-600'}`}>
-                          {pct(r.conStock, r.items)}%
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <CardContent className="space-y-0.5">
+              {porMes.length > 0
+                ? porMes.map(r => (
+                    <BarRow
+                      key={r.mes}
+                      label={r.mes}
+                      value={r.count}
+                      max={maxMes}
+                    />
+                  ))
+                : <p className="text-xs text-slate-400 italic">Sin datos</p>
+              }
             </CardContent>
           </Card>
         </div>
 
         <p className="text-center text-xs text-slate-400 pb-4">
-          REQSYS — ARLIFT S.A. · Datos cargados desde Control_Inventario.xlsx y REGISTRO_COMPRAS.xlsx
+          REQSYS — ARLIFT S.A. · Dashboard de Notas de Pedido
         </p>
       </div>
     </div>
