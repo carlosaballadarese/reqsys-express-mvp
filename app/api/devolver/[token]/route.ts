@@ -68,18 +68,22 @@ export async function POST(
       await transporter.sendMail({
         from: 'One ARLIFT <one.arlift@arlift.com.ec>',
         to: np.solicitante_email,
-        subject: `[REQSYS] Tu NP ${np.numero} requiere correcciones`,
-        text: `Hola ${np.solicitante_nombre},\n\nEl área de Compras ha devuelto tu Nota de Pedido ${np.numero} para que realices las correcciones necesarias.\n\nMotivo de devolución: ${motivo_devolucion}\n\nCorregir aquí: ${urlEditar}\n\nREQSYS — ARLIFT S.A.`,
-        html: `
-          <p>Hola <strong>${np.solicitante_nombre}</strong>,</p>
-          <p>El área de Compras ha devuelto tu Nota de Pedido <strong>${np.numero}</strong> para que realices las correcciones necesarias.</p>
-          <p><strong>Motivo de devolución:</strong> ${escapeHtml(motivo_devolucion)}</p>
-          <p><a href="${urlEditar}">CORREGIR NOTA DE PEDIDO</a></p>
-          <p>REQSYS — ARLIFT S.A.</p>
-        `,
+        subject: `REQSYS NP ${np.numero} requiere correcciones`,
+        text: [
+          `Estimado/a ${np.solicitante_nombre},`,
+          '',
+          `El area de Compras ha devuelto la Nota de Pedido ${np.numero} para correcciones.`,
+          '',
+          `Motivo: ${motivo_devolucion}`,
+          '',
+          `Para corregir y reenviar ingrese a:`,
+          urlEditar,
+          '',
+          'REQSYS - ARLIFT S.A.',
+        ].join('\n'),
       })
     } catch (err) {
-      console.error('Error enviando email de devolución:', err)
+      console.error('ERROR SMTP (ignorado):', err)
     }
 
     return NextResponse.json({ success: true })

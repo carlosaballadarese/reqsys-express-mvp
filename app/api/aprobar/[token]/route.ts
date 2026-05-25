@@ -50,27 +50,29 @@ export async function POST(
       ])
 
       if (compras) {
-        // Email a compras - Simplificado para evitar filtros
         try {
+          const urlDevolver = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/devolver/${np.token_devolucion}`
           await transporter.sendMail({
             from: 'One ARLIFT <one.arlift@arlift.com.ec>',
             to: compras.email,
-            subject: `[REQSYS] NP Aprobada — ${np.numero} · ${np.area}`,
-            text: `Hola ${compras.nombre},\n\nLa Nota de Pedido ${np.numero} fue aprobada por ${aprobador?.nombre ?? 'el coordinador'} y requiere tu gestión.\n\nDetalle: ${np.descripcion_general}\nTotal: $${Number(np.total_estimado).toFixed(2)}\n\nVer en el sistema: ${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/compras/nps/${np.id}\n\nREQSYS — ARLIFT S.A.`,
-            html: `
-              <p>Hola <strong>${compras.nombre}</strong>,</p>
-              <p>La Nota de Pedido <strong>${np.numero}</strong> fue aprobada por <strong>${aprobador?.nombre ?? 'el coordinador'}</strong> y requiere tu gestión.</p>
-              <ul>
-                <li><strong>Área:</strong> ${np.area}</li>
-                <li><strong>Total:</strong> $${Number(np.total_estimado).toFixed(2)}</li>
-                <li><strong>Descripción:</strong> ${np.descripcion_general}</li>
-              </ul>
-              <p><a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/compras/nps/${np.id}">GESTIONAR EN EL SISTEMA</a></p>
-              <p>REQSYS — ARLIFT S.A.</p>
-            `,
+            subject: `REQSYS NP Aprobada ${np.numero} ${np.area}`,
+            text: [
+              `Estimado/a ${compras.nombre},`,
+              '',
+              `La Nota de Pedido ${np.numero} fue aprobada por ${aprobador?.nombre ?? 'el coordinador'} y requiere gestion de compras.`,
+              '',
+              `Area: ${np.area}`,
+              `Total: $${Number(np.total_estimado).toFixed(2)}`,
+              `Descripcion: ${np.descripcion_general}`,
+              '',
+              `Para devolver al solicitante ingrese a:`,
+              urlDevolver,
+              '',
+              'REQSYS - ARLIFT S.A.',
+            ].join('\n'),
           })
         } catch (err) {
-          console.error('Error enviando email a compras:', err)
+          console.error('ERROR SMTP (ignorado):', err)
         }
       }
     }
@@ -80,18 +82,18 @@ export async function POST(
       await transporter.sendMail({
         from: 'One ARLIFT <one.arlift@arlift.com.ec>',
         to: np.solicitante_email,
-        subject: `[REQSYS] Tu NP ${np.numero} fue ${esAprobada ? 'aprobada' : 'rechazada'}`,
-        text: `Hola ${np.solicitante_nombre},\n\nTu Nota de Pedido ${np.numero} ha sido ${esAprobada ? 'aprobada' : 'rechazada'}.\n\n${!esAprobada && motivo_rechazo ? `Motivo: ${motivo_rechazo}` : ''}\n\nVer en el sistema: ${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/compras/nps/${np.id}\n\nREQSYS — ARLIFT S.A.`,
-        html: `
-          <p>Hola <strong>${np.solicitante_nombre}</strong>,</p>
-          <p>Tu Nota de Pedido <strong>${np.numero}</strong> ha sido <strong>${esAprobada ? 'aprobada' : 'rechazada'}</strong>.</p>
-          ${!esAprobada && motivo_rechazo ? `<p><strong>Motivo:</strong> ${escapeHtml(motivo_rechazo)}</p>` : ''}
-          <p><a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/compras/nps/${np.id}">VER MI NOTA DE PEDIDO</a></p>
-          <p>REQSYS — ARLIFT S.A.</p>
-        `,
+        subject: `REQSYS NP ${np.numero} ${esAprobada ? 'aprobada' : 'rechazada'}`,
+        text: [
+          `Estimado/a ${np.solicitante_nombre},`,
+          '',
+          `La Nota de Pedido ${np.numero} ha sido ${esAprobada ? 'aprobada' : 'rechazada'}.`,
+          ...(!esAprobada && motivo_rechazo ? ['', `Motivo: ${motivo_rechazo}`] : []),
+          '',
+          'REQSYS - ARLIFT S.A.',
+        ].join('\n'),
       })
     } catch (err) {
-      console.error('Error enviando email al solicitante:', err)
+      console.error('ERROR SMTP (ignorado):', err)
     }
 
     // Actualizar estado en BD

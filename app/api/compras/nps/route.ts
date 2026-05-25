@@ -86,53 +86,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Error al guardar los ítems' }, { status: 500 })
     }
 
-    // 5. Construir tabla de ítems para el email
-    const tablaItems = items
-      .map((item: { codigo: string; descripcion: string; cantidad: number; unidad: string; precio_unitario: number }, i: number) =>
-        `<tr style="border-bottom:1px solid #e5e7eb">
-          <td style="padding:8px 12px">${i + 1}</td>
-          <td style="padding:8px 12px;font-family:monospace;font-size:12px;color:#64748b">${item.codigo || '—'}</td>
-          <td style="padding:8px 12px">${item.descripcion}</td>
-          <td style="padding:8px 12px;text-align:center">${item.cantidad} ${item.unidad}</td>
-          <td style="padding:8px 12px;text-align:right">$${(item.precio_unitario || 0).toFixed(2)}</td>
-          <td style="padding:8px 12px;text-align:right">$${(item.cantidad * (item.precio_unitario || 0)).toFixed(2)}</td>
-        </tr>`
-      )
-      .join('')
-
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
     const urlAprobar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=aprobar`
     const urlRechazar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=rechazar`
-    const urlDetalle = `${baseUrl}/compras/nps/${np.id}`
 
-    // 6. Enviar email al coordinador (no bloquea si falla)
+    // 5. Enviar email al coordinador — solo texto plano para evitar filtros antivirus
     try {
-      console.log(`Intentando enviar email a: ${coordinador.email} desde: one.arlift@arlift.com.ec`)
       await transporter.sendMail({
         from: 'One ARLIFT <one.arlift@arlift.com.ec>',
         to: coordinador.email,
-        subject: `[REQSYS] Nueva Nota de Pedido ${numero} — ${encabezado.area}`,
-        text: `Hola,\n\nSe ha registrado una nueva Nota de Pedido que requiere su revisión:\n\nNúmero: ${numero}\nSolicitante: ${encabezado.solicitante_nombre}\nÁrea: ${encabezado.area}\n\nPara gestionar esta solicitud, use los siguientes enlaces:\n\nAPROBAR: ${urlAprobar}\nRECHAZAR: ${urlRechazar}\n\nVer detalle: ${urlDetalle}\n\nREQSYS — ARLIFT S.A.`,
-        html: `
-          <p>Hola,</p>
-          <p>Se ha registrado una nueva Nota de Pedido que requiere su revisión:</p>
-          <ul>
-            <li><strong>Número:</strong> ${numero}</li>
-            <li><strong>Solicitante:</strong> ${encabezado.solicitante_nombre}</li>
-            <li><strong>Área:</strong> ${encabezado.area}</li>
-          </ul>
-          <p>Puede gestionar esta solicitud haciendo clic en los siguientes enlaces:</p>
-          <p>
-            <a href="${urlAprobar}">APROBAR ESTA NP</a><br><br>
-            <a href="${urlRechazar}">RECHAZAR ESTA NP</a>
-          </p>
-          <p>O vea el detalle completo en: <a href="${urlDetalle}">${urlDetalle}</a></p>
-          <p>REQSYS — ARLIFT S.A.</p>
-        `,
+        subject: `REQSYS Nueva NP ${numero} ${encabezado.area}`,
+        text: [
+          `Estimado/a ${coordinador.nombre},`,
+          '',
+          `Se registro la Nota de Pedido ${numero} de ${encabezado.solicitante_nombre} (${encabezado.area}) por un total de $${totalEstimado.toFixed(2)}.`,
+          '',
+          `Descripcion: ${encabezado.descripcion_general}`,
+          '',
+          `Para aprobar ingrese a:`,
+          urlAprobar,
+          '',
+          `Para rechazar ingrese a:`,
+          urlRechazar,
+          '',
+          'REQSYS - ARLIFT S.A.',
+        ].join('\n'),
       })
-      console.log('✅ Email enviado exitosamente')
     } catch (emailErr) {
-      console.error('❌ ERROR SMTP (Ignorado para continuar):', emailErr)
+      console.error('ERROR SMTP (ignorado):', emailErr)
     }
 
     await adminClient().from('historial_np').insert({
