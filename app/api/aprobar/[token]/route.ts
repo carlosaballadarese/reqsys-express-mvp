@@ -44,32 +44,82 @@ export async function POST(
 
     // Si fue aprobada, preparar y enviar email a Compras
     if (esAprobada) {
-      const [{ data: compras }, { data: aprobador }] = await Promise.all([
+      const [{ data: compras }, { data: aprobador }, { data: items }] = await Promise.all([
         anonClient().from('coordinadores_area').select('nombre, email').eq('area', 'Compras').single(),
         anonClient().from('coordinadores_area').select('nombre, email').eq('area', np.area).single(),
+        anonClient().from('items_np').select('linea, codigo, descripcion, unidad, cantidad, precio_unitario, total').eq('nota_pedido_id', np.id).order('linea'),
       ])
 
       if (compras) {
         try {
           const urlDevolver = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/devolver/${np.token_devolucion}`
+          const tablaItemsHtml = (items ?? []).map(item => `
+            <tr style="border-bottom:1px solid #e5e7eb">
+              <td style="padding:6px 10px">${item.linea}</td>
+              <td style="padding:6px 10px;font-family:monospace;font-size:12px">${item.codigo || '-'}</td>
+              <td style="padding:6px 10px">${item.descripcion}</td>
+              <td style="padding:6px 10px;text-align:center">${item.cantidad} ${item.unidad}</td>
+              <td style="padding:6px 10px;text-align:right">$${Number(item.precio_unitario).toFixed(2)}</td>
+              <td style="padding:6px 10px;text-align:right">$${Number(item.total).toFixed(2)}</td>
+            </tr>`).join('')
+
           await transporter.sendMail({
             from: 'One ARLIFT <one.arlift@arlift.com.ec>',
             to: compras.email,
-            subject: `REQSYS NP Aprobada ${np.numero} ${np.area}`,
-            text: [
-              `Estimado/a ${compras.nombre},`,
-              '',
-              `La Nota de Pedido ${np.numero} fue aprobada por ${aprobador?.nombre ?? 'el coordinador'} y requiere gestion de compras.`,
-              '',
-              `Area: ${np.area}`,
-              `Total: $${Number(np.total_estimado).toFixed(2)}`,
-              `Descripcion: ${np.descripcion_general}`,
-              '',
-              `Para devolver al solicitante ingrese a:`,
-              urlDevolver,
-              '',
-              'REQSYS - ARLIFT S.A.',
-            ].join('\n'),
+            subject: `REQSYS NP Aprobada ${np.numero} - ${np.area}`,
+            text: `NP Aprobada ${np.numero}\nArea: ${np.area}\nAprobada por: ${aprobador?.nombre ?? 'coordinador'}\nTotal: $${Number(np.total_estimado).toFixed(2)}\n\nDevolver al solicitante: ${urlDevolver}`,
+            html: `
+              <div style="font-family:sans-serif;max-width:640px;margin:0 auto;color:#1e293b">
+                <div style="background:#1e40af;padding:20px 24px;border-radius:6px 6px 0 0">
+                  <p style="color:white;margin:0;font-size:18px;font-weight:bold">NP Aprobada para gestion de Compras</p>
+                  <p style="color:#bfdbfe;margin:4px 0 0">${np.numero}</p>
+                </div>
+                <div style="border:1px solid #e2e8f0;border-top:none;padding:20px 24px;background:#f8fafc">
+                  <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+                    <tr><td style="padding:5px 0;color:#64748b;width:140px">Area</td><td style="font-weight:600">${np.area}</td></tr>
+                    <tr><td style="padding:5px 0;color:#64748b">Prioridad</td><td style="text-transform:capitalize">${np.prioridad}</td></tr>
+                    <tr><td style="padding:5px 0;color:#64748b">Tipo de Compra</td><td style="text-transform:capitalize">${np.tipo_compra}</td></tr>
+                    <tr><td style="padding:5px 0;color:#64748b">Centro de Costo</td><td style="text-transform:capitalize">${np.centro_costo}</td></tr>
+                    <tr><td style="padding:5px 0;color:#64748b">Total Estimado</td><td style="font-weight:700;color:#1e40af">$${Number(np.total_estimado).toFixed(2)}</td></tr>
+                  </table>
+                  <div style="display:flex;gap:12px;margin-bottom:16px">
+                    <div style="flex:1;background:white;border:1px solid #e2e8f0;border-radius:4px;padding:12px">
+                      <p style="margin:0 0 4px;color:#64748b;font-size:11px;text-transform:uppercase">Solicitado por</p>
+                      <p style="margin:0;font-weight:600">${np.solicitante_nombre}</p>
+                      <p style="margin:2px 0 0;color:#64748b;font-size:12px">${np.solicitante_email}</p>
+                    </div>
+                    <div style="flex:1;background:white;border:1px solid #e2e8f0;border-radius:4px;padding:12px">
+                      <p style="margin:0 0 4px;color:#64748b;font-size:11px;text-transform:uppercase">Aprobado por</p>
+                      <p style="margin:0;font-weight:600">${aprobador?.nombre ?? 'Coordinador'}</p>
+                      <p style="margin:2px 0 0;color:#64748b;font-size:12px">${aprobador?.email ?? ''}</p>
+                    </div>
+                  </div>
+                  <table style="width:100%;border-collapse:collapse;background:white;border:1px solid #e2e8f0;border-radius:4px;margin-bottom:20px">
+                    <thead>
+                      <tr style="background:#f1f5f9">
+                        <th style="padding:8px 10px;text-align:left;font-size:12px;color:#64748b">#</th>
+                        <th style="padding:8px 10px;text-align:left;font-size:12px;color:#64748b">Codigo</th>
+                        <th style="padding:8px 10px;text-align:left;font-size:12px;color:#64748b">Descripcion</th>
+                        <th style="padding:8px 10px;text-align:center;font-size:12px;color:#64748b">Cantidad</th>
+                        <th style="padding:8px 10px;text-align:right;font-size:12px;color:#64748b">P. Unit.</th>
+                        <th style="padding:8px 10px;text-align:right;font-size:12px;color:#64748b">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>${tablaItemsHtml}</tbody>
+                    <tfoot>
+                      <tr style="background:#f8fafc">
+                        <td colspan="5" style="padding:8px 10px;text-align:right;font-weight:600">Total Estimado</td>
+                        <td style="padding:8px 10px;text-align:right;font-weight:700;color:#1e40af">$${Number(np.total_estimado).toFixed(2)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                  <p style="margin:0 0 4px;font-weight:600">Para devolver al solicitante con correcciones:</p>
+                  <p style="margin:0">${urlDevolver}</p>
+                </div>
+                <div style="padding:12px;text-align:center;color:#94a3b8;font-size:11px">
+                  REQSYS - ARLIFT S.A. Sistema de Gestion de Requerimientos
+                </div>
+              </div>`,
           })
         } catch (err) {
           console.error('ERROR SMTP (ignorado):', err)
