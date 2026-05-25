@@ -287,7 +287,28 @@ describe('POST /api/compras/inventario/importar', () => {
   })
 })
 
-// ── 9. Separación de tokens: devolver usa token_devolucion ───────────────────
+// ── 9. Cambio de contraseña ───────────────────────────────────────────────────
+
+describe('POST /api/auth/cambiar-password', () => {
+  const { POST } = require('@/app/api/auth/cambiar-password/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(
+      makeRequest('http://localhost/api/auth/cambiar-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          passwordActual:  'Actual123',
+          passwordNuevo:   'Nuevo456A',
+          passwordConfirm: 'Nuevo456A',
+        }),
+      })
+    )
+    expect(res.status).toBe(401)
+  })
+})
+
+// ── 10. Separación de tokens: devolver usa token_devolucion ──────────────────
 
 describe('POST /api/devolver/[token] — separación de tokens', () => {
   const { POST } = require('@/app/api/devolver/[token]/route')
