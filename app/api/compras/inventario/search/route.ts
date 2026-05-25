@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { anonClient } from '@/lib/supabase/clients'
+import { adminClient } from '@/lib/supabase/clients'
 
 
 export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get('q')?.trim()
   if (!q || q.length < 2) return NextResponse.json([])
 
-  const { data, error } = await anonClient()
+  const { data, error } = await adminClient()
     .from('inventario')
     .select('id, codigo, descripcion, costo_unitario, saldo_existencias, categoria')
     .or(`descripcion.ilike.%${q}%,codigo.ilike.%${q}%`)
