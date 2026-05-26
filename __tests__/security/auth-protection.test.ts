@@ -374,6 +374,102 @@ describe('POST /api/compras/nps/[id]/asignar', () => {
   })
 })
 
+// ── 13. Completar NP ─────────────────────────────────────────────────────────
+
+describe('POST /api/compras/nps/[id]/completar', () => {
+  const { POST } = require('@/app/api/compras/nps/[id]/completar/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-123/completar', {
+        method: 'POST',
+      }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+})
+
+// ── 14. Exportar ítems NP ────────────────────────────────────────────────────
+
+describe('GET /api/compras/nps/[id]/exportar', () => {
+  const { GET } = require('@/app/api/compras/nps/[id]/exportar/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/nps/np-123/exportar'),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+})
+
+// ── 15. Enviar OC a aprobación ───────────────────────────────────────────────
+
+describe('POST /api/compras/ordenes/[id]/enviar-aprobacion', () => {
+  const { POST } = require('@/app/api/compras/ordenes/[id]/enviar-aprobacion/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-123/enviar-aprobacion', {
+        method: 'POST',
+      }),
+      { params: Promise.resolve({ id: 'oc-123' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 cuando el rol no tiene permiso', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante', nombre: 'Test', email: 'test@test.com' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-123/enviar-aprobacion', {
+        method: 'POST',
+      }),
+      { params: Promise.resolve({ id: 'oc-123' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+})
+
+// ── 16. Aprobar / Rechazar OC ─────────────────────────────────────────────────
+
+describe('POST /api/compras/ordenes/[id]/aprobar', () => {
+  const { POST } = require('@/app/api/compras/ordenes/[id]/aprobar/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-123/aprobar', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'aprobar' }),
+      }),
+      { params: Promise.resolve({ id: 'oc-123' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 400 con acción inválida', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras', nombre: 'Test', email: 'test@test.com' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-123/aprobar', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'invalida' }),
+      }),
+      { params: Promise.resolve({ id: 'oc-123' }) }
+    )
+    expect(res.status).toBe(400)
+  })
+})
+
 // ── 10. Separación de tokens: devolver usa token_devolucion ──────────────────
 
 describe('POST /api/devolver/[token] — separación de tokens', () => {

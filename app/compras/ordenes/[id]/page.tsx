@@ -36,6 +36,7 @@ type OC = {
   dias_credito: number
   fecha_vencimiento: string | null
   estado_oc: string
+  creado_por_id: string | null
   created_at: string
 }
 
@@ -234,10 +235,25 @@ export default function DetalleOCPage() {
   const [form, setForm]               = useState<Record<string, string>>({})
   const [itemsEdit, setItemsEdit]     = useState<ItemOC[]>([])
 
-  // Cambio de estado
+  // Rol del usuario
+  const [rol, setRol]                           = useState('')
+  const [userId, setUserId]                     = useState('')
+
+  // Cambio de estado (admin)
   const [cambiandoEstado, setCambiandoEstado]   = useState(false)
   const [nuevoEstado, setNuevoEstado]           = useState('')
   const [guardandoEstado, setGuardandoEstado]   = useState(false)
+
+  // Enviar a aprobación
+  const [enviando, setEnviando]                 = useState(false)
+  const [msgEnvio, setMsgEnvio]                 = useState('')
+  const [errEnvio, setErrEnvio]                 = useState('')
+
+  // Aprobar / Rechazar
+  const [motivoRechazo, setMotivoRechazo]       = useState('')
+  const [aprobando, setAprobando]               = useState(false)
+  const [msgAprobacion, setMsgAprobacion]       = useState('')
+  const [errAprobacion, setErrAprobacion]       = useState('')
 
   function cargar() {
     setCargando(true)
@@ -257,6 +273,9 @@ export default function DetalleOCPage() {
     cargar()
     fetch('/api/compras/areas').then(r => r.json()).then(setAreas).catch(console.error)
     fetch('/api/compras/unidades').then(r => r.json()).then(setUnidades).catch(console.error)
+    fetch('/api/auth/perfil').then(r => r.json()).then(d => {
+      if (d?.id) { setRol(d.rol); setUserId(d.id) }
+    }).catch(console.error)
   }, [id])
 
   function iniciarEdicion() {
@@ -349,6 +368,41 @@ export default function DetalleOCPage() {
     } finally { setGuardandoEstado(false) }
   }
 
+  async function handleEnviarAprobacion() {
+    setEnviando(true); setMsgEnvio(''); setErrEnvio('')
+    try {
+      const res  = await fetch(`/api/compras/ordenes/${id}/enviar-aprobacion`, { method: 'POST' })
+      const data = await res.json()
+      if (data.success) {
+        setMsgEnvio(`OC enviada a aprobación de ${data.aprobador}`)
+        cargar()
+      } else {
+        setErrEnvio(data.error || 'Error al enviar')
+      }
+    } catch { setErrEnvio('Error de conexión') }
+    finally   { setEnviando(false) }
+  }
+
+  async function handleAprobar(accion: 'aprobar' | 'rechazar') {
+    setAprobando(true); setMsgAprobacion(''); setErrAprobacion('')
+    try {
+      const res  = await fetch(`/api/compras/ordenes/${id}/aprobar`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ accion, motivo: motivoRechazo || undefined }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setMsgAprobacion(accion === 'aprobar' ? 'OC aprobada correctamente' : 'OC rechazada')
+        setMotivoRechazo('')
+        cargar()
+      } else {
+        setErrAprobacion(data.error || 'Error')
+      }
+    } catch { setErrAprobacion('Error de conexión') }
+    finally   { setAprobando(false) }
+  }
+
   if (cargando) return <div className="min-h-screen flex items-center justify-center text-slate-400">Cargando...</div>
   if (errorMsg || !oc) return (
     <div className="min-h-screen flex items-center justify-center text-slate-500">
@@ -380,7 +434,7 @@ export default function DetalleOCPage() {
             <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${ESTADO_BADGE[oc.estado_oc] ?? 'bg-slate-100 text-slate-700'}`}>
               {ESTADO_LABEL[oc.estado_oc] ?? oc.estado_oc}
             </span>
-            {!editando && (
+            {!editando && oc.estado_oc === 'en_proceso' && (
               <Button onClick={iniciarEdicion} className="bg-white/10 hover:bg-white/20 text-white text-sm">
                 Editar
               </Button>
@@ -394,35 +448,87 @@ export default function DetalleOCPage() {
         {/* Cambio de estado */}
         <Card>
           <CardContent className="pt-4 pb-4">
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-sm font-medium text-slate-700">Estado:</span>
-              {!cambiandoEstado ? (
-                <>
-                  <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${ESTADO_BADGE[oc.estado_oc] ?? ''}`}>
-                    {ESTADO_LABEL[oc.estado_oc] ?? oc.estado_oc}
-                  </span>
-                  <button onClick={() => setCambiandoEstado(true)} className="text-xs text-blue-600 hover:underline">Cambiar estado</button>
-                </>
-              ) : (
-                <>
-                  <select
-                    value={nuevoEstado}
-                    onChange={e => setNuevoEstado(e.target.value)}
-                    className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-                  >
-                    {ESTADOS.map(e => (
-                      <option key={e} value={e}>{ESTADO_LABEL[e]}</option>
-                    ))}
-                  </select>
-                  <Button onClick={handleCambiarEstado} disabled={guardandoEstado || nuevoEstado === oc.estado_oc} className="h-8 btn-primary text-sm">
-                    {guardandoEstado ? 'Guardando...' : 'Confirmar'}
+            <div className="flex items-center gap-3 flex-wrap justify-between">
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-sm font-medium text-slate-700">Estado:</span>
+                {!cambiandoEstado ? (
+                  <>
+                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${ESTADO_BADGE[oc.estado_oc] ?? ''}`}>
+                      {ESTADO_LABEL[oc.estado_oc] ?? oc.estado_oc}
+                    </span>
+                    <button onClick={() => setCambiandoEstado(true)} className="text-xs text-blue-600 hover:underline">Cambiar estado</button>
+                  </>
+                ) : (
+                  <>
+                    <select
+                      value={nuevoEstado}
+                      onChange={e => setNuevoEstado(e.target.value)}
+                      className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                    >
+                      {ESTADOS.map(e => (
+                        <option key={e} value={e}>{ESTADO_LABEL[e]}</option>
+                      ))}
+                    </select>
+                    <Button onClick={handleCambiarEstado} disabled={guardandoEstado || nuevoEstado === oc.estado_oc} className="h-8 btn-primary text-sm">
+                      {guardandoEstado ? 'Guardando...' : 'Confirmar'}
+                    </Button>
+                    <button onClick={() => { setCambiandoEstado(false); setNuevoEstado(oc.estado_oc) }} className="text-xs text-slate-500 hover:underline">Cancelar</button>
+                  </>
+                )}
+              </div>
+
+              {/* Enviar a aprobación */}
+              {oc.estado_oc === 'en_proceso' &&
+               ['compras', 'admin', 'asistente_compras'].includes(rol) &&
+               (rol !== 'asistente_compras' || oc.creado_por_id === userId) && (
+                <div className="flex items-center gap-2">
+                  {msgEnvio && <span className="text-xs text-green-600">{msgEnvio}</span>}
+                  {errEnvio && <span className="text-xs text-red-600">{errEnvio}</span>}
+                  <Button onClick={handleEnviarAprobacion} disabled={enviando} className="h-8 btn-primary text-sm">
+                    {enviando ? 'Enviando...' : 'Enviar a Aprobación'}
                   </Button>
-                  <button onClick={() => { setCambiandoEstado(false); setNuevoEstado(oc.estado_oc) }} className="text-xs text-slate-500 hover:underline">Cancelar</button>
-                </>
+                </div>
               )}
             </div>
           </CardContent>
         </Card>
+
+        {/* Aprobar / Rechazar */}
+        {((oc.estado_oc === 'en_aprobacion_compras' && ['compras', 'admin'].includes(rol)) ||
+          (oc.estado_oc === 'en_aprobacion_gerencia' && ['gerencia', 'admin'].includes(rol))) && (
+          <Card className="border-amber-300 bg-amber-50">
+            <CardHeader className="pb-2 pt-4">
+              <CardTitle className="text-base text-amber-800">
+                Aprobación Requerida — {oc.estado_oc === 'en_aprobacion_compras' ? 'Compras' : 'Gerencia'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-slate-700">
+                Total OC: <span className="font-bold">${Number(oc.valor_total).toFixed(2)}</span>
+                {' · '}Proveedor: <span className="font-medium">{oc.proveedor}</span>
+              </p>
+              <div>
+                <Label className="text-xs">Notas / Motivo de rechazo (opcional)</Label>
+                <Textarea
+                  value={motivoRechazo}
+                  onChange={e => setMotivoRechazo(e.target.value)}
+                  className="mt-1 text-sm min-h-[60px]"
+                  placeholder="Agregar comentario..."
+                />
+              </div>
+              {errAprobacion && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2">{errAprobacion}</p>}
+              {msgAprobacion && <p className="text-green-600 text-xs bg-green-50 border border-green-200 rounded px-3 py-2">{msgAprobacion}</p>}
+              <div className="flex gap-3">
+                <Button onClick={() => handleAprobar('aprobar')} disabled={aprobando} className="btn-primary">
+                  {aprobando ? 'Procesando...' : 'Aprobar OC'}
+                </Button>
+                <Button onClick={() => handleAprobar('rechazar')} disabled={aprobando} variant="outline" className="text-red-600 border-red-300 hover:bg-red-50">
+                  {aprobando ? 'Procesando...' : 'Rechazar OC'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Vista detalle (sin edición) */}
         {!editando && (

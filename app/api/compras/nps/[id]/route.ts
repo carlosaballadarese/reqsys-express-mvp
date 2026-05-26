@@ -11,10 +11,14 @@ export async function GET(
   try {
     const { id } = await params
 
-    const [{ data: np, error }, { data: items }, { data: historial }] = await Promise.all([
+    const [{ data: np, error }, { data: items }, { data: historial }, { data: ocs }] = await Promise.all([
       adminClient().from('notas_pedido').select('*').eq('id', id).single(),
       adminClient().from('items_np').select('*').eq('nota_pedido_id', id).order('linea'),
       adminClient().from('historial_np').select('*').eq('np_id', id).order('fecha', { ascending: true }),
+      adminClient().from('registro_compras')
+        .select('id, numero_oc, proveedor, valor_total, estado_oc, fecha_oc, creado_por_nombre')
+        .eq('nota_pedido_id', id)
+        .order('created_at', { ascending: true }),
     ])
 
     if (error || !np) return NextResponse.json({ error: 'NP no encontrada' }, { status: 404 })
@@ -43,7 +47,7 @@ export async function GET(
       }
     } catch {}
 
-    return NextResponse.json({ np, items: items ?? [], historial: historial ?? [], puedeAprobar })
+    return NextResponse.json({ np, items: items ?? [], historial: historial ?? [], puedeAprobar, ocs: ocs ?? [] })
   } catch (err) {
     console.error(err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })

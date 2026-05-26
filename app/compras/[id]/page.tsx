@@ -33,7 +33,33 @@ type NP = {
   asignado_email:  string | null
 }
 
+type OCVinculada = {
+  id: string
+  numero_oc: string
+  proveedor: string
+  valor_total: number
+  estado_oc: string
+  fecha_oc: string | null
+  creado_por_nombre: string | null
+}
+
 type Asistente = { id: string; nombre: string; email: string }
+
+const ESTADO_OC_BADGE: Record<string, string> = {
+  en_proceso:             'bg-yellow-100 text-yellow-800',
+  en_aprobacion_compras:  'bg-blue-100 text-blue-800',
+  en_aprobacion_gerencia: 'bg-purple-100 text-purple-800',
+  aprobada:               'bg-green-100 text-green-800',
+  rechazada:              'bg-red-100 text-red-800',
+}
+
+const ESTADO_OC_LABEL: Record<string, string> = {
+  en_proceso:             'En Proceso',
+  en_aprobacion_compras:  'Aprobación Compras',
+  en_aprobacion_gerencia: 'Aprobación Gerencia',
+  aprobada:               'Aprobada',
+  rechazada:              'Rechazada',
+}
 
 type Item = {
   id: string
@@ -63,6 +89,7 @@ const ESTADO_COLOR: Record<string, string> = {
   rechazada:     'bg-red-100 text-red-800',
   devuelta:      'bg-amber-100 text-amber-800',
   convertida:    'bg-blue-100 text-blue-800',
+  completada:    'bg-teal-100 text-teal-800',
   asignacion:    'bg-cyan-100 text-cyan-800',
   reasignacion:  'bg-cyan-100 text-cyan-800',
   toma_control:  'bg-purple-100 text-purple-800',
@@ -74,6 +101,7 @@ const HISTORIAL_ICON: Record<string, string> = {
   rechazada:    '❌',
   devuelta:     '↩',
   convertida:   '🛒',
+  completada:   '🏁',
   asignacion:   '👤',
   reasignacion: '🔄',
   toma_control: '🎯',
@@ -83,6 +111,7 @@ const HISTORIAL_LABEL: Record<string, string> = {
   asignacion:   'Asignación',
   reasignacion: 'Reasignación',
   toma_control: 'Toma de control',
+  completada:   'Completada',
 }
 
 function usd(n: number) {
@@ -270,6 +299,8 @@ function InventarioSearch({ value, onChange, onSelect }: {
 // ─── Tipos ítems OC ──────────────────────────────────────────────────────────
 
 type ItemOC = {
+  item_np_id: string | null
+  seleccionado: boolean
   codigo: string
   descripcion: string
   unidad: string
@@ -277,7 +308,7 @@ type ItemOC = {
   precio_unitario: string
 }
 
-// ─── Formulario conversión a OC ──────────────────────────────────────────────
+// ─── Formulario conversión a OC (parcial / multi-OC) ─────────────────────────
 
 function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; onConvertida: (numeroOC: string) => void }) {
   const [enviando, setEnviando]     = useState(false)
@@ -316,9 +347,11 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
       .catch(err => console.error('Error cargando unidades:', err))
   }, [])
 
-  // Ítems de la OC pre-cargados desde la NP
+  // Ítems pre-cargados desde la NP — todos seleccionados por defecto
   const [itemsOC, setItemsOC] = useState<ItemOC[]>(() =>
     itemsNP.map(i => ({
+      item_np_id:      i.id,
+      seleccionado:    true,
       codigo:          i.codigo || '',
       descripcion:     i.descripcion,
       unidad:          i.unidad,
@@ -331,45 +364,42 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
     setForm(f => ({ ...f, [key]: val }))
   }
 
-  function setItem(index: number, key: keyof ItemOC, val: string) {
+  function setItem(index: number, key: 'codigo' | 'descripcion' | 'unidad' | 'cantidad' | 'precio_unitario', val: string) {
     setItemsOC(prev => prev.map((item, i) => i === index ? { ...item, [key]: val } : item))
   }
 
+  function toggleSeleccion(index: number) {
+    setItemsOC(prev => prev.map((item, i) => i === index ? { ...item, seleccionado: !item.seleccionado } : item))
+  }
+
   function agregarItem() {
-    setItemsOC(prev => [...prev, { codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0' }])
+    setItemsOC(prev => [...prev, { item_np_id: null, seleccionado: true, codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0' }])
   }
 
   function eliminarItem(index: number) {
     setItemsOC(prev => prev.filter((_, i) => i !== index))
   }
 
-  const totalOC = itemsOC.reduce(
+  const seleccionados = itemsOC.filter(i => i.seleccionado)
+  const totalOC = seleccionados.reduce(
     (acc, item) => acc + (parseFloat(item.cantidad) || 0) * (parseFloat(item.precio_unitario) || 0),
     0
   )
   const valorRetenido = Number(form.valor_retenido) || 0
 
   async function handleConvertir() {
-    if (!form.proveedor.trim()) {
-      setError('El proveedor es requerido')
-      return
-    }
-    if (itemsOC.length === 0) {
-      setError('La OC debe tener al menos un ítem')
-      return
-    }
-    if (itemsOC.some(i => !i.descripcion.trim())) {
-      setError('Todos los ítems deben tener descripción')
-      return
-    }
+    if (!form.proveedor.trim()) { setError('El proveedor es requerido'); return }
+    if (seleccionados.length === 0) { setError('Selecciona al menos un ítem para incluir en la OC'); return }
+    if (seleccionados.some(i => !i.descripcion.trim())) { setError('Todos los ítems seleccionados deben tener descripción'); return }
     setEnviando(true)
     setError('')
     try {
       const payload = {
         ...form,
         proveedor_id: proveedorId,
-        valor_total: totalOC,
-        items: itemsOC.map(i => ({
+        valor_total:  totalOC,
+        items: seleccionados.map(i => ({
+          item_np_id:      i.item_np_id,
           codigo:          i.codigo || null,
           descripcion:     i.descripcion,
           unidad:          i.unidad,
@@ -383,11 +413,8 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
         body: JSON.stringify(payload),
       })
       const data = await res.json()
-      if (data.success) {
-        onConvertida(data.numero_oc)
-      } else {
-        setError(data.error || 'Error al convertir')
-      }
+      if (data.success) { onConvertida(data.numero_oc) }
+      else { setError(data.error || 'Error al convertir') }
     } catch {
       setError('Error de conexión')
     } finally {
@@ -402,18 +429,24 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
       </CardHeader>
       <CardContent className="space-y-6">
 
-        {/* Ítems de la OC */}
+        {/* Ítems de la OC — selección parcial con checkbox */}
         <div>
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-medium text-slate-700">Ítems de la OC</p>
-            <button type="button" onClick={agregarItem} className="text-xs text-blue-600 hover:underline font-medium">+ Agregar ítem</button>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-sm font-medium text-slate-700">Ítems a incluir en esta OC</p>
+            <button type="button" onClick={agregarItem} className="text-xs text-blue-600 hover:underline font-medium">+ Ítem nuevo</button>
           </div>
+          <p className="text-xs text-slate-400 mb-3">Desmarca los ítems que irán a otra OC. Puedes ajustar la cantidad.</p>
           <div className="space-y-2">
             {itemsOC.map((item, i) => (
-              <div key={i} className="border rounded-lg p-3 bg-slate-50 space-y-2">
-                {/* Fila 1: línea + descripción (ancha) + eliminar */}
+              <div key={i} className={`border rounded-lg p-3 space-y-2 transition-colors ${item.seleccionado ? 'bg-slate-50' : 'bg-white opacity-50'}`}>
+                {/* Fila 1: checkbox + línea + descripción + eliminar */}
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400 font-medium w-5 shrink-0">{i + 1}</span>
+                  <input
+                    type="checkbox"
+                    checked={item.seleccionado}
+                    onChange={() => toggleSeleccion(i)}
+                    className="rounded shrink-0"
+                  />
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
                       <Label className="text-xs text-slate-500">Descripción *</Label>
@@ -435,37 +468,39 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
                       }}
                     />
                   </div>
-                  {itemsOC.length > 1 && (
+                  {!item.item_np_id && (
                     <button type="button" onClick={() => eliminarItem(i)} className="text-red-400 hover:text-red-600 text-sm mt-4 shrink-0">✕</button>
                   )}
                 </div>
                 {/* Fila 2: código + unidad + cantidad + precio + total */}
-                <div className="flex items-end gap-2 flex-wrap pl-7">
-                  <div>
-                    <Label className="text-xs text-slate-500">Código</Label>
-                    <Input value={item.codigo} onChange={e => setItem(i, 'codigo', e.target.value)} className="h-7 text-xs font-mono w-28 mt-0.5" placeholder="AL-I-0000" />
+                {item.seleccionado && (
+                  <div className="flex items-end gap-2 flex-wrap pl-6">
+                    <div>
+                      <Label className="text-xs text-slate-500">Código</Label>
+                      <Input value={item.codigo} onChange={e => setItem(i, 'codigo', e.target.value)} className="h-7 text-xs font-mono w-28 mt-0.5" placeholder="AL-I-0000" />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-slate-500">Unidad</Label>
+                      <select value={item.unidad} onChange={e => setItem(i, 'unidad', e.target.value)} className="mt-0.5 h-7 rounded-md border border-input bg-background px-1 text-xs w-16 block">
+                        {unidades.map(u => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-slate-500">Cantidad</Label>
+                      <Input type="number" step="0.01" min="0" value={item.cantidad} onChange={e => setItem(i, 'cantidad', e.target.value)} className="h-7 text-xs w-20 mt-0.5" />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-slate-500">P. Unit. USD</Label>
+                      <Input type="number" step="0.01" min="0" value={item.precio_unitario} onChange={e => setItem(i, 'precio_unitario', e.target.value)} className="h-7 text-xs w-24 mt-0.5" />
+                    </div>
+                    <div className="ml-auto text-right">
+                      <Label className="text-xs text-slate-500">Total</Label>
+                      <p className="text-sm font-bold text-blue-700 mt-0.5">
+                        ${((parseFloat(item.cantidad) || 0) * (parseFloat(item.precio_unitario) || 0)).toFixed(2)}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <Label className="text-xs text-slate-500">Unidad</Label>
-                    <select value={item.unidad} onChange={e => setItem(i, 'unidad', e.target.value)} className="mt-0.5 h-7 rounded-md border border-input bg-background px-1 text-xs w-16 block">
-                      {unidades.map(u => <option key={u} value={u}>{u}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-slate-500">Cantidad</Label>
-                    <Input type="number" step="0.01" min="0" value={item.cantidad} onChange={e => setItem(i, 'cantidad', e.target.value)} className="h-7 text-xs w-20 mt-0.5" />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-slate-500">P. Unit. USD</Label>
-                    <Input type="number" step="0.01" min="0" value={item.precio_unitario} onChange={e => setItem(i, 'precio_unitario', e.target.value)} className="h-7 text-xs w-24 mt-0.5" />
-                  </div>
-                  <div className="ml-auto text-right">
-                    <Label className="text-xs text-slate-500">Total</Label>
-                    <p className="text-sm font-bold text-blue-700 mt-0.5">
-                      ${((parseFloat(item.cantidad) || 0) * (parseFloat(item.precio_unitario) || 0)).toFixed(2)}
-                    </p>
-                  </div>
-                </div>
+                )}
               </div>
             ))}
             {/* Total general */}
@@ -578,12 +613,17 @@ export default function DetalleNPPage() {
   const [np, setNp]               = useState<NP | null>(null)
   const [items, setItems]         = useState<Item[]>([])
   const [historial, setHistorial] = useState<Historial[]>([])
+  const [ocs, setOcs]             = useState<OCVinculada[]>([])
   const [cargando, setCargando]   = useState(true)
   const [error, setError]         = useState('')
   const [ultimaOC, setUltimaOC]  = useState('')
   const [rol, setRol]             = useState('')
   const [userId, setUserId]       = useState('')
   const [puedeAprobar, setPuedeAprobar] = useState(false)
+
+  // Completar NP
+  const [completando, setCompletando] = useState(false)
+  const [errorCompletar, setErrorCompletar] = useState('')
 
   // Asignación (compras/admin)
   const [asistentes, setAsistentes]     = useState<Asistente[]>([])
@@ -616,6 +656,7 @@ export default function DetalleNPPage() {
         setNp(data.np)
         setItems(data.items)
         setHistorial(data.historial)
+        setOcs(data.ocs ?? [])
         setPuedeAprobar(data.puedeAprobar ?? false)
         setCargando(false)
       })
@@ -659,6 +700,16 @@ export default function DetalleNPPage() {
     setAsignando(false)
     if (!res.ok) { setErrorAsignar(data.error ?? 'Error'); return }
     setAsistenteSelec('')
+    cargar()
+  }
+
+  async function handleCompletar() {
+    setCompletando(true)
+    setErrorCompletar('')
+    const res = await fetch(`/api/compras/nps/${id}/completar`, { method: 'POST' })
+    const data = await res.json()
+    setCompletando(false)
+    if (!res.ok) { setErrorCompletar(data.error ?? 'Error'); return }
     cargar()
   }
 
@@ -777,6 +828,78 @@ export default function DetalleNPPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* OCs vinculadas + acciones de gestión */}
+        {(ocs.length > 0 || np.estado === 'aprobada') && (
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <CardTitle className="text-base text-slate-700">Órdenes de Compra Generadas</CardTitle>
+                <div className="flex gap-2">
+                  <a href={`/api/compras/nps/${id}/exportar`} download>
+                    <Button variant="outline" className="h-8 text-xs border-slate-300 text-slate-600 hover:bg-slate-50">
+                      ⬇ Exportar ítems NP
+                    </Button>
+                  </a>
+                  {np.estado === 'aprobada' && np.convertida && ['compras', 'admin', 'asistente_compras'].includes(rol) && (
+                    <Button
+                      onClick={handleCompletar}
+                      disabled={completando}
+                      className="h-8 text-xs bg-teal-600 hover:bg-teal-700 text-white"
+                    >
+                      {completando ? 'Procesando...' : '🏁 Marcar como Completada'}
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {errorCompletar && (
+                <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2 mt-2">{errorCompletar}</p>
+              )}
+            </CardHeader>
+            <CardContent>
+              {ocs.length === 0 ? (
+                <p className="text-slate-400 text-sm">Aún no se han generado órdenes de compra desde esta NP.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-xs text-slate-500 uppercase">
+                        <th className="text-left py-2 pr-4">Número OC</th>
+                        <th className="text-left py-2 pr-4">Proveedor</th>
+                        <th className="text-right py-2 pr-4">Total</th>
+                        <th className="text-left py-2 pr-4">Estado</th>
+                        <th className="text-left py-2 pr-4">Fecha OC</th>
+                        <th className="text-left py-2">Generada por</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ocs.map(oc => (
+                        <tr key={oc.id} className="border-b last:border-0 hover:bg-slate-50">
+                          <td className="py-2 pr-4">
+                            <Link href={`/compras/ordenes/${oc.id}`} className="font-mono font-medium text-blue-700 hover:underline">
+                              {oc.numero_oc}
+                            </Link>
+                          </td>
+                          <td className="py-2 pr-4 text-slate-700">{oc.proveedor}</td>
+                          <td className="py-2 pr-4 text-right font-medium">${Number(oc.valor_total).toFixed(2)}</td>
+                          <td className="py-2 pr-4">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${ESTADO_OC_BADGE[oc.estado_oc] ?? 'bg-slate-100 text-slate-600'}`}>
+                              {ESTADO_OC_LABEL[oc.estado_oc] ?? oc.estado_oc}
+                            </span>
+                          </td>
+                          <td className="py-2 pr-4 text-slate-500 text-xs">
+                            {oc.fecha_oc ? new Date(oc.fecha_oc).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                          </td>
+                          <td className="py-2 text-slate-500 text-xs">{oc.creado_por_nombre ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Historial */}
         <Card>
@@ -927,8 +1050,8 @@ export default function DetalleNPPage() {
           </Card>
         )}
 
-        {/* Formulario conversión — compras, admin, y asistente asignado */}
-        {np.estado === 'aprobada' && !np.convertida &&
+        {/* Formulario conversión — múltiples OCs desde la misma NP */}
+        {np.estado === 'aprobada' &&
           (['compras', 'admin'].includes(rol) || (rol === 'asistente_compras' && np.asignado_a === userId)) && (
           <FormularioOC np={np} itemsNP={items} onConvertida={(numeroOC) => { setUltimaOC(numeroOC); cargar() }} />
         )}

@@ -48,6 +48,12 @@ export async function PUT(
 
     const { id } = await params
 
+    // Spec: solo se pueden editar OCs en estado en_proceso (borrador)
+    const { data: ocEstado } = await adminClient()
+      .from('registro_compras').select('estado_oc').eq('id', id).single()
+    if (ocEstado && ocEstado.estado_oc !== 'en_proceso')
+      return NextResponse.json({ error: 'Solo se pueden editar OCs en estado En Proceso' }, { status: 409 })
+
     // Spec: asistente solo puede editar OCs que él generó
     if (perfil.rol === 'asistente_compras') {
       const { data: oc } = await adminClient()
