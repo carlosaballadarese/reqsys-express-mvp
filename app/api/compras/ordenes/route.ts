@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { adminClient } from '@/lib/supabase/clients'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 
 export async function GET(req: NextRequest) {
+  const supabase = await createSupabaseServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
   const { searchParams } = req.nextUrl
   const estado   = searchParams.get('estado')
   const q        = searchParams.get('q')?.trim()
@@ -25,6 +30,19 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const supabase = await createSupabaseServerClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
+    const { data: perfil } = await adminClient()
+      .from('perfiles')
+      .select('rol, nombre')
+      .eq('id', user.id)
+      .single()
+
+    if (!perfil || !['compras', 'admin', 'asistente_compras'].includes(perfil.rol))
+      return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+
     const body = await req.json()
 
     const year = new Date().getFullYear()
@@ -75,6 +93,8 @@ export async function POST(req: NextRequest) {
         dias_credito:      Number(dias_credito) || 0,
         fecha_vencimiento: fecha_vencimiento || null,
         estado_oc:         'en_proceso',
+        creado_por_id:     user.id,
+        creado_por_nombre: perfil.nombre,
       })
       .select()
       .single()

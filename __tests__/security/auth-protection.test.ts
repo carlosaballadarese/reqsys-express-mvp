@@ -374,7 +374,57 @@ describe('POST /api/compras/nps/[id]/asignar', () => {
   })
 })
 
-// ── 13. Completar NP ─────────────────────────────────────────────────────────
+// ── 13. Lista y creación de OCs — ambas protegidas ───────────────────────────
+
+describe('GET /api/compras/ordenes', () => {
+  const { GET } = require('@/app/api/compras/ordenes/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/ordenes'))
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 200 con sesión válida', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.then = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/compras/ordenes'))
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('POST /api/compras/ordenes', () => {
+  const { POST } = require('@/app/api/compras/ordenes/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/ordenes', {
+        method: 'POST',
+        body: JSON.stringify({ proveedor: 'Test', items: [{ descripcion: 'X', unidad: 'EA', cantidad: 1, precio_unitario: 10 }] }),
+      })
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 cuando el rol no puede crear OCs', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante', nombre: 'Test' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/ordenes', {
+        method: 'POST',
+        body: JSON.stringify({ proveedor: 'Test', items: [{ descripcion: 'X', unidad: 'EA', cantidad: 1, precio_unitario: 10 }] }),
+      })
+    )
+    expect(res.status).toBe(403)
+  })
+})
+
+// ── 14. Completar NP ─────────────────────────────────────────────────────────
 
 describe('POST /api/compras/nps/[id]/completar', () => {
   const { POST } = require('@/app/api/compras/nps/[id]/completar/route')
