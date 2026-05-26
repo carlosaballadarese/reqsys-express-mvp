@@ -53,20 +53,30 @@ export async function POST(req: NextRequest) {
     const numero_oc = `OC-${year}-${String(seqData).padStart(4, '0')}`
 
     const {
-      proveedor, proveedor_id, fecha_oc, descripcion_oc,
+      proveedor_id, proveedor, fecha_oc, descripcion_oc,
       area, tipo_compra, centro_costo,
       numero_factura, fecha_factura,
       valor_total, valor_retenido,
       tipo_pago, banco, dias_credito, fecha_vencimiento, mes_pago,
+      numero_cotizacion,
       items,
     } = body
 
-    if (!proveedor?.trim()) {
-      return NextResponse.json({ error: 'El proveedor es requerido' }, { status: 400 })
+    if (!proveedor_id) {
+      return NextResponse.json({ error: 'Debe seleccionar un proveedor registrado' }, { status: 400 })
     }
     if (!items || items.length === 0) {
       return NextResponse.json({ error: 'La OC debe tener al menos un ítem' }, { status: 400 })
     }
+
+    // Snapshot de datos del proveedor al momento de crear la OC
+    const { data: prov } = await adminClient()
+      .from('proveedores')
+      .select('nombre, ruc, direccion, telefono, email, contacto')
+      .eq('id', proveedor_id)
+      .single()
+
+    if (!prov) return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 400 })
 
     const valorTotal    = Number(valor_total)    || 0
     const valorRetenido = Number(valor_retenido) || 0
@@ -74,27 +84,33 @@ export async function POST(req: NextRequest) {
     const { data: oc, error: errorOC } = await adminClient()
       .from('registro_compras')
       .insert({
-        proveedor_id:      proveedor_id || null,
-        proveedor,
+        proveedor_id,
+        proveedor:           prov.nombre,
+        proveedor_ruc:       prov.ruc        || null,
+        proveedor_direccion: prov.direccion  || null,
+        proveedor_telefono:  prov.telefono   || null,
+        proveedor_contacto:  prov.contacto   || null,
+        proveedor_email:     prov.email      || null,
+        numero_cotizacion:   numero_cotizacion || null,
         numero_oc,
-        fecha_oc:          fecha_oc          || null,
-        descripcion_oc:    descripcion_oc    || null,
-        area:              area              || null,
-        tipo_compra:       tipo_compra       || null,
-        centro_costo:      centro_costo      || null,
-        numero_factura:    numero_factura    || null,
-        fecha_factura:     fecha_factura     || null,
-        valor_total:       valorTotal,
-        valor_retenido:    valorRetenido,
-        valor_a_pagar:     valorTotal - valorRetenido,
-        banco:             banco             || null,
-        tipo_pago:         tipo_pago         || null,
-        mes_pago:          mes_pago          || null,
-        dias_credito:      Number(dias_credito) || 0,
-        fecha_vencimiento: fecha_vencimiento || null,
-        estado_oc:         'en_proceso',
-        creado_por_id:     user.id,
-        creado_por_nombre: perfil.nombre,
+        fecha_oc:            fecha_oc          || null,
+        descripcion_oc:      descripcion_oc    || null,
+        area:                area              || null,
+        tipo_compra:         tipo_compra       || null,
+        centro_costo:        centro_costo      || null,
+        numero_factura:      numero_factura    || null,
+        fecha_factura:       fecha_factura     || null,
+        valor_total:         valorTotal,
+        valor_retenido:      valorRetenido,
+        valor_a_pagar:       valorTotal - valorRetenido,
+        banco:               banco             || null,
+        tipo_pago:           tipo_pago         || null,
+        mes_pago:            mes_pago          || null,
+        dias_credito:        Number(dias_credito) || 0,
+        fecha_vencimiento:   fecha_vencimiento || null,
+        estado_oc:           'en_proceso',
+        creado_por_id:       user.id,
+        creado_por_nombre:   perfil.nombre,
       })
       .select()
       .single()
@@ -107,14 +123,18 @@ export async function POST(req: NextRequest) {
     const itemsOC = items.map((item: {
       codigo: string; descripcion: string; unidad: string
       cantidad: number; precio_unitario: number
+      tipo?: string; informacion_adicional?: string; fecha_entrega?: string
     }, index: number) => ({
-      registro_compras_id: oc.id,
-      linea:               index + 1,
-      codigo:              item.codigo || null,
-      descripcion:         item.descripcion,
-      unidad:              item.unidad,
-      cantidad:            item.cantidad,
-      precio_unitario:     item.precio_unitario || 0,
+      registro_compras_id:  oc.id,
+      linea:                index + 1,
+      codigo:               item.codigo || null,
+      descripcion:          item.descripcion,
+      unidad:               item.unidad,
+      cantidad:             item.cantidad,
+      precio_unitario:      item.precio_unitario || 0,
+      tipo:                 item.tipo || null,
+      informacion_adicional: item.informacion_adicional || null,
+      fecha_entrega:        item.fecha_entrega || null,
     }))
 
     const { error: errorItems } = await adminClient().from('items_oc').insert(itemsOC)
@@ -128,7 +148,7 @@ export async function POST(req: NextRequest) {
       entidad:     'orden_compra',
       entidad_id:  oc.id,
       referencia:  numero_oc,
-      detalle:     { proveedor, area, tipo_compra, valor_total: valorTotal },
+      detalle:     { proveedor: prov.nombre, area, tipo_compra, valor_total: valorTotal },
     })
 
     return NextResponse.json({ success: true, oc_id: oc.id, numero_oc })

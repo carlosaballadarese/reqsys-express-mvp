@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Badge } from '@/components/ui/badge'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -19,6 +18,11 @@ type OC = {
   nota_pedido_id: string | null
   proveedor: string
   proveedor_id: string | null
+  proveedor_ruc: string | null
+  proveedor_direccion: string | null
+  proveedor_telefono: string | null
+  proveedor_contacto: string | null
+  proveedor_email: string | null
   fecha_np: string | null
   fecha_oc: string | null
   descripcion_oc: string | null
@@ -27,6 +31,7 @@ type OC = {
   centro_costo: string | null
   numero_factura: string | null
   fecha_factura: string | null
+  numero_cotizacion: string | null
   valor_total: number
   valor_retenido: number
   valor_a_pagar: number
@@ -37,6 +42,8 @@ type OC = {
   fecha_vencimiento: string | null
   estado_oc: string
   creado_por_id: string | null
+  creado_por_nombre: string | null
+  aprobado_por_nombre: string | null
   created_at: string
 }
 
@@ -48,17 +55,30 @@ type ItemOC = {
   unidad: string
   cantidad: number | string
   precio_unitario: number | string
+  tipo: string | null
+  informacion_adicional: string | null
+  fecha_entrega: string | null
 }
 
 type Proveedor = {
   id: string; nombre: string; clasificacion: string | null
   categoria: string | null; ciudad: string | null
-  telefono: string | null; email: string | null; contacto: string | null
+  ruc: string | null; telefono: string | null
+  email: string | null; contacto: string | null; direccion: string | null
 }
 
 type InvItem = {
   id: string; codigo: string; descripcion: string
   costo_unitario: number; saldo_existencias: number
+}
+
+type Empresa = {
+  razon_social: string
+  ruc: string | null
+  direccion: string | null
+  contacto: string | null
+  telefono: string | null
+  email: string | null
 }
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
@@ -80,6 +100,8 @@ const ESTADO_BADGE: Record<string, string> = {
   rechazada:                'bg-red-100 text-red-800',
   aprobada:                 'bg-green-100 text-green-800',
 }
+
+const TIPOS_ITEM = ['BIENES', 'SERVICIOS']
 
 // ─── Autocomplete proveedor ───────────────────────────────────────────────────
 
@@ -141,7 +163,7 @@ function ProveedorSearch({ value, onChange, onSelect }: {
               <div className="text-xs text-slate-400 mt-0.5 flex gap-3">
                 {p.categoria && <span>{p.categoria}</span>}
                 {p.ciudad    && <span>· {p.ciudad}</span>}
-                {p.contacto  && <span>· {p.contacto}</span>}
+                {p.ruc       && <span>· RUC {p.ruc}</span>}
               </div>
             </li>
           ))}
@@ -222,6 +244,7 @@ export default function DetalleOCPage() {
 
   const [oc, setOc]             = useState<OC | null>(null)
   const [items, setItems]       = useState<ItemOC[]>([])
+  const [empresa, setEmpresa]   = useState<Empresa | null>(null)
   const [cargando, setCargando] = useState(true)
   const [errorMsg, setErrorMsg] = useState('')
 
@@ -232,12 +255,13 @@ export default function DetalleOCPage() {
   const [areas, setAreas]             = useState<string[]>([])
   const [unidades, setUnidades]       = useState<string[]>(['EA'])
   const [proveedorId, setProveedorId] = useState<string | null>(null)
+  const [proveedorSnap, setProveedorSnap] = useState<Partial<Proveedor>>({})
   const [form, setForm]               = useState<Record<string, string>>({})
   const [itemsEdit, setItemsEdit]     = useState<ItemOC[]>([])
 
-  // Rol del usuario
-  const [rol, setRol]                           = useState('')
-  const [userId, setUserId]                     = useState('')
+  // Rol
+  const [rol, setRol]     = useState('')
+  const [userId, setUserId] = useState('')
 
   // Cambio de estado (admin)
   const [cambiandoEstado, setCambiandoEstado]   = useState(false)
@@ -245,15 +269,15 @@ export default function DetalleOCPage() {
   const [guardandoEstado, setGuardandoEstado]   = useState(false)
 
   // Enviar a aprobación
-  const [enviando, setEnviando]                 = useState(false)
-  const [msgEnvio, setMsgEnvio]                 = useState('')
-  const [errEnvio, setErrEnvio]                 = useState('')
+  const [enviando, setEnviando]   = useState(false)
+  const [msgEnvio, setMsgEnvio]   = useState('')
+  const [errEnvio, setErrEnvio]   = useState('')
 
   // Aprobar / Rechazar
-  const [motivoRechazo, setMotivoRechazo]       = useState('')
-  const [aprobando, setAprobando]               = useState(false)
-  const [msgAprobacion, setMsgAprobacion]       = useState('')
-  const [errAprobacion, setErrAprobacion]       = useState('')
+  const [motivoRechazo, setMotivoRechazo]   = useState('')
+  const [aprobando, setAprobando]           = useState(false)
+  const [msgAprobacion, setMsgAprobacion]   = useState('')
+  const [errAprobacion, setErrAprobacion]   = useState('')
 
   function cargar() {
     setCargando(true)
@@ -276,6 +300,10 @@ export default function DetalleOCPage() {
     fetch('/api/auth/perfil').then(r => r.json()).then(d => {
       if (d?.id) { setRol(d.rol); setUserId(d.id) }
     }).catch(console.error)
+    fetch('/api/compras/configuracion/empresa')
+      .then(r => r.json())
+      .then(d => { if (!d.error) setEmpresa(d) })
+      .catch(console.error)
   }, [id])
 
   function iniciarEdicion() {
@@ -295,30 +323,49 @@ export default function DetalleOCPage() {
       dias_credito:      String(oc.dias_credito),
       fecha_vencimiento: oc.fecha_vencimiento?.slice(0, 10) ?? '',
       mes_pago:          oc.mes_pago ?? '',
+      numero_cotizacion: oc.numero_cotizacion ?? '',
     })
     setProveedorId(oc.proveedor_id)
-    setItemsEdit(items.map(i => ({ ...i, cantidad: String(i.cantidad), precio_unitario: String(i.precio_unitario) })))
+    setProveedorSnap({
+      ruc:       oc.proveedor_ruc ?? undefined,
+      direccion: oc.proveedor_direccion ?? undefined,
+      telefono:  oc.proveedor_telefono ?? undefined,
+      contacto:  oc.proveedor_contacto ?? undefined,
+      email:     oc.proveedor_email ?? undefined,
+    })
+    setItemsEdit(items.map(i => ({
+      ...i,
+      cantidad:        String(i.cantidad),
+      precio_unitario: String(i.precio_unitario),
+      tipo:            i.tipo ?? null,
+      informacion_adicional: i.informacion_adicional ?? null,
+      fecha_entrega:   i.fecha_entrega ?? null,
+    })))
     setEditando(true)
     setErrorEdit('')
   }
 
   function setField(key: string, val: string) { setForm(f => ({ ...f, [key]: val })) }
 
-  function setItemEdit(i: number, key: keyof ItemOC, val: string) {
+  function setItemEdit(i: number, key: keyof ItemOC, val: string | null) {
     setItemsEdit(prev => prev.map((it, idx) => idx === i ? { ...it, [key]: val } : it))
   }
 
   function agregarItem() {
-    setItemsEdit(prev => [...prev, { codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0', linea: prev.length + 1 }])
+    setItemsEdit(prev => [...prev, {
+      codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0',
+      linea: prev.length + 1, tipo: null, informacion_adicional: null, fecha_entrega: null,
+    }])
   }
 
   function eliminarItem(i: number) { setItemsEdit(prev => prev.filter((_, idx) => idx !== i)) }
 
-  const totalEdit       = itemsEdit.reduce((acc, it) => acc + (parseFloat(String(it.cantidad)) || 0) * (parseFloat(String(it.precio_unitario)) || 0), 0)
+  const totalEdit         = itemsEdit.reduce((acc, it) => acc + (parseFloat(String(it.cantidad)) || 0) * (parseFloat(String(it.precio_unitario)) || 0), 0)
   const valorRetenidoEdit = Number(form.valor_retenido) || 0
+  const ivaEdit           = totalEdit * 0.15
 
   async function handleGuardar() {
-    if (!form.proveedor?.trim()) { setErrorEdit('El proveedor es requerido'); return }
+    if (!proveedorId) { setErrorEdit('Debe seleccionar un proveedor registrado'); return }
     if (itemsEdit.length === 0)  { setErrorEdit('La OC debe tener al menos un ítem'); return }
     if (itemsEdit.some(i => !String(i.descripcion).trim())) { setErrorEdit('Todos los ítems deben tener descripción'); return }
 
@@ -332,21 +379,20 @@ export default function DetalleOCPage() {
           proveedor_id: proveedorId,
           valor_total:  totalEdit,
           items: itemsEdit.map(i => ({
-            codigo:          i.codigo || null,
-            descripcion:     i.descripcion,
-            unidad:          i.unidad,
-            cantidad:        Number(i.cantidad) || 0,
-            precio_unitario: Number(i.precio_unitario) || 0,
+            codigo:               i.codigo || null,
+            descripcion:          i.descripcion,
+            unidad:               i.unidad,
+            cantidad:             Number(i.cantidad) || 0,
+            precio_unitario:      Number(i.precio_unitario) || 0,
+            tipo:                 i.tipo || null,
+            informacion_adicional: i.informacion_adicional || null,
+            fecha_entrega:        i.fecha_entrega || null,
           })),
         }),
       })
       const data = await res.json()
-      if (data.success) {
-        setEditando(false)
-        cargar()
-      } else {
-        setErrorEdit(data.error || 'Error al guardar')
-      }
+      if (data.success) { setEditando(false); cargar() }
+      else setErrorEdit(data.error || 'Error al guardar')
     } catch { setErrorEdit('Error de conexión') }
     finally  { setGuardando(false) }
   }
@@ -361,10 +407,7 @@ export default function DetalleOCPage() {
         body: JSON.stringify({ estado: nuevoEstado }),
       })
       const data = await res.json()
-      if (data.success) {
-        setCambiandoEstado(false)
-        cargar()
-      }
+      if (data.success) { setCambiandoEstado(false); cargar() }
     } finally { setGuardandoEstado(false) }
   }
 
@@ -373,12 +416,8 @@ export default function DetalleOCPage() {
     try {
       const res  = await fetch(`/api/compras/ordenes/${id}/enviar-aprobacion`, { method: 'POST' })
       const data = await res.json()
-      if (data.success) {
-        setMsgEnvio(`OC enviada a aprobación de ${data.aprobador}`)
-        cargar()
-      } else {
-        setErrEnvio(data.error || 'Error al enviar')
-      }
+      if (data.success) { setMsgEnvio(`OC enviada a aprobación de ${data.aprobador}`); cargar() }
+      else setErrEnvio(data.error || 'Error al enviar')
     } catch { setErrEnvio('Error de conexión') }
     finally   { setEnviando(false) }
   }
@@ -396,9 +435,7 @@ export default function DetalleOCPage() {
         setMsgAprobacion(accion === 'aprobar' ? 'OC aprobada correctamente' : 'OC rechazada')
         setMotivoRechazo('')
         cargar()
-      } else {
-        setErrAprobacion(data.error || 'Error')
-      }
+      } else setErrAprobacion(data.error || 'Error')
     } catch { setErrAprobacion('Error de conexión') }
     finally   { setAprobando(false) }
   }
@@ -414,6 +451,7 @@ export default function DetalleOCPage() {
   )
 
   const totalOC = items.reduce((acc, i) => acc + (Number(i.cantidad) || 0) * (Number(i.precio_unitario) || 0), 0)
+  const ivaOC   = totalOC * 0.15
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -460,14 +498,9 @@ export default function DetalleOCPage() {
                   </>
                 ) : (
                   <>
-                    <select
-                      value={nuevoEstado}
-                      onChange={e => setNuevoEstado(e.target.value)}
-                      className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-                    >
-                      {ESTADOS.map(e => (
-                        <option key={e} value={e}>{ESTADO_LABEL[e]}</option>
-                      ))}
+                    <select value={nuevoEstado} onChange={e => setNuevoEstado(e.target.value)}
+                      className="h-8 rounded-md border border-input bg-background px-2 text-sm">
+                      {ESTADOS.map(e => <option key={e} value={e}>{ESTADO_LABEL[e]}</option>)}
                     </select>
                     <Button onClick={handleCambiarEstado} disabled={guardandoEstado || nuevoEstado === oc.estado_oc} className="h-8 btn-primary text-sm">
                       {guardandoEstado ? 'Guardando...' : 'Confirmar'}
@@ -509,12 +542,8 @@ export default function DetalleOCPage() {
               </p>
               <div>
                 <Label className="text-xs">Notas / Motivo de rechazo (opcional)</Label>
-                <Textarea
-                  value={motivoRechazo}
-                  onChange={e => setMotivoRechazo(e.target.value)}
-                  className="mt-1 text-sm min-h-[60px]"
-                  placeholder="Agregar comentario..."
-                />
+                <Textarea value={motivoRechazo} onChange={e => setMotivoRechazo(e.target.value)}
+                  className="mt-1 text-sm min-h-[60px]" placeholder="Agregar comentario..." />
               </div>
               {errAprobacion && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2">{errAprobacion}</p>}
               {msgAprobacion && <p className="text-green-600 text-xs bg-green-50 border border-green-200 rounded px-3 py-2">{msgAprobacion}</p>}
@@ -530,16 +559,59 @@ export default function DetalleOCPage() {
           </Card>
         )}
 
-        {/* Vista detalle (sin edición) */}
+        {/* Vista detalle */}
         {!editando && (
           <>
+            {/* Bloque proveedor (snapshot) */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base text-slate-700">Datos del Proveedor</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+                  <div className="sm:col-span-2">
+                    <p className="text-xs text-slate-500">Nombre / Razón Social</p>
+                    <p className="font-medium">{oc.proveedor}</p>
+                  </div>
+                  <div><p className="text-xs text-slate-500">RUC</p><p className="font-mono">{oc.proveedor_ruc ?? '—'}</p></div>
+                  <div><p className="text-xs text-slate-500">Dirección</p><p>{oc.proveedor_direccion ?? '—'}</p></div>
+                  <div><p className="text-xs text-slate-500">Contacto</p><p>{oc.proveedor_contacto ?? '—'}</p></div>
+                  <div><p className="text-xs text-slate-500">Teléfono</p><p>{oc.proveedor_telefono ?? '—'}</p></div>
+                  <div><p className="text-xs text-slate-500">Email</p><p>{oc.proveedor_email ?? '—'}</p></div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Bloque FACTURAR A (empresa) */}
+            {empresa && (
+              <Card className="bg-slate-50">
+                <CardHeader className="pb-2 pt-4">
+                  <CardTitle className="text-xs text-slate-500 uppercase tracking-wide">Facturar A</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+                    <div className="sm:col-span-2">
+                      <p className="text-xs text-slate-500">Razón Social</p>
+                      <p className="font-medium">{empresa.razon_social}</p>
+                    </div>
+                    <div><p className="text-xs text-slate-500">RUC</p><p className="font-mono">{empresa.ruc ?? '—'}</p></div>
+                    <div><p className="text-xs text-slate-500">Dirección</p><p>{empresa.direccion ?? '—'}</p></div>
+                    <div><p className="text-xs text-slate-500">Contacto</p><p>{empresa.contacto ?? '—'}</p></div>
+                    <div><p className="text-xs text-slate-500">Teléfono</p><p>{empresa.telefono ?? '—'}</p></div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Datos de la orden */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base text-slate-700">Datos de la Orden</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
-                  <div><p className="text-xs text-slate-500">Proveedor</p><p className="font-medium">{oc.proveedor}</p></div>
+                  <div><p className="text-xs text-slate-500">Número OC</p><p className="font-mono font-medium">{oc.numero_oc}</p></div>
+                  {oc.numero_cotizacion && <div><p className="text-xs text-slate-500">N° Cotización</p><p className="font-medium">{oc.numero_cotizacion}</p></div>}
                   <div><p className="text-xs text-slate-500">Fecha OC</p><p className="font-medium">{oc.fecha_oc ? new Date(oc.fecha_oc).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</p></div>
                   <div><p className="text-xs text-slate-500">Área</p><p className="font-medium">{oc.area ?? '—'}</p></div>
                   <div><p className="text-xs text-slate-500">Tipo de Compra</p><p className="font-medium capitalize">{oc.tipo_compra ?? '—'}</p></div>
@@ -551,6 +623,8 @@ export default function DetalleOCPage() {
                   <div><p className="text-xs text-slate-500">Días Crédito</p><p className="font-medium">{oc.dias_credito}</p></div>
                   <div><p className="text-xs text-slate-500">Fecha Vencimiento</p><p className="font-medium">{oc.fecha_vencimiento ? new Date(oc.fecha_vencimiento).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</p></div>
                   <div><p className="text-xs text-slate-500">Mes de Pago</p><p className="font-medium">{oc.mes_pago ?? '—'}</p></div>
+                  {oc.creado_por_nombre && <div><p className="text-xs text-slate-500">Preparado por</p><p className="font-medium">{oc.creado_por_nombre}</p></div>}
+                  {oc.aprobado_por_nombre && <div><p className="text-xs text-slate-500">Aprobado por</p><p className="font-medium">{oc.aprobado_por_nombre}</p></div>}
                 </div>
                 {oc.descripcion_oc && (
                   <div className="mt-4 bg-slate-50 rounded-md p-3 text-sm">
@@ -558,15 +632,18 @@ export default function DetalleOCPage() {
                     <p>{oc.descripcion_oc}</p>
                   </div>
                 )}
-                {/* Totales */}
+                {/* Totales con IVA */}
                 <div className="mt-4 bg-slate-50 rounded-md p-3 text-sm flex flex-col gap-1">
-                  <div className="flex justify-between"><span className="text-slate-500">Total OC</span><span className="font-medium">${Number(oc.valor_total).toFixed(2)}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Retención</span><span className="font-medium text-red-600">- ${Number(oc.valor_retenido).toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Subtotal</span><span className="font-medium">${Number(oc.valor_total).toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">IVA 15%</span><span className="font-medium">${ivaOC.toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Total con IVA</span><span className="font-medium">${(Number(oc.valor_total) + ivaOC).toFixed(2)}</span></div>
+                  <div className="flex justify-between border-t pt-1 mt-1"><span className="text-slate-500">Retención</span><span className="font-medium text-red-600">- ${Number(oc.valor_retenido).toFixed(2)}</span></div>
                   <div className="flex justify-between border-t pt-1 mt-1"><span className="font-semibold">Valor a Pagar</span><span className="font-bold text-blue-700">${Number(oc.valor_a_pagar).toFixed(2)}</span></div>
                 </div>
               </CardContent>
             </Card>
 
+            {/* Ítems */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base text-slate-700">Ítems</CardTitle>
@@ -577,29 +654,41 @@ export default function DetalleOCPage() {
                     <thead>
                       <tr className="border-b text-xs text-slate-500 uppercase">
                         <th className="text-left py-2 pr-3">#</th>
+                        <th className="text-left py-2 pr-3">Tipo</th>
                         <th className="text-left py-2 pr-3">Código</th>
                         <th className="text-left py-2 pr-3">Descripción</th>
+                        <th className="text-left py-2 pr-3">Info Adicional</th>
                         <th className="text-center py-2 pr-3">Cantidad</th>
                         <th className="text-right py-2 pr-3">P. Unit.</th>
-                        <th className="text-right py-2">Total</th>
+                        <th className="text-right py-2 pr-3">Total</th>
+                        <th className="text-left py-2">Fecha Entrega</th>
                       </tr>
                     </thead>
                     <tbody>
                       {items.map(item => (
                         <tr key={item.id} className="border-b last:border-0">
                           <td className="py-2 pr-3 text-slate-500">{item.linea}</td>
+                          <td className="py-2 pr-3 text-xs text-slate-500">{item.tipo ?? '—'}</td>
                           <td className="py-2 pr-3 font-mono text-xs text-slate-400">{item.codigo || '—'}</td>
                           <td className="py-2 pr-3">{item.descripcion}</td>
+                          <td className="py-2 pr-3 text-xs text-slate-500">{item.informacion_adicional ?? '—'}</td>
                           <td className="py-2 pr-3 text-center">{item.cantidad} {item.unidad}</td>
                           <td className="py-2 pr-3 text-right">${Number(item.precio_unitario).toFixed(2)}</td>
-                          <td className="py-2 text-right font-medium">${((Number(item.cantidad) || 0) * (Number(item.precio_unitario) || 0)).toFixed(2)}</td>
+                          <td className="py-2 pr-3 text-right font-medium">${((Number(item.cantidad) || 0) * (Number(item.precio_unitario) || 0)).toFixed(2)}</td>
+                          <td className="py-2 text-xs text-slate-500">{item.fecha_entrega ? new Date(item.fecha_entrega).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
                         </tr>
                       ))}
                     </tbody>
                     <tfoot>
                       <tr className="bg-slate-50">
-                        <td colSpan={5} className="py-2 pr-3 text-right font-semibold">Total</td>
-                        <td className="py-2 text-right font-bold text-blue-700">${totalOC.toFixed(2)}</td>
+                        <td colSpan={7} className="py-2 pr-3 text-right font-semibold">Subtotal</td>
+                        <td className="py-2 pr-3 text-right font-bold text-blue-700">${totalOC.toFixed(2)}</td>
+                        <td></td>
+                      </tr>
+                      <tr className="bg-slate-50">
+                        <td colSpan={7} className="py-1 pr-3 text-right text-slate-500 text-xs">IVA 15%</td>
+                        <td className="py-1 pr-3 text-right text-slate-500 text-xs">${ivaOC.toFixed(2)}</td>
+                        <td></td>
                       </tr>
                     </tfoot>
                   </table>
@@ -635,9 +724,7 @@ export default function DetalleOCPage() {
                           <div className="flex items-center justify-between">
                             <Label className="text-xs text-slate-500">Descripción *</Label>
                             <a href="/compras/inventario/nuevo" target="_blank" rel="noopener noreferrer"
-                              className="text-xs text-blue-600 hover:underline">
-                              ¿No existe? Crear ítem →
-                            </a>
+                              className="text-xs text-blue-600 hover:underline">¿No existe? Crear ítem →</a>
                           </div>
                           <InventarioSearch
                             value={String(item.descripcion)}
@@ -656,6 +743,14 @@ export default function DetalleOCPage() {
                       </div>
                       <div className="flex items-end gap-2 flex-wrap pl-7">
                         <div>
+                          <Label className="text-xs text-slate-500">Tipo</Label>
+                          <select value={item.tipo ?? ''} onChange={e => setItemEdit(i, 'tipo', e.target.value || null)}
+                            className="mt-0.5 h-7 rounded-md border border-input bg-background px-1 text-xs w-24 block">
+                            <option value="">—</option>
+                            {TIPOS_ITEM.map(t => <option key={t} value={t}>{t}</option>)}
+                          </select>
+                        </div>
+                        <div>
                           <Label className="text-xs text-slate-500">Código</Label>
                           <Input value={String(item.codigo)} onChange={e => setItemEdit(i, 'codigo', e.target.value)} className="h-7 text-xs font-mono w-28 mt-0.5" placeholder="AL-I-0000" />
                         </div>
@@ -673,6 +768,10 @@ export default function DetalleOCPage() {
                           <Label className="text-xs text-slate-500">P. Unit. USD</Label>
                           <Input type="number" step="0.01" min="0" value={String(item.precio_unitario)} onChange={e => setItemEdit(i, 'precio_unitario', e.target.value)} className="h-7 text-xs w-24 mt-0.5" />
                         </div>
+                        <div>
+                          <Label className="text-xs text-slate-500">Fecha Entrega</Label>
+                          <Input type="date" value={item.fecha_entrega ?? ''} onChange={e => setItemEdit(i, 'fecha_entrega', e.target.value || null)} className="h-7 text-xs w-32 mt-0.5" />
+                        </div>
                         <div className="ml-auto text-right">
                           <Label className="text-xs text-slate-500">Total</Label>
                           <p className="text-sm font-bold text-blue-700 mt-0.5">
@@ -680,40 +779,50 @@ export default function DetalleOCPage() {
                           </p>
                         </div>
                       </div>
+                      <div className="pl-7">
+                        <Label className="text-xs text-slate-500">Información Adicional</Label>
+                        <Input value={item.informacion_adicional ?? ''} onChange={e => setItemEdit(i, 'informacion_adicional', e.target.value || null)} className="h-7 text-xs mt-0.5" placeholder="Especificaciones, notas..." />
+                      </div>
                     </div>
                   ))}
-                  <div className="flex justify-end pt-1 border-t">
-                    <span className="text-sm text-slate-500">Total OC:</span>
-                    <span className="ml-2 text-lg font-bold text-blue-700">${totalEdit.toFixed(2)}</span>
+                  <div className="flex justify-end pt-1 border-t gap-4">
+                    <span className="text-sm text-slate-500">Subtotal: <span className="font-bold text-blue-700">${totalEdit.toFixed(2)}</span></span>
+                    <span className="text-sm text-slate-500">IVA 15%: <span className="font-medium">${ivaEdit.toFixed(2)}</span></span>
                   </div>
+                </div>
+              </div>
+
+              {/* Proveedor */}
+              <div>
+                <Label className="text-xs">Proveedor *</Label>
+                <ProveedorSearch
+                  value={form.proveedor ?? ''}
+                  onChange={val => { setField('proveedor', val); setProveedorId(null); setProveedorSnap({}) }}
+                  onSelect={p => {
+                    setField('proveedor', p.nombre)
+                    setProveedorId(p.id)
+                    setProveedorSnap({ ruc: p.ruc, direccion: p.direccion, telefono: p.telefono, contacto: p.contacto, email: p.email })
+                  }}
+                />
+                <div className="flex items-center justify-between mt-1">
+                  {proveedorId
+                    ? <p className="text-xs text-green-600">✓ Proveedor registrado — {proveedorSnap.ruc ? `RUC ${proveedorSnap.ruc}` : 'sin RUC'}</p>
+                    : <p className="text-xs text-amber-600">Escribe para buscar en el registro de proveedores</p>
+                  }
+                  <a href="/compras/proveedores/nueva" target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:underline shrink-0 ml-2">¿No existe? Crear proveedor →</a>
                 </div>
               </div>
 
               {/* Datos */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="sm:col-span-2">
-                  <Label className="text-xs">Proveedor *</Label>
-                  <ProveedorSearch
-                    value={form.proveedor ?? ''}
-                    onChange={val => { setField('proveedor', val); setProveedorId(null) }}
-                    onSelect={p => { setField('proveedor', p.nombre); setProveedorId(p.id) }}
-                  />
-                  <div className="flex items-center justify-between mt-1">
-                    {proveedorId
-                      ? <p className="text-xs text-green-600">✓ Proveedor registrado seleccionado</p>
-                      : <p className="text-xs text-slate-400">Escribe para buscar en el registro de proveedores</p>
-                    }
-                    <a href="/compras/proveedores/nueva" target="_blank" rel="noopener noreferrer"
-                      className="text-xs text-blue-600 hover:underline shrink-0 ml-2">
-                      ¿No existe? Crear proveedor →
-                    </a>
-                  </div>
-                </div>
                 <div>
                   <Label className="text-xs">Número de OC</Label>
-                  <div className="mt-1 h-8 px-3 flex items-center rounded-md border border-slate-200 bg-slate-50 text-sm font-mono text-blue-700 font-medium">
-                    {oc.numero_oc}
-                  </div>
+                  <div className="mt-1 h-8 px-3 flex items-center rounded-md border border-slate-200 bg-slate-50 text-sm font-mono text-blue-700 font-medium">{oc.numero_oc}</div>
+                </div>
+                <div>
+                  <Label className="text-xs">N° Cotización</Label>
+                  <Input value={form.numero_cotizacion ?? ''} onChange={e => setField('numero_cotizacion', e.target.value)} className="mt-1 h-8 text-sm" />
                 </div>
                 <div>
                   <Label className="text-xs">Fecha OC</Label>
@@ -784,7 +893,8 @@ export default function DetalleOCPage() {
               </div>
 
               <div className="bg-slate-50 rounded-md p-3 text-sm flex flex-col gap-1">
-                <div className="flex justify-between"><span className="text-slate-500">Total OC</span><span className="font-medium">${totalEdit.toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">Subtotal</span><span className="font-medium">${totalEdit.toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">IVA 15%</span><span className="font-medium">${ivaEdit.toFixed(2)}</span></div>
                 <div className="flex justify-between"><span className="text-slate-500">Retención</span><span className="font-medium text-red-600">- ${valorRetenidoEdit.toFixed(2)}</span></div>
                 <div className="flex justify-between border-t pt-1 mt-1"><span className="font-semibold">Valor a Pagar</span><span className="font-bold text-blue-700">${(totalEdit - valorRetenidoEdit).toFixed(2)}</span></div>
               </div>

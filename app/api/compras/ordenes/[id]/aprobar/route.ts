@@ -50,7 +50,10 @@ export async function POST(
 
     await adminClient()
       .from('registro_compras')
-      .update({ estado_oc: nuevoEstado })
+      .update({
+        estado_oc:          nuevoEstado,
+        aprobado_por_nombre: accion === 'aprobar' ? perfil.nombre : null,
+      })
       .eq('id', id)
 
     // Notificar al creador de la OC

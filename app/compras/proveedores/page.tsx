@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 type Proveedor = {
   id: string
   nombre: string
+  ruc: string | null
   clasificacion: string | null
   categoria: string | null
   ciudad: string | null
@@ -119,11 +120,11 @@ export default function ProveedoresPage() {
                   <thead>
                     <tr className="border-b text-slate-500 text-xs uppercase">
                       <th className="text-left py-3 pr-4">Nombre</th>
+                      <th className="text-left py-3 pr-4">RUC</th>
                       <th className="text-left py-3 pr-4">Clasificación</th>
                       <th className="text-left py-3 pr-4">Categoría</th>
                       <th className="text-left py-3 pr-4">Ciudad</th>
                       <th className="text-left py-3 pr-4">Contacto</th>
-                      <th className="text-left py-3 pr-4">Email</th>
                       <th className="text-left py-3 pr-4">Estado</th>
                       <th className="text-left py-3"></th>
                     </tr>
@@ -132,6 +133,7 @@ export default function ProveedoresPage() {
                     {proveedores.map(p => (
                       <tr key={p.id} className="border-b hover:bg-slate-50 transition-colors">
                         <td className="py-3 pr-4 font-medium">{p.nombre}</td>
+                        <td className="py-3 pr-4 font-mono text-xs text-slate-500">{p.ruc ?? '—'}</td>
                         <td className="py-3 pr-4">
                           {p.clasificacion ? (
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${CLASIFICACION_BADGE[p.clasificacion] ?? 'bg-slate-100 text-slate-600'}`}>
@@ -142,7 +144,6 @@ export default function ProveedoresPage() {
                         <td className="py-3 pr-4 text-slate-500 text-xs">{p.categoria ?? '—'}</td>
                         <td className="py-3 pr-4 text-slate-500 text-xs">{p.ciudad ?? '—'}</td>
                         <td className="py-3 pr-4 text-slate-600 text-xs">{p.contacto ?? '—'}</td>
-                        <td className="py-3 pr-4 text-slate-500 text-xs">{p.email ?? '—'}</td>
                         <td className="py-3 pr-4">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${p.activo ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
                             {p.activo ? 'Activo' : 'Inactivo'}

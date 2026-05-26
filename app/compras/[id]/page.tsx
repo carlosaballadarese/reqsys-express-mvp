@@ -306,6 +306,9 @@ type ItemOC = {
   unidad: string
   cantidad: string
   precio_unitario: string
+  tipo: string
+  informacion_adicional: string
+  fecha_entrega: string
 }
 
 // ─── Formulario conversión a OC (parcial / multi-OC) ─────────────────────────
@@ -328,6 +331,7 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
     dias_credito:      '0',
     fecha_vencimiento: '',
     mes_pago:          '',
+    numero_cotizacion: '',
   })
 
   useEffect(() => {
@@ -350,13 +354,16 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
   // Ítems pre-cargados desde la NP — todos seleccionados por defecto
   const [itemsOC, setItemsOC] = useState<ItemOC[]>(() =>
     itemsNP.map(i => ({
-      item_np_id:      i.id,
-      seleccionado:    true,
-      codigo:          i.codigo || '',
-      descripcion:     i.descripcion,
-      unidad:          i.unidad,
-      cantidad:        String(i.cantidad),
-      precio_unitario: String(i.precio_unitario),
+      item_np_id:           i.id,
+      seleccionado:         true,
+      codigo:               i.codigo || '',
+      descripcion:          i.descripcion,
+      unidad:               i.unidad,
+      cantidad:             String(i.cantidad),
+      precio_unitario:      String(i.precio_unitario),
+      tipo:                 '',
+      informacion_adicional: '',
+      fecha_entrega:        '',
     }))
   )
 
@@ -364,7 +371,7 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
     setForm(f => ({ ...f, [key]: val }))
   }
 
-  function setItem(index: number, key: 'codigo' | 'descripcion' | 'unidad' | 'cantidad' | 'precio_unitario', val: string) {
+  function setItem(index: number, key: keyof ItemOC, val: string) {
     setItemsOC(prev => prev.map((item, i) => i === index ? { ...item, [key]: val } : item))
   }
 
@@ -373,7 +380,10 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
   }
 
   function agregarItem() {
-    setItemsOC(prev => [...prev, { item_np_id: null, seleccionado: true, codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0' }])
+    setItemsOC(prev => [...prev, {
+      item_np_id: null, seleccionado: true, codigo: '', descripcion: '', unidad: 'EA',
+      cantidad: '1', precio_unitario: '0', tipo: '', informacion_adicional: '', fecha_entrega: '',
+    }])
   }
 
   function eliminarItem(index: number) {
@@ -399,12 +409,15 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
         proveedor_id: proveedorId,
         valor_total:  totalOC,
         items: seleccionados.map(i => ({
-          item_np_id:      i.item_np_id,
-          codigo:          i.codigo || null,
-          descripcion:     i.descripcion,
-          unidad:          i.unidad,
-          cantidad:        Number(i.cantidad) || 0,
-          precio_unitario: Number(i.precio_unitario) || 0,
+          item_np_id:           i.item_np_id,
+          codigo:               i.codigo || null,
+          descripcion:          i.descripcion,
+          unidad:               i.unidad,
+          cantidad:             Number(i.cantidad) || 0,
+          precio_unitario:      Number(i.precio_unitario) || 0,
+          tipo:                 i.tipo || null,
+          informacion_adicional: i.informacion_adicional || null,
+          fecha_entrega:        i.fecha_entrega || null,
         })),
       }
       const res = await fetch(`/api/compras/convertir/${np.id}`, {
@@ -472,9 +485,18 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
                     <button type="button" onClick={() => eliminarItem(i)} className="text-red-400 hover:text-red-600 text-sm mt-4 shrink-0">✕</button>
                   )}
                 </div>
-                {/* Fila 2: código + unidad + cantidad + precio + total */}
+                {/* Fila 2: tipo + código + unidad + cantidad + precio + total */}
                 {item.seleccionado && (
-                  <div className="flex items-end gap-2 flex-wrap pl-6">
+                  <div className="space-y-2 pl-6">
+                  <div className="flex items-end gap-2 flex-wrap">
+                    <div>
+                      <Label className="text-xs text-slate-500">Tipo</Label>
+                      <select value={item.tipo} onChange={e => setItem(i, 'tipo', e.target.value)} className="mt-0.5 h-7 rounded-md border border-input bg-background px-1 text-xs w-24 block">
+                        <option value="">—</option>
+                        <option value="BIENES">BIENES</option>
+                        <option value="SERVICIOS">SERVICIOS</option>
+                      </select>
+                    </div>
                     <div>
                       <Label className="text-xs text-slate-500">Código</Label>
                       <Input value={item.codigo} onChange={e => setItem(i, 'codigo', e.target.value)} className="h-7 text-xs font-mono w-28 mt-0.5" placeholder="AL-I-0000" />
@@ -493,12 +515,21 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
                       <Label className="text-xs text-slate-500">P. Unit. USD</Label>
                       <Input type="number" step="0.01" min="0" value={item.precio_unitario} onChange={e => setItem(i, 'precio_unitario', e.target.value)} className="h-7 text-xs w-24 mt-0.5" />
                     </div>
+                    <div>
+                      <Label className="text-xs text-slate-500">Fecha Entrega</Label>
+                      <Input type="date" value={item.fecha_entrega} onChange={e => setItem(i, 'fecha_entrega', e.target.value)} className="h-7 text-xs w-32 mt-0.5" />
+                    </div>
                     <div className="ml-auto text-right">
                       <Label className="text-xs text-slate-500">Total</Label>
                       <p className="text-sm font-bold text-blue-700 mt-0.5">
                         ${((parseFloat(item.cantidad) || 0) * (parseFloat(item.precio_unitario) || 0)).toFixed(2)}
                       </p>
                     </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-slate-500">Información Adicional</Label>
+                    <Input value={item.informacion_adicional} onChange={e => setItem(i, 'informacion_adicional', e.target.value)} className="h-7 text-xs mt-0.5" placeholder="Especificaciones, notas..." />
+                  </div>
                   </div>
                 )}
               </div>
@@ -542,6 +573,10 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
           <div>
             <Label className="text-xs">Fecha OC</Label>
             <Input type="date" value={form.fecha_oc} onChange={e => setField('fecha_oc', e.target.value)} className="mt-1 h-8 text-sm" />
+          </div>
+          <div>
+            <Label className="text-xs">N° Cotización</Label>
+            <Input value={form.numero_cotizacion} onChange={e => setField('numero_cotizacion', e.target.value)} className="mt-1 h-8 text-sm" />
           </div>
           <div>
             <Label className="text-xs">Número de Factura</Label>

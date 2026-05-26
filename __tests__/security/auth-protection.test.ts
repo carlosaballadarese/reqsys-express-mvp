@@ -237,6 +237,22 @@ describe('POST /api/compras/proveedores', () => {
     )
     expect(res.status).toBe(401)
   })
+
+  it('devuelve 403 cuando el rol no puede crear proveedores (solicitante)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() =>
+      Promise.resolve({ data: { rol: 'solicitante', nombre: 'Test', email: 'test@test.com' }, error: null })
+    )
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/proveedores', {
+        method: 'POST',
+        body: JSON.stringify({ nombre: 'Proveedor Test' }),
+      })
+    )
+    expect(res.status).toBe(403)
+  })
 })
 
 describe('GET /api/compras/proveedores/[id]', () => {
@@ -567,5 +583,58 @@ describe('POST /api/devolver/[token] — separación de tokens', () => {
 
     expect(campoBuscado).toContain('token_devolucion')
     expect(campoBuscado).not.toContain('token_aprobacion')
+  })
+})
+
+// ── 17. Configuración de empresa ─────────────────────────────────────────────
+
+describe('GET /api/compras/configuracion/empresa', () => {
+  const { GET } = require('@/app/api/compras/configuracion/empresa/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/configuracion/empresa'))
+    expect(res.status).toBe(401)
+  })
+
+  it('pasa el check de auth con sesión válida', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    // Devuelve null → 404, pero nunca 401
+    chain.single = jest.fn(() => Promise.resolve({ data: null, error: { message: 'Not found' } }))
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/compras/configuracion/empresa'))
+    expect(res.status).not.toBe(401)
+  })
+})
+
+describe('PUT /api/compras/configuracion/empresa', () => {
+  const { PUT } = require('@/app/api/compras/configuracion/empresa/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/configuracion/empresa', {
+        method: 'PUT',
+        body: JSON.stringify({ razon_social: 'ARLIFT S.A.' }),
+      })
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 cuando el rol no es admin', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() =>
+      Promise.resolve({ data: { rol: 'compras' }, error: null })
+    )
+    mockFrom.mockReturnValue(chain)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/configuracion/empresa', {
+        method: 'PUT',
+        body: JSON.stringify({ razon_social: 'ARLIFT S.A.' }),
+      })
+    )
+    expect(res.status).toBe(403)
   })
 })

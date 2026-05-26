@@ -32,9 +32,8 @@ export async function GET(
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Datos')
 
-    // Ajustar ancho de columnas automáticamente
     const colWidths = Object.keys(rows[0]).map(key => ({
-      wch: Math.max(key.length, ...rows.slice(0, 50).map(r => String(r[key] ?? '').length)) + 2
+      wch: Math.max(key.length, ...rows.slice(0, 50).map(r => String((r as Record<string, unknown>)[key] ?? '').length)) + 2
     }))
     ws['!cols'] = colWidths
 
@@ -84,30 +83,46 @@ async function fetchData(entidad: string): Promise<{ rows: Record<string, unknow
   if (entidad === 'ocs') {
     const { data: ocs } = await adminClient()
       .from('registro_compras')
-      .select('numero_oc, numero_np, proveedor, area, tipo_compra, centro_costo, descripcion_oc, numero_factura, fecha_factura, valor_total, valor_retenido, valor_a_pagar, tipo_pago, banco, dias_credito, fecha_vencimiento, mes_pago, estado_oc, fecha_oc, created_at')
+      .select(`
+        numero_oc, numero_np, numero_cotizacion,
+        proveedor, proveedor_ruc, proveedor_direccion, proveedor_telefono, proveedor_contacto, proveedor_email,
+        area, tipo_compra, centro_costo, descripcion_oc,
+        numero_factura, fecha_factura,
+        valor_total, valor_retenido, valor_a_pagar,
+        tipo_pago, banco, dias_credito, fecha_vencimiento, mes_pago,
+        estado_oc, fecha_oc, creado_por_nombre, aprobado_por_nombre, created_at
+      `)
       .order('created_at', { ascending: false })
 
     const rows = (ocs ?? []).map(oc => ({
-      'Número OC':          oc.numero_oc,
-      'NP Origen':          oc.numero_np ?? '',
-      'Proveedor':          oc.proveedor,
-      'Área':               oc.area ?? '',
-      'Tipo de Compra':     oc.tipo_compra ?? '',
-      'Centro de Costo':    oc.centro_costo ?? '',
-      'Descripción OC':     oc.descripcion_oc ?? '',
-      'Nro Factura':        oc.numero_factura ?? '',
-      'Fecha Factura':      oc.fecha_factura ? new Date(oc.fecha_factura).toLocaleDateString('es-VE') : '',
-      'Valor Total USD':    Number(oc.valor_total ?? 0).toFixed(2),
-      'Valor Retenido USD': Number(oc.valor_retenido ?? 0).toFixed(2),
-      'Valor a Pagar USD':  Number(oc.valor_a_pagar ?? 0).toFixed(2),
-      'Tipo de Pago':       oc.tipo_pago ?? '',
-      'Banco':              oc.banco ?? '',
-      'Días Crédito':       oc.dias_credito ?? 0,
-      'Fecha Vencimiento':  oc.fecha_vencimiento ? new Date(oc.fecha_vencimiento).toLocaleDateString('es-VE') : '',
-      'Mes de Pago':        oc.mes_pago ?? '',
-      'Estado OC':          oc.estado_oc,
-      'Fecha OC':           oc.fecha_oc ? new Date(oc.fecha_oc).toLocaleDateString('es-VE') : '',
-      'Fecha Creación':     oc.created_at ? new Date(oc.created_at).toLocaleDateString('es-VE') : '',
+      'Número OC':           oc.numero_oc,
+      'NP Origen':           oc.numero_np ?? '',
+      'N° Cotización':       oc.numero_cotizacion ?? '',
+      'Proveedor':           oc.proveedor,
+      'RUC Proveedor':       oc.proveedor_ruc ?? '',
+      'Dirección Proveedor': oc.proveedor_direccion ?? '',
+      'Teléfono Proveedor':  oc.proveedor_telefono ?? '',
+      'Contacto Proveedor':  oc.proveedor_contacto ?? '',
+      'Email Proveedor':     oc.proveedor_email ?? '',
+      'Área':                oc.area ?? '',
+      'Tipo de Compra':      oc.tipo_compra ?? '',
+      'Centro de Costo':     oc.centro_costo ?? '',
+      'Descripción OC':      oc.descripcion_oc ?? '',
+      'Nro Factura':         oc.numero_factura ?? '',
+      'Fecha Factura':       oc.fecha_factura ? new Date(oc.fecha_factura).toLocaleDateString('es-VE') : '',
+      'Valor Total USD':     Number(oc.valor_total ?? 0).toFixed(2),
+      'Valor Retenido USD':  Number(oc.valor_retenido ?? 0).toFixed(2),
+      'Valor a Pagar USD':   Number(oc.valor_a_pagar ?? 0).toFixed(2),
+      'Tipo de Pago':        oc.tipo_pago ?? '',
+      'Banco':               oc.banco ?? '',
+      'Días Crédito':        oc.dias_credito ?? 0,
+      'Fecha Vencimiento':   oc.fecha_vencimiento ? new Date(oc.fecha_vencimiento).toLocaleDateString('es-VE') : '',
+      'Mes de Pago':         oc.mes_pago ?? '',
+      'Estado OC':           oc.estado_oc,
+      'Fecha OC':            oc.fecha_oc ? new Date(oc.fecha_oc).toLocaleDateString('es-VE') : '',
+      'Preparado por':       oc.creado_por_nombre ?? '',
+      'Aprobado por':        oc.aprobado_por_nombre ?? '',
+      'Fecha Creación':      oc.created_at ? new Date(oc.created_at).toLocaleDateString('es-VE') : '',
     }))
 
     return { rows, filename: `REQSYS_OCs_${fecha}.xlsx` }
@@ -139,14 +154,16 @@ async function fetchData(entidad: string): Promise<{ rows: Record<string, unknow
   if (entidad === 'proveedores') {
     const { data: provs } = await adminClient()
       .from('proveedores')
-      .select('nombre, clasificacion, categoria, ciudad, direccion, telefono, email, contacto, activo')
+      .select('nombre, ruc, clasificacion, categoria, ciudad, giro_negocio, direccion, telefono, email, contacto, activo')
       .order('nombre')
 
     const rows = (provs ?? []).map(p => ({
       'Nombre / Razón Social': p.nombre,
+      'RUC':                   p.ruc ?? '',
       'Clasificación':         p.clasificacion ?? '',
       'Categoría':             p.categoria ?? '',
       'Ciudad':                p.ciudad ?? '',
+      'Giro del Negocio':      p.giro_negocio ?? '',
       'Dirección':             p.direccion ?? '',
       'Teléfono':              p.telefono ?? '',
       'Email':                 p.email ?? '',

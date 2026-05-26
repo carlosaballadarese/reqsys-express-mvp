@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { adminClient } from '@/lib/supabase/clients'
+import { validarRucEcuador } from '@/lib/validators'
 
 
 export async function GET(
@@ -31,26 +32,41 @@ export async function PUT(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
+  const { data: perfil } = await adminClient()
+    .from('perfiles')
+    .select('rol')
+    .eq('id', user.id)
+    .single()
+
+  if (!perfil || !['compras', 'admin', 'asistente_compras'].includes(perfil.rol))
+    return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+
   try {
     const { id } = await params
     const body   = await req.json()
-    const { nombre, clasificacion, categoria, ciudad, direccion, telefono, email, contacto, activo } = body
+    const { nombre, ruc, clasificacion, categoria, ciudad, giro_negocio, direccion, telefono, email, contacto, activo } = body
 
     if (!nombre?.trim()) {
       return NextResponse.json({ error: 'El nombre es requerido' }, { status: 400 })
+    }
+
+    if (ruc?.trim() && !validarRucEcuador(ruc.trim())) {
+      return NextResponse.json({ error: 'El RUC no tiene un formato válido (13 dígitos, provincia 01-24)' }, { status: 400 })
     }
 
     const { error } = await adminClient()
       .from('proveedores')
       .update({
         nombre:        nombre.trim(),
-        clasificacion: clasificacion || null,
-        categoria:     categoria     || null,
-        ciudad:        ciudad        || null,
-        direccion:     direccion     || null,
-        telefono:      telefono      || null,
+        ruc:           ruc?.trim()         || null,
+        clasificacion: clasificacion        || null,
+        categoria:     categoria            || null,
+        ciudad:        ciudad               || null,
+        giro_negocio:  giro_negocio         || null,
+        direccion:     direccion            || null,
+        telefono:      telefono             || null,
         email:         email?.toLowerCase() || null,
-        contacto:      contacto      || null,
+        contacto:      contacto             || null,
         activo:        activo !== false,
       })
       .eq('id', id)

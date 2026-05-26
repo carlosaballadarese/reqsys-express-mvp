@@ -10,6 +10,16 @@ import { Label } from '@/components/ui/label'
 
 const CLASIFICACIONES = ['CRITICO', 'NO CRITICO', 'EVENTUAL']
 
+function validarRucUI(ruc: string): string {
+  if (!ruc) return ''
+  if (!/^\d{13}$/.test(ruc)) return 'El RUC debe tener exactamente 13 dígitos'
+  const prov = parseInt(ruc.substring(0, 2), 10)
+  if (prov < 1 || prov > 24) return 'Los primeros 2 dígitos deben ser una provincia válida (01-24)'
+  const tercer = parseInt(ruc[2], 10)
+  if (tercer > 6 && tercer !== 9) return 'El tercer dígito debe ser 0-6 o 9'
+  return ''
+}
+
 export default function EditarProveedorPage() {
   const params = useParams()
   const router = useRouter()
@@ -19,11 +29,14 @@ export default function EditarProveedorPage() {
   const [guardando, setGuardando] = useState(false)
   const [error, setError]         = useState('')
   const [msg, setMsg]             = useState('')
+  const [rucError, setRucError]   = useState('')
   const [form, setForm] = useState({
     nombre:        '',
+    ruc:           '',
     clasificacion: '',
     categoria:     '',
     ciudad:        '',
+    giro_negocio:  '',
     direccion:     '',
     telefono:      '',
     email:         '',
@@ -38,9 +51,11 @@ export default function EditarProveedorPage() {
         if (data.error) { setError(data.error); setCargando(false); return }
         setForm({
           nombre:        data.nombre        ?? '',
+          ruc:           data.ruc           ?? '',
           clasificacion: data.clasificacion ?? '',
           categoria:     data.categoria     ?? '',
           ciudad:        data.ciudad        ?? '',
+          giro_negocio:  data.giro_negocio  ?? '',
           direccion:     data.direccion     ?? '',
           telefono:      data.telefono      ?? '',
           email:         data.email         ?? '',
@@ -56,8 +71,14 @@ export default function EditarProveedorPage() {
     setForm(f => ({ ...f, [key]: val }))
   }
 
+  function handleRucChange(val: string) {
+    setField('ruc', val)
+    setRucError(val ? validarRucUI(val) : '')
+  }
+
   async function handleGuardar() {
     if (!form.nombre.trim()) { setError('El nombre es requerido'); return }
+    if (form.ruc && rucError) { setError(rucError); return }
     setGuardando(true); setError(''); setMsg('')
     try {
       const res  = await fetch(`/api/compras/proveedores/${id}`, {
@@ -114,11 +135,22 @@ export default function EditarProveedorPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label className="text-xs">Nombre *</Label>
+              <Label className="text-xs">Nombre / Razón Social *</Label>
               <Input value={form.nombre} onChange={e => setField('nombre', e.target.value)} className="mt-1 h-8 text-sm" />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <Label className="text-xs">RUC</Label>
+                <Input
+                  value={form.ruc}
+                  onChange={e => handleRucChange(e.target.value)}
+                  className={`mt-1 h-8 text-sm font-mono ${rucError ? 'border-red-400' : ''}`}
+                  placeholder="0000000000001"
+                  maxLength={13}
+                />
+                {rucError && <p className="text-red-500 text-xs mt-0.5">{rucError}</p>}
+              </div>
               <div>
                 <Label className="text-xs">Clasificación</Label>
                 <select value={form.clasificacion} onChange={e => setField('clasificacion', e.target.value)} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
@@ -146,6 +178,11 @@ export default function EditarProveedorPage() {
                 <Label className="text-xs">Contacto</Label>
                 <Input value={form.contacto} onChange={e => setField('contacto', e.target.value)} className="mt-1 h-8 text-sm" />
               </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">Giro del Negocio</Label>
+              <Input value={form.giro_negocio} onChange={e => setField('giro_negocio', e.target.value)} className="mt-1 h-8 text-sm" placeholder="Ej: Alquiler de transporte y grúas..." />
             </div>
 
             <div>

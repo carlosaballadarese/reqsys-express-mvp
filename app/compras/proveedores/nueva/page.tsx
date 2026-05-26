@@ -12,16 +12,29 @@ import { Label } from '@/components/ui/label'
 
 const CLASIFICACIONES = ['CRITICO', 'NO CRITICO', 'EVENTUAL']
 
+function validarRucUI(ruc: string): string {
+  if (!ruc) return ''
+  if (!/^\d{13}$/.test(ruc)) return 'El RUC debe tener exactamente 13 dígitos'
+  const prov = parseInt(ruc.substring(0, 2), 10)
+  if (prov < 1 || prov > 24) return 'Los primeros 2 dígitos deben ser una provincia válida (01-24)'
+  const tercer = parseInt(ruc[2], 10)
+  if (tercer > 6 && tercer !== 9) return 'El tercer dígito debe ser 0-6 o 9'
+  return ''
+}
+
 export default function NuevoProveedorPage() {
   const router = useRouter()
 
   const [guardando, setGuardando] = useState(false)
   const [error, setError]         = useState('')
+  const [rucError, setRucError]   = useState('')
   const [form, setForm] = useState({
     nombre:        '',
+    ruc:           '',
     clasificacion: '',
     categoria:     '',
     ciudad:        '',
+    giro_negocio:  '',
     direccion:     '',
     telefono:      '',
     email:         '',
@@ -30,8 +43,14 @@ export default function NuevoProveedorPage() {
 
   function setField(key: string, val: string) { setForm(f => ({ ...f, [key]: val })) }
 
+  function handleRucChange(val: string) {
+    setField('ruc', val)
+    setRucError(val ? validarRucUI(val) : '')
+  }
+
   async function handleGuardar() {
     if (!form.nombre.trim()) { setError('El nombre es requerido'); return }
+    if (form.ruc && rucError) { setError(rucError); return }
     setGuardando(true); setError('')
     try {
       const res  = await fetch('/api/compras/proveedores', {
@@ -65,11 +84,22 @@ export default function NuevoProveedorPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label className="text-xs">Nombre *</Label>
+              <Label className="text-xs">Nombre / Razón Social *</Label>
               <Input value={form.nombre} onChange={e => setField('nombre', e.target.value)} className="mt-1 h-8 text-sm" placeholder="Razón social o nombre comercial" />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <Label className="text-xs">RUC</Label>
+                <Input
+                  value={form.ruc}
+                  onChange={e => handleRucChange(e.target.value)}
+                  className={`mt-1 h-8 text-sm font-mono ${rucError ? 'border-red-400' : ''}`}
+                  placeholder="0000000000001"
+                  maxLength={13}
+                />
+                {rucError && <p className="text-red-500 text-xs mt-0.5">{rucError}</p>}
+              </div>
               <div>
                 <Label className="text-xs">Clasificación</Label>
                 <select value={form.clasificacion} onChange={e => setField('clasificacion', e.target.value)} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
@@ -100,8 +130,13 @@ export default function NuevoProveedorPage() {
             </div>
 
             <div>
+              <Label className="text-xs">Giro del Negocio</Label>
+              <Input value={form.giro_negocio} onChange={e => setField('giro_negocio', e.target.value)} className="mt-1 h-8 text-sm" placeholder="Ej: Alquiler de transporte y grúas..." />
+            </div>
+
+            <div>
               <Label className="text-xs">Dirección</Label>
-              <Input value={form.direccion} onChange={e => setField('direccion', e.target.value)} className="mt-1 h-8 text-sm" />
+              <Input value={form.direccion} onChange={e => setField('direccion', e.target.value)} className="mt-1 h-8 text-sm" placeholder="Dirección física del proveedor" />
             </div>
 
             {error && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>}

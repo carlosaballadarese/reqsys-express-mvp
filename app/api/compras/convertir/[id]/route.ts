@@ -8,7 +8,6 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Spec: compras, admin y asistente_compras (asistente solo NPs asignadas)
     const supabase = await createSupabaseServerClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
@@ -25,7 +24,6 @@ export async function POST(
     const { id } = await params
     const body = await req.json()
 
-    // Spec: NP debe estar aprobada y no completada (permite múltiples OCs)
     const { data: np, error } = await adminClient()
       .from('notas_pedido')
       .select('*')
@@ -36,22 +34,32 @@ export async function POST(
     if (error || !np)
       return NextResponse.json({ error: 'NP no encontrada o no está en estado aprobada' }, { status: 400 })
 
-    // Spec: asistente solo puede convertir NPs asignadas a él
     if (perfil.rol === 'asistente_compras' && np.asignado_a !== user.id)
       return NextResponse.json({ error: 'Solo puedes convertir NPs asignadas a ti' }, { status: 403 })
 
     const {
-      proveedor, proveedor_id, fecha_oc, descripcion_oc,
+      proveedor_id, fecha_oc, descripcion_oc,
       numero_factura, fecha_factura,
       valor_total, valor_retenido,
       tipo_pago, banco, dias_credito, fecha_vencimiento, mes_pago,
+      numero_cotizacion,
       items,
     } = body
 
+    if (!proveedor_id)
+      return NextResponse.json({ error: 'Debe seleccionar un proveedor registrado' }, { status: 400 })
     if (!items || items.length === 0)
       return NextResponse.json({ error: 'La OC debe tener al menos un ítem' }, { status: 400 })
 
-    // Generar número de OC secuencial
+    // Snapshot del proveedor
+    const { data: prov } = await adminClient()
+      .from('proveedores')
+      .select('nombre, ruc, direccion, telefono, email, contacto')
+      .eq('id', proveedor_id)
+      .single()
+
+    if (!prov) return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 400 })
+
     const year = new Date().getFullYear()
     const { data: seqData, error: seqError } = await adminClient().rpc('siguiente_numero_oc', { p_year: year })
     if (seqError || seqData === null)
@@ -64,30 +72,36 @@ export async function POST(
     const { data: oc, error: errorOC } = await adminClient()
       .from('registro_compras')
       .insert({
-        nota_pedido_id:    np.id,
-        proveedor_id:      proveedor_id || null,
-        fecha_np:          np.created_at,
-        numero_np:         np.numero,
-        proveedor,
-        fecha_oc:          fecha_oc          || null,
+        nota_pedido_id:      np.id,
+        proveedor_id,
+        proveedor:           prov.nombre,
+        proveedor_ruc:       prov.ruc       || null,
+        proveedor_direccion: prov.direccion || null,
+        proveedor_telefono:  prov.telefono  || null,
+        proveedor_contacto:  prov.contacto  || null,
+        proveedor_email:     prov.email     || null,
+        numero_cotizacion:   numero_cotizacion || null,
+        fecha_np:            np.created_at,
+        numero_np:           np.numero,
+        fecha_oc:            fecha_oc          || null,
         numero_oc,
-        descripcion_oc:    descripcion_oc    || np.descripcion_general,
-        area:              np.area,
-        tipo_compra:       np.tipo_compra,
-        centro_costo:      np.centro_costo,
-        numero_factura:    numero_factura    || null,
-        fecha_factura:     fecha_factura     || null,
-        valor_total:       valorTotal,
-        valor_retenido:    valorRetenido,
-        valor_a_pagar:     valorTotal - valorRetenido,
-        banco:             banco             || null,
-        tipo_pago:         tipo_pago         || null,
-        mes_pago:          mes_pago          || null,
-        dias_credito:      Number(dias_credito) || 0,
-        fecha_vencimiento: fecha_vencimiento || null,
-        estado_oc:         'en_proceso',
-        creado_por_id:     user.id,
-        creado_por_nombre: perfil.nombre,
+        descripcion_oc:      descripcion_oc    || np.descripcion_general,
+        area:                np.area,
+        tipo_compra:         np.tipo_compra,
+        centro_costo:        np.centro_costo,
+        numero_factura:      numero_factura    || null,
+        fecha_factura:       fecha_factura     || null,
+        valor_total:         valorTotal,
+        valor_retenido:      valorRetenido,
+        valor_a_pagar:       valorTotal - valorRetenido,
+        banco:               banco             || null,
+        tipo_pago:           tipo_pago         || null,
+        mes_pago:            mes_pago          || null,
+        dias_credito:        Number(dias_credito) || 0,
+        fecha_vencimiento:   fecha_vencimiento || null,
+        estado_oc:           'en_proceso',
+        creado_por_id:       user.id,
+        creado_por_nombre:   perfil.nombre,
       })
       .select()
       .single()
@@ -97,7 +111,6 @@ export async function POST(
       return NextResponse.json({ error: 'Error al crear la OC' }, { status: 500 })
     }
 
-    // Spec: incluir item_np_id para trazabilidad a nivel de línea
     const itemsOC = items.map((item: {
       item_np_id?: string
       codigo?: string
@@ -105,15 +118,21 @@ export async function POST(
       unidad: string
       cantidad: number
       precio_unitario: number
+      tipo?: string
+      informacion_adicional?: string
+      fecha_entrega?: string
     }, index: number) => ({
-      registro_compras_id: oc.id,
-      linea:               index + 1,
-      item_np_id:          item.item_np_id || null,
-      codigo:              item.codigo     || null,
-      descripcion:         item.descripcion,
-      unidad:              item.unidad,
-      cantidad:            item.cantidad,
-      precio_unitario:     item.precio_unitario || 0,
+      registro_compras_id:  oc.id,
+      linea:                index + 1,
+      item_np_id:           item.item_np_id || null,
+      codigo:               item.codigo     || null,
+      descripcion:          item.descripcion,
+      unidad:               item.unidad,
+      cantidad:             item.cantidad,
+      precio_unitario:      item.precio_unitario || 0,
+      tipo:                 item.tipo || null,
+      informacion_adicional: item.informacion_adicional || null,
+      fecha_entrega:        item.fecha_entrega || null,
     }))
 
     const { error: errorItems } = await adminClient().from('items_oc').insert(itemsOC)
@@ -122,18 +141,16 @@ export async function POST(
       return NextResponse.json({ error: 'Error al guardar ítems de la OC' }, { status: 500 })
     }
 
-    // Marcar NP como convertida (primera OC) — idempotente
     if (!np.convertida) {
       await adminClient().from('notas_pedido').update({ convertida: true }).eq('id', np.id)
     }
 
-    // Registrar en historial con actor real
     await adminClient().from('historial_np').insert({
       np_id:        np.id,
       estado:       'convertida',
       actor_email:  perfil.email,
       actor_nombre: perfil.nombre,
-      notas:        `OC generada: ${numero_oc} — Proveedor: ${proveedor} — ${items.length} ítem(s)`,
+      notas:        `OC generada: ${numero_oc} — Proveedor: ${prov.nombre} — ${items.length} ítem(s)`,
     })
 
     await registrarAuditoria({
@@ -141,7 +158,7 @@ export async function POST(
       entidad:    'orden_compra',
       entidad_id: oc.id,
       referencia: numero_oc,
-      detalle:    { numero_np: np.numero, proveedor, items_count: items.length },
+      detalle:    { numero_np: np.numero, proveedor: prov.nombre, items_count: items.length },
     })
 
     return NextResponse.json({ success: true, oc_id: oc.id, numero_oc })
