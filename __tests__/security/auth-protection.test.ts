@@ -638,3 +638,63 @@ describe('PUT /api/compras/configuracion/empresa', () => {
     expect(res.status).toBe(403)
   })
 })
+
+// ── 18. Gestión de usuarios — GET lista y DELETE ──────────────────────────────
+
+describe('GET /api/admin/usuarios', () => {
+  const { GET } = require('@/app/api/admin/usuarios/route')
+
+  it('devuelve 403 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/admin/usuarios'))
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 200 con rol compras (antes denegado)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+    chain.order  = jest.fn(() => Promise.resolve({ data: [], error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/admin/usuarios'))
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('DELETE /api/admin/usuarios/[id]', () => {
+  const { DELETE } = require('@/app/api/admin/usuarios/[id]/route')
+
+  it('devuelve 403 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await DELETE(
+      makeRequest('http://localhost/api/admin/usuarios/user-456'),
+      { params: Promise.resolve({ id: 'user-456' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 403 cuando el rol no es admin ni compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await DELETE(
+      makeRequest('http://localhost/api/admin/usuarios/user-456'),
+      { params: Promise.resolve({ id: 'user-456' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 403 al intentar eliminar la propia cuenta', async () => {
+    // CON_SESION.user.id = 'user-123' — mismo id en params → auto-eliminación
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'admin' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await DELETE(
+      makeRequest('http://localhost/api/admin/usuarios/user-123'),
+      { params: Promise.resolve({ id: 'user-123' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+})

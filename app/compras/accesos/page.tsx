@@ -43,26 +43,34 @@ const ROL_LABEL: Record<string, string> = {
 }
 
 export default function AccesosPage() {
-  const [usuarios, setUsuarios] = useState<Usuario[]>([])
-  const [cargando, setCargando] = useState(true)
+  const [usuarios, setUsuarios]   = useState<Usuario[]>([])
+  const [cargando, setCargando]   = useState(true)
+  const [miId, setMiId]           = useState('')
+  const [miRol, setMiRol]         = useState('')
 
   // Modal nuevo usuario
-  const [showNuevo, setShowNuevo]         = useState(false)
-  const [nuevoForm, setNuevoForm]         = useState({ email: '', nombre: '', rol: 'solicitante', password: '' })
-  const [guardandoNuevo, setGuardandoNuevo] = useState(false)
-  const [errorNuevo, setErrorNuevo]       = useState('')
+  const [showNuevo, setShowNuevo]               = useState(false)
+  const [nuevoForm, setNuevoForm]               = useState({ email: '', nombre: '', rol: 'solicitante', password: '' })
+  const [guardandoNuevo, setGuardandoNuevo]     = useState(false)
+  const [errorNuevo, setErrorNuevo]             = useState('')
 
   // Edición inline
-  const [editandoId, setEditandoId]       = useState<string | null>(null)
-  const [editForm, setEditForm]           = useState({ nombre: '', rol: '', activo: true })
-  const [guardandoEdit, setGuardandoEdit] = useState(false)
-  const [errorEdit, setErrorEdit]         = useState('')
+  const [editandoId, setEditandoId]             = useState<string | null>(null)
+  const [editForm, setEditForm]                 = useState({ nombre: '', rol: '', activo: true, email: '' })
+  const [guardandoEdit, setGuardandoEdit]       = useState(false)
+  const [errorEdit, setErrorEdit]               = useState('')
 
   // Reset contraseña
-  const [resetId, setResetId]             = useState<string | null>(null)
-  const [newPassword, setNewPassword]     = useState('')
-  const [guardandoReset, setGuardandoReset] = useState(false)
-  const [errorReset, setErrorReset]       = useState('')
+  const [resetId, setResetId]                   = useState<string | null>(null)
+  const [newPassword, setNewPassword]           = useState('')
+  const [guardandoReset, setGuardandoReset]     = useState(false)
+  const [errorReset, setErrorReset]             = useState('')
+
+  // Eliminar usuario
+  const [eliminarUsuario, setEliminarUsuario]   = useState<Usuario | null>(null)
+  const [eliminando, setEliminando]             = useState(false)
+  const [errorEliminar, setErrorEliminar]       = useState('')
+  const [bloqueoEliminar, setBloqueoEliminar]   = useState<{ nps_activas: number; ocs_activas: number } | null>(null)
 
   function cargar() {
     setCargando(true)
@@ -72,7 +80,13 @@ export default function AccesosPage() {
       .catch(() => setCargando(false))
   }
 
-  useEffect(() => { cargar() }, [])
+  useEffect(() => {
+    cargar()
+    fetch('/api/auth/perfil')
+      .then(r => r.json())
+      .then(p => { setMiId(p.id ?? ''); setMiRol(p.rol ?? '') })
+      .catch(() => {})
+  }, [])
 
   async function handleCrear() {
     if (!nuevoForm.email || !nuevoForm.nombre || !nuevoForm.password) {
@@ -100,7 +114,7 @@ export default function AccesosPage() {
 
   function iniciarEdicion(u: Usuario) {
     setEditandoId(u.id)
-    setEditForm({ nombre: u.nombre, rol: u.rol, activo: u.activo })
+    setEditForm({ nombre: u.nombre, rol: u.rol, activo: u.activo, email: u.email })
     setErrorEdit('')
     setResetId(null)
   }
@@ -134,6 +148,36 @@ export default function AccesosPage() {
     else setErrorReset(data.error || 'Error al actualizar')
     setGuardandoReset(false)
   }
+
+  function abrirEliminar(u: Usuario) {
+    setEliminarUsuario(u)
+    setErrorEliminar('')
+    setBloqueoEliminar(null)
+  }
+
+  async function handleEliminar() {
+    if (!eliminarUsuario) return
+    setEliminando(true); setErrorEliminar(''); setBloqueoEliminar(null)
+
+    const res  = await fetch(`/api/admin/usuarios/${eliminarUsuario.id}`, { method: 'DELETE' })
+    const data = await res.json()
+
+    if (res.ok && data.success) {
+      setEliminarUsuario(null)
+      cargar()
+    } else if (res.status === 400 && data.nps_activas !== undefined) {
+      // Spec: bloqueo por registros activos
+      setBloqueoEliminar({ nps_activas: data.nps_activas, ocs_activas: data.ocs_activas })
+      setErrorEliminar(data.error)
+    } else {
+      setErrorEliminar(data.error || 'Error al eliminar')
+    }
+    setEliminando(false)
+  }
+
+  // Spec: compras no puede editar ni eliminar usuarios admin
+  const puedeGestionar = (u: Usuario) =>
+    miRol === 'admin' || u.rol !== 'admin'
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -217,13 +261,26 @@ export default function AccesosPage() {
                 {usuarios.map(u => (
                   <div key={u.id} className="border rounded-lg p-4 bg-white">
                     {editandoId === u.id ? (
-                      /* Edición inline */
                       <div className="space-y-3">
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <Label className="text-xs">Nombre</Label>
                             <Input value={editForm.nombre} onChange={e => setEditForm(f => ({ ...f, nombre: e.target.value }))}
                               className="mt-1 h-8 text-sm" />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Correo electrónico</Label>
+                            <Input
+                              type="email"
+                              value={editForm.email}
+                              onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
+                              className="mt-1 h-8 text-sm font-mono"
+                              disabled={u.id === miId}
+                              title={u.id === miId ? 'No puedes cambiar tu propio correo' : ''}
+                            />
+                            {u.id === miId && (
+                              <p className="text-xs text-slate-400 mt-0.5">No puedes cambiar tu propio correo.</p>
+                            )}
                           </div>
                           <div>
                             <Label className="text-xs">Rol</Label>
@@ -240,7 +297,7 @@ export default function AccesosPage() {
                             </label>
                           </div>
                         </div>
-                        {errorEdit && <p className="text-red-600 text-xs">{errorEdit}</p>}
+                        {errorEdit && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2">{errorEdit}</p>}
                         <div className="flex gap-2">
                           <Button onClick={handleGuardarEdit} disabled={guardandoEdit} className="h-7 text-xs btn-primary px-3">
                             {guardandoEdit ? 'Guardando...' : 'Guardar'}
@@ -251,7 +308,6 @@ export default function AccesosPage() {
                           </button>
                           <button onClick={() => setEditandoId(null)} className="text-xs text-slate-500 hover:underline px-2">Cancelar</button>
                         </div>
-                        {/* Reset contraseña inline */}
                         {resetId === u.id && (
                           <div className="bg-orange-50 border border-orange-200 rounded p-3 space-y-2">
                             <Label className="text-xs text-orange-700">Nueva contraseña para {u.nombre}</Label>
@@ -268,7 +324,6 @@ export default function AccesosPage() {
                         )}
                       </div>
                     ) : (
-                      /* Vista normal */
                       <div className="flex items-center justify-between gap-4">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -282,11 +337,24 @@ export default function AccesosPage() {
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-slate-400 mt-0.5">{u.email}</p>
+                          <p className="text-xs text-slate-400 mt-0.5 font-mono">{u.email}</p>
                         </div>
-                        <button onClick={() => iniciarEdicion(u)} className="text-xs text-blue-600 hover:underline shrink-0">
-                          Editar
-                        </button>
+                        <div className="flex items-center gap-3 shrink-0">
+                          {puedeGestionar(u) && (
+                            <button onClick={() => iniciarEdicion(u)} className="text-xs text-blue-600 hover:underline">
+                              Editar
+                            </button>
+                          )}
+                          {/* Spec: botón eliminar — no aparece para la propia cuenta ni para admins si eres compras */}
+                          {puedeGestionar(u) && u.id !== miId && (
+                            <button
+                              onClick={() => abrirEliminar(u)}
+                              className="text-xs text-red-500 hover:text-red-700 hover:underline"
+                            >
+                              Eliminar
+                            </button>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -296,6 +364,66 @@ export default function AccesosPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Modal confirmación de eliminación */}
+      {eliminarUsuario && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.5)' }}
+          onClick={e => { if (e.target === e.currentTarget && !eliminando) setEliminarUsuario(null) }}
+        >
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+            <div className="px-6 py-4" style={{ background: 'linear-gradient(90deg, #7f1d1d, #991b1b)' }}>
+              <h2 className="text-white font-semibold text-base">Eliminar Usuario</h2>
+              <p className="text-red-200 text-xs mt-0.5">{eliminarUsuario.email}</p>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              {!bloqueoEliminar ? (
+                <p className="text-sm text-slate-700">
+                  ¿Estás seguro de que deseas eliminar a{' '}
+                  <span className="font-semibold">{eliminarUsuario.nombre}</span>?
+                  Esta acción eliminará la cuenta permanentemente y no se puede deshacer.
+                </p>
+              ) : (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 space-y-1">
+                  <p className="text-sm font-semibold text-amber-800">No se puede eliminar este usuario</p>
+                  <p className="text-xs text-amber-700">{errorEliminar}</p>
+                  {bloqueoEliminar.nps_activas > 0 && (
+                    <p className="text-xs text-amber-700">• {bloqueoEliminar.nps_activas} NP(s) asignadas activas</p>
+                  )}
+                  {bloqueoEliminar.ocs_activas > 0 && (
+                    <p className="text-xs text-amber-700">• {bloqueoEliminar.ocs_activas} OC(s) en proceso</p>
+                  )}
+                  <p className="text-xs text-amber-600 mt-1">Reasigne o cierre estos registros antes de eliminar el usuario.</p>
+                </div>
+              )}
+
+              {errorEliminar && !bloqueoEliminar && (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{errorEliminar}</p>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => setEliminarUsuario(null)}
+                  disabled={eliminando}
+                  className="flex-1 py-2 rounded-lg text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors disabled:opacity-60"
+                >
+                  Cancelar
+                </button>
+                {!bloqueoEliminar && (
+                  <button
+                    onClick={handleEliminar}
+                    disabled={eliminando}
+                    className="flex-1 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-60"
+                  >
+                    {eliminando ? 'Eliminando...' : 'Sí, eliminar'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
