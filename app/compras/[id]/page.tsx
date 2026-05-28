@@ -90,6 +90,7 @@ const ESTADO_COLOR: Record<string, string> = {
   devuelta:      'bg-amber-100 text-amber-800',
   convertida:    'bg-blue-100 text-blue-800',
   completada:    'bg-teal-100 text-teal-800',
+  reabierta:     'bg-purple-100 text-purple-800',
   asignacion:    'bg-cyan-100 text-cyan-800',
   reasignacion:  'bg-cyan-100 text-cyan-800',
   toma_control:  'bg-purple-100 text-purple-800',
@@ -102,6 +103,7 @@ const HISTORIAL_ICON: Record<string, string> = {
   devuelta:     '↩',
   convertida:   '🛒',
   completada:   '🏁',
+  reabierta:    '🔓',
   asignacion:   '👤',
   reasignacion: '🔄',
   toma_control: '🎯',
@@ -112,6 +114,7 @@ const HISTORIAL_LABEL: Record<string, string> = {
   reasignacion: 'Reasignación',
   toma_control: 'Toma de control',
   completada:   'Completada',
+  reabierta:    'Reabierta',
 }
 
 function usd(n: number) {
@@ -660,6 +663,11 @@ export default function DetalleNPPage() {
   const [completando, setCompletando] = useState(false)
   const [errorCompletar, setErrorCompletar] = useState('')
 
+  // Reabrir NP
+  const [modalReabrir, setModalReabrir] = useState(false)
+  const [reabriendo, setReabriendo]     = useState(false)
+  const [errorReabrir, setErrorReabrir] = useState('')
+
   // Asignación (compras/admin)
   const [asistentes, setAsistentes]     = useState<Asistente[]>([])
   const [asistenteSelec, setAsistenteSelec] = useState('')
@@ -738,6 +746,17 @@ export default function DetalleNPPage() {
     cargar()
   }
 
+  async function handleReabrir() {
+    setReabriendo(true)
+    setErrorReabrir('')
+    const res = await fetch(`/api/compras/nps/${id}/reabrir`, { method: 'POST' })
+    const data = await res.json()
+    setReabriendo(false)
+    if (!res.ok) { setErrorReabrir(data.error ?? 'Error'); return }
+    setModalReabrir(false)
+    cargar()
+  }
+
   async function handleCompletar() {
     setCompletando(true)
     setErrorCompletar('')
@@ -770,9 +789,20 @@ export default function DetalleNPPage() {
             <Link href="/compras" className="text-blue-300 text-xs hover:text-white">← NPs</Link>
             <h1 className="text-xl font-bold mt-1">{np.numero}</h1>
           </div>
-          <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium capitalize ${ESTADO_COLOR[np.estado] ?? ''}`}>
-            {np.estado}
-          </span>
+          <div className="flex items-center gap-3">
+            {/* Spec: botón Reabrir solo para compras/admin en NPs completadas */}
+            {np.estado === 'completada' && ['compras', 'admin'].includes(rol) && (
+              <button
+                onClick={() => { setErrorReabrir(''); setModalReabrir(true) }}
+                className="text-xs px-3 py-1.5 rounded-lg border border-white/40 text-white hover:bg-white/10 transition-colors font-medium"
+              >
+                🔓 Reabrir NP
+              </button>
+            )}
+            <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium capitalize ${ESTADO_COLOR[np.estado] ?? ''}`}>
+              {np.estado}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -1098,6 +1128,46 @@ export default function DetalleNPPage() {
           </div>
         )}
       </div>
+
+      {/* Modal confirmación reabrir NP */}
+      {modalReabrir && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.5)' }}
+          onClick={e => { if (e.target === e.currentTarget) setModalReabrir(false) }}
+        >
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+            <div className="px-6 py-4" style={{ background: 'linear-gradient(90deg, #0d2e2e, #1a5252)' }}>
+              <h2 className="text-white font-semibold text-base">Reabrir Nota de Pedido</h2>
+              <p className="text-xs mt-0.5" style={{ color: 'rgba(201,168,64,0.9)' }}>{np.numero}</p>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <p className="text-sm text-slate-700">
+                ¿Estás seguro de que deseas reabrir esta NP? Volverá al estado <span className="font-semibold">Aprobada</span> y podrán generarse nuevas Órdenes de Compra desde ella.
+              </p>
+              {errorReabrir && (
+                <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-2">{errorReabrir}</div>
+              )}
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => setModalReabrir(false)}
+                  className="flex-1 py-2 rounded-lg text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleReabrir}
+                  disabled={reabriendo}
+                  className="flex-1 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-60"
+                  style={{ background: '#1a5252' }}
+                >
+                  {reabriendo ? 'Procesando...' : '🔓 Confirmar reapertura'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

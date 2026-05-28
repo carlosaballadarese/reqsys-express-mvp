@@ -639,7 +639,34 @@ describe('PUT /api/compras/configuracion/empresa', () => {
   })
 })
 
-// ── 18. Gestión de usuarios — GET lista y DELETE ──────────────────────────────
+// ── 18. Reabrir NP ───────────────────────────────────────────────────────────
+
+describe('POST /api/compras/nps/[id]/reabrir', () => {
+  const { POST } = require('@/app/api/compras/nps/[id]/reabrir/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-123/reabrir', { method: 'POST' }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol solicitante', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante', nombre: 'Test', email: 'test@test.com' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-123/reabrir', { method: 'POST' }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+})
+
+// ── 19. Gestión de usuarios — GET lista y DELETE ──────────────────────────────
 
 describe('GET /api/admin/usuarios', () => {
   const { GET } = require('@/app/api/admin/usuarios/route')
