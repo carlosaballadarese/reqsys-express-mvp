@@ -9,6 +9,9 @@ const config: Config = {
   },
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
+    // Mock @react-pdf/renderer y exceljs (ESM / binarios — no ejecutables en Jest)
+    '^@react-pdf/renderer$': '<rootDir>/__mocks__/react-pdf-renderer.ts',
+    '^exceljs$':             '<rootDir>/__mocks__/exceljs.ts',
   },
   testMatch: ['**/__tests__/**/*.test.ts'],
   clearMocks: true,

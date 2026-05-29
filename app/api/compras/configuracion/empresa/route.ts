@@ -33,7 +33,8 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json()
-    const { razon_social, ruc, direccion, contacto, telefono, email } = body
+    const { razon_social, ruc, direccion, contacto, telefono, email,
+            documento_numero_oc, revision_oc } = body
 
     if (!razon_social?.trim())
       return NextResponse.json({ error: 'La razón social es requerida' }, { status: 400 })
@@ -41,13 +42,15 @@ export async function PUT(req: NextRequest) {
     const { error } = await adminClient()
       .from('configuracion_empresa')
       .update({
-        razon_social: razon_social.trim(),
-        ruc:          ruc       || null,
-        direccion:    direccion || null,
-        contacto:     contacto  || null,
-        telefono:     telefono  || null,
-        email:        email     || null,
-        updated_at:   new Date().toISOString(),
+        razon_social:        razon_social.trim(),
+        ruc:                 ruc                || null,
+        direccion:           direccion           || null,
+        contacto:            contacto            || null,
+        telefono:            telefono            || null,
+        email:               email               || null,
+        documento_numero_oc: documento_numero_oc || null,
+        revision_oc:         revision_oc != null ? Number(revision_oc) : null,
+        updated_at:          new Date().toISOString(),
       })
       .eq('id', 1)
 

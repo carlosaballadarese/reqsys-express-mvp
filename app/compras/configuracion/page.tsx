@@ -173,10 +173,12 @@ type Empresa = {
   contacto: string | null
   telefono: string | null
   email: string | null
+  documento_numero_oc: string | null
+  revision_oc: string | null
 }
 
 function PanelEmpresa() {
-  const [form, setForm]         = useState<Empresa>({ razon_social: '', ruc: '', direccion: '', contacto: '', telefono: '', email: '' })
+  const [form, setForm]         = useState<Empresa>({ razon_social: '', ruc: '', direccion: '', contacto: '', telefono: '', email: '', documento_numero_oc: '', revision_oc: '' })
   const [guardando, setGuardando] = useState(false)
   const [msg, setMsg]           = useState('')
   const [cargando, setCargando] = useState(true)
@@ -186,12 +188,14 @@ function PanelEmpresa() {
       .then(r => r.json())
       .then(data => {
         if (!data.error) setForm({
-          razon_social: data.razon_social ?? '',
-          ruc:          data.ruc          ?? '',
-          direccion:    data.direccion    ?? '',
-          contacto:     data.contacto     ?? '',
-          telefono:     data.telefono     ?? '',
-          email:        data.email        ?? '',
+          razon_social:        data.razon_social        ?? '',
+          ruc:                 data.ruc                 ?? '',
+          direccion:           data.direccion           ?? '',
+          contacto:            data.contacto            ?? '',
+          telefono:            data.telefono            ?? '',
+          email:               data.email               ?? '',
+          documento_numero_oc: data.documento_numero_oc ?? 'AL-L4-07-F01',
+          revision_oc:         data.revision_oc != null  ? String(data.revision_oc) : '1',
         })
         setCargando(false)
       })
@@ -247,6 +251,14 @@ function PanelEmpresa() {
           <div className="sm:col-span-2">
             <Label className="text-xs">Dirección</Label>
             <Input value={form.direccion ?? ''} onChange={e => setField('direccion', e.target.value)} className="mt-1 h-8 text-sm" />
+          </div>
+          <div>
+            <Label className="text-xs">Código Formulario OC</Label>
+            <Input value={form.documento_numero_oc ?? ''} onChange={e => setField('documento_numero_oc', e.target.value)} className="mt-1 h-8 text-sm font-mono" placeholder="AL-L4-07-F01" />
+          </div>
+          <div>
+            <Label className="text-xs">Revisión OC</Label>
+            <Input type="number" min={1} value={form.revision_oc ?? ''} onChange={e => setField('revision_oc', e.target.value)} className="mt-1 h-8 text-sm" placeholder="1" />
           </div>
         </div>
         {msg && <p className={`text-sm ${msg.startsWith('✓') ? 'text-green-600' : 'text-red-600'}`}>{msg}</p>}

@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
       numero_factura, fecha_factura,
       valor_total, valor_retenido,
       tipo_pago, banco, dias_credito, fecha_vencimiento, mes_pago,
-      numero_cotizacion,
+      numero_cotizacion, condiciones_minimas,
       items,
     } = body
 
@@ -91,7 +91,8 @@ export async function POST(req: NextRequest) {
         proveedor_telefono:  prov.telefono   || null,
         proveedor_contacto:  prov.contacto   || null,
         proveedor_email:     prov.email      || null,
-        numero_cotizacion:   numero_cotizacion || null,
+        numero_cotizacion:   numero_cotizacion   || null,
+        condiciones_minimas: condiciones_minimas || null,
         numero_oc,
         fecha_oc:            fecha_oc          || null,
         descripcion_oc:      descripcion_oc    || null,

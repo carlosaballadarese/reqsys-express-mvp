@@ -65,7 +65,7 @@ export async function PUT(
       numero_factura, fecha_factura,
       valor_total, valor_retenido,
       tipo_pago, banco, dias_credito, fecha_vencimiento, mes_pago,
-      numero_cotizacion,
+      numero_cotizacion, condiciones_minimas,
       items,
     } = body
 
@@ -98,8 +98,9 @@ export async function PUT(
         proveedor_telefono:  prov.telefono  || null,
         proveedor_contacto:  prov.contacto  || null,
         proveedor_email:     prov.email     || null,
-        numero_cotizacion:   numero_cotizacion || null,
-        fecha_oc:            fecha_oc          || null,
+        numero_cotizacion:   numero_cotizacion   || null,
+        condiciones_minimas: condiciones_minimas || null,
+        fecha_oc:            fecha_oc            || null,
         descripcion_oc:      descripcion_oc    || null,
         area:                area              || null,
         tipo_compra:         tipo_compra       || null,

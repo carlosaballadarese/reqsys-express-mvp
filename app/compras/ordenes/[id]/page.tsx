@@ -44,6 +44,7 @@ type OC = {
   creado_por_id: string | null
   creado_por_nombre: string | null
   aprobado_por_nombre: string | null
+  condiciones_minimas: string | null
   created_at: string
 }
 
@@ -323,7 +324,8 @@ export default function DetalleOCPage() {
       dias_credito:      String(oc.dias_credito),
       fecha_vencimiento: oc.fecha_vencimiento?.slice(0, 10) ?? '',
       mes_pago:          oc.mes_pago ?? '',
-      numero_cotizacion: oc.numero_cotizacion ?? '',
+      numero_cotizacion:   oc.numero_cotizacion ?? '',
+      condiciones_minimas: oc.condiciones_minimas ?? '',
     })
     setProveedorId(oc.proveedor_id)
     setProveedorSnap({
@@ -468,7 +470,22 @@ export default function DetalleOCPage() {
               </p>
             )}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Spec: botones PDF y Excel solo para OCs aprobadas */}
+            {oc.estado_oc === 'aprobada' && (
+              <>
+                <a href={`/api/compras/ordenes/${id}/pdf`} download>
+                  <Button className="bg-white/10 hover:bg-white/20 text-white text-sm border border-white/30">
+                    ⬇ PDF
+                  </Button>
+                </a>
+                <a href={`/api/compras/ordenes/${id}/excel`} download>
+                  <Button className="bg-white/10 hover:bg-white/20 text-white text-sm border border-white/30">
+                    ⬇ Excel
+                  </Button>
+                </a>
+              </>
+            )}
             <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${ESTADO_BADGE[oc.estado_oc] ?? 'bg-slate-100 text-slate-700'}`}>
               {ESTADO_LABEL[oc.estado_oc] ?? oc.estado_oc}
             </span>
@@ -630,6 +647,12 @@ export default function DetalleOCPage() {
                   <div className="mt-4 bg-slate-50 rounded-md p-3 text-sm">
                     <p className="text-xs text-slate-500 mb-1">DESCRIPCIÓN</p>
                     <p>{oc.descripcion_oc}</p>
+                  </div>
+                )}
+                {oc.condiciones_minimas && (
+                  <div className="mt-3 bg-amber-50 border border-amber-200 rounded-md p-3 text-sm">
+                    <p className="text-xs text-slate-500 mb-1 font-semibold uppercase">Condiciones Mínimas para Proveedores</p>
+                    <p className="text-slate-700">{oc.condiciones_minimas}</p>
                   </div>
                 )}
                 {/* Totales con IVA */}
@@ -890,6 +913,11 @@ export default function DetalleOCPage() {
               <div>
                 <Label className="text-xs">Descripción OC</Label>
                 <Textarea value={form.descripcion_oc ?? ''} onChange={e => setField('descripcion_oc', e.target.value)} className="mt-1 text-sm min-h-[60px]" />
+              </div>
+
+              <div>
+                <Label className="text-xs">Condiciones Mínimas para Proveedores</Label>
+                <Textarea value={(form as any).condiciones_minimas ?? ''} onChange={e => setField('condiciones_minimas', e.target.value)} className="mt-1 text-sm min-h-[70px]" placeholder="Certificaciones (API, ASTM, ISO, CE, UL), fichas técnicas, garantías mínimas, normas SSO, etc." />
               </div>
 
               <div className="bg-slate-50 rounded-md p-3 text-sm flex flex-col gap-1">

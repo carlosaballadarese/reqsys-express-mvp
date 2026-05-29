@@ -702,7 +702,35 @@ describe('POST /api/compras/nps/[id]/reabrir', () => {
   })
 })
 
-// ── 20. Gestión de usuarios — GET lista y DELETE ──────────────────────────────
+// ── 20. Exportar OC — PDF y Excel ────────────────────────────────────────────
+
+describe('GET /api/compras/ordenes/[id]/pdf', () => {
+  const { GET } = require('@/app/api/compras/ordenes/[id]/pdf/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/ordenes/oc-123/pdf'),
+      { params: Promise.resolve({ id: 'oc-123' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+})
+
+describe('GET /api/compras/ordenes/[id]/excel', () => {
+  const { GET } = require('@/app/api/compras/ordenes/[id]/excel/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/ordenes/oc-123/excel'),
+      { params: Promise.resolve({ id: 'oc-123' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+})
+
+// ── 21. Gestión de usuarios — GET lista y DELETE ──────────────────────────────
 
 describe('GET /api/admin/usuarios', () => {
   const { GET } = require('@/app/api/admin/usuarios/route')

@@ -60,26 +60,26 @@ export async function POST(
       notas: `Devuelta por Compras: ${motivo_devolucion}`,
     })
 
-    // Enviar email al solicitante
+    // Enviar email al solicitante con link para editar
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const urlEditar = `${baseUrl}/editar/${np.token_edicion}`
+
     try {
       await transporter.sendMail({
         from: 'One ARLIFT <one.arlift@arlift.com.ec>',
         to: np.solicitante_email,
-        subject: `REQSYS NP ${np.numero} requiere correcciones`,
-        text: [
-          `Estimado/a ${np.solicitante_nombre},`,
-          '',
-          `El area de Compras ha devuelto la Nota de Pedido ${np.numero} para correcciones.`,
-          '',
-          `Motivo: ${motivo_devolucion}`,
-          '',
-          'Ingrese al sistema REQSYS para ver el detalle y corregir su solicitud.',
-          '',
-          'REQSYS - ARLIFT S.A.',
-        ].join('\n'),
+        subject: `[REQSYS] Tu NP ${np.numero} requiere correcciones`,
+        text: `Hola ${np.solicitante_nombre},\n\nEl área de Compras ha devuelto tu Nota de Pedido ${np.numero} para que realices las correcciones necesarias.\n\nMotivo de devolución: ${motivo_devolucion}\n\nCorregir aquí: ${urlEditar}\n\nREQSYS — ARLIFT S.A.`,
+        html: `
+          <p>Hola <strong>${np.solicitante_nombre}</strong>,</p>
+          <p>El área de Compras ha devuelto tu Nota de Pedido <strong>${np.numero}</strong> para que realices las correcciones necesarias.</p>
+          <p><strong>Motivo de devolución:</strong> ${escapeHtml(motivo_devolucion)}</p>
+          <p><a href="${urlEditar}">CORREGIR NOTA DE PEDIDO</a></p>
+          <p>REQSYS — ARLIFT S.A.</p>
+        `,
       })
     } catch (err) {
-      console.error('ERROR SMTP (ignorado):', err)
+      console.error('Error enviando email de devolución:', err)
     }
 
     return NextResponse.json({ success: true })
