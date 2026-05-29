@@ -196,6 +196,15 @@ export default function NuevaNotaPedido() {
 
   const { fields, append, remove } = useFieldArray({ control, name: 'items' })
 
+  // Spec: separar validación de envío para insertar modal de confirmación
+  const [modalConfirmar, setModalConfirmar] = useState(false)
+  const [datosPendientes, setDatosPendientes] = useState<FormData | null>(null)
+
+  function handleValidarYAbrir(data: FormData) {
+    setDatosPendientes(data)
+    setModalConfirmar(true)
+  }
+
   async function onSubmit(data: FormData) {
     setEstado('enviando')
     setErrorMsg('')
@@ -258,7 +267,17 @@ export default function NuevaNotaPedido() {
           <p className="text-slate-500 text-sm mt-1">ARLIFT S.A. — Sistema de Gestión de Requerimientos</p>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        <form
+          className="space-y-6"
+          onKeyDown={e => {
+            // Spec: Enter no envía el formulario (excepto en textarea y select que conservan su comportamiento nativo)
+            if (e.key === 'Enter'
+              && !(e.target instanceof HTMLTextAreaElement)
+              && !(e.target instanceof HTMLSelectElement)) {
+              e.preventDefault()
+            }
+          }}
+        >
           {/* Datos del solicitante */}
           <Card>
             <CardHeader className="pb-3">
@@ -267,7 +286,18 @@ export default function NuevaNotaPedido() {
             <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="solicitante_nombre">Nombre completo *</Label>
-                <Input id="solicitante_nombre" {...register('solicitante_nombre')} className="mt-1" />
+                <Input
+                  id="solicitante_nombre"
+                  {...register('solicitante_nombre')}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      // Spec: Enter en Nombre mueve el foco al campo Email
+                      ;(document.getElementById('solicitante_email') as HTMLInputElement | null)?.focus()
+                    }
+                  }}
+                  className="mt-1"
+                />
                 {errors.solicitante_nombre && <p className="text-red-500 text-xs mt-1">{errors.solicitante_nombre.message}</p>}
               </div>
               <div>
@@ -466,15 +496,55 @@ export default function NuevaNotaPedido() {
             </div>
           )}
 
+          {/* Spec: envío solo mediante clic explícito, no por Enter */}
           <Button
-            type="submit"
+            type="button"
             disabled={estado === 'enviando'}
+            onClick={handleSubmit(handleValidarYAbrir)}
             className="w-full h-12 text-base btn-primary"
           >
             {estado === 'enviando' ? 'Enviando...' : 'Enviar Nota de Pedido'}
           </Button>
         </form>
       </div>
+
+      {/* Spec: modal de confirmación antes de enviar — solo se abre tras validación Zod exitosa */}
+      {modalConfirmar && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.5)' }}
+          onClick={e => { if (e.target === e.currentTarget) setModalConfirmar(false) }}
+        >
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+            <div className="px-6 py-4" style={{ background: 'linear-gradient(90deg, #0d2e2e, #1a5252)' }}>
+              <h2 className="text-white font-semibold text-base">Confirmar envío</h2>
+              <p className="text-xs mt-0.5" style={{ color: 'rgba(201,168,64,0.9)' }}>Nota de Pedido</p>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <p className="text-sm text-slate-700">
+                ¿Deseas enviar esta NP a aprobación? Se notificará al Coordinador del área por correo electrónico.
+              </p>
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setModalConfirmar(false)}
+                  className="flex-1 py-2 rounded-lg text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setModalConfirmar(false); if (datosPendientes) onSubmit(datosPendientes) }}
+                  className="flex-1 py-2 rounded-lg text-sm font-medium text-white transition-colors"
+                  style={{ background: '#1a5252' }}
+                >
+                  Sí, enviar NP
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
