@@ -72,7 +72,7 @@ export default function ComprasPage() {
         .then(r => r.json())
         .then(p => {
           setRol(p.rol ?? '')
-          if (['solicitante', 'compras', 'admin', 'gerencia', 'asistente_compras', 'coordinador'].includes(p.rol))
+          if (['solicitante', 'bodega', 'compras', 'admin', 'gerencia', 'asistente_compras', 'coordinador'].includes(p.rol))
             setPuedeCrearNP(true)
           if (['compras', 'admin'].includes(p.rol))
             fetch('/api/compras/asistentes').then(r => r.json()).then(setAsistentes).catch(console.error)
