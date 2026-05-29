@@ -43,18 +43,19 @@ export async function POST(req: NextRequest) {
 
     // 3. Insertar NP
     const numero = await generarNumeroNP()
-    const { data: np, error: errorNP } = await anonClient()
+    const { data: np, error: errorNP } = await adminClient()
       .from('notas_pedido')
       .insert({
         numero,
+        creado_por_id:      user.id,
         solicitante_nombre: encabezado.solicitante_nombre,
-        solicitante_email: encabezado.solicitante_email,
-        area: encabezado.area,
-        prioridad: encabezado.prioridad,
-        tipo_compra: encabezado.tipo_compra,
-        centro_costo: encabezado.centro_costo,
+        solicitante_email:  encabezado.solicitante_email,
+        area:               encabezado.area,
+        prioridad:          encabezado.prioridad,
+        tipo_compra:        encabezado.tipo_compra,
+        centro_costo:       encabezado.centro_costo,
         descripcion_general: encabezado.descripcion_general,
-        total_estimado: totalEstimado,
+        total_estimado:     totalEstimado,
       })
       .select()
       .single()

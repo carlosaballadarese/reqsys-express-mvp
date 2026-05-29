@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { adminClient, anonClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { registrarAuditoria } from '@/lib/auditoria'
 import { transporter } from '@/lib/mailer'
 import { escapeHtml } from '@/lib/utils'
 
@@ -48,6 +49,150 @@ export async function GET(
     } catch {}
 
     return NextResponse.json({ np, items: items ?? [], historial: historial ?? [], puedeAprobar, ocs: ocs ?? [] })
+  } catch (err) {
+    console.error(err)
+    return NextResponse.json({ error: 'Error interno' }, { status: 500 })
+  }
+}
+
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const supabase = await createSupabaseServerClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
+    const { data: perfil } = await adminClient()
+      .from('perfiles')
+      .select('rol, nombre, email')
+      .eq('id', user.id)
+      .single()
+
+    if (!perfil) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+
+    const { id } = await params
+
+    const { data: np } = await adminClient()
+      .from('notas_pedido')
+      .select('id, numero, estado, area, creado_por_id, solicitante_nombre, token_aprobacion, motivo_rechazo')
+      .eq('id', id)
+      .single()
+
+    // Spec: solo NPs en estado rechazada pueden editarse por este flujo
+    if (!np || np.estado !== 'rechazada')
+      return NextResponse.json({ error: 'NP no encontrada o no está en estado rechazada' }, { status: 404 })
+
+    // Spec: puede editar el creador (creado_por_id) o roles compras/admin
+    const esManager = ['compras', 'admin'].includes(perfil.rol)
+    const esCreador  = np.creado_por_id === user.id
+    if (!esManager && !esCreador)
+      return NextResponse.json({ error: 'No tienes permiso para editar esta NP' }, { status: 403 })
+
+    const { encabezado, items } = await req.json()
+
+    if (!items || items.length === 0)
+      return NextResponse.json({ error: 'La NP debe tener al menos un ítem' }, { status: 400 })
+
+    // Buscar coordinador del área (puede haber cambiado en el encabezado)
+    const { data: coordinador } = await adminClient()
+      .from('coordinadores_area')
+      .select('nombre, email')
+      .eq('area', encabezado.area)
+      .single()
+
+    if (!coordinador)
+      return NextResponse.json({ error: 'No se encontró coordinador para el área seleccionada' }, { status: 400 })
+
+    const totalEstimado = (items as { cantidad: number; precio_unitario: number }[]).reduce(
+      (acc, item) => acc + (item.cantidad || 0) * (item.precio_unitario || 0),
+      0
+    )
+
+    // Actualizar encabezado: vuelve a pendiente, limpia motivo_rechazo (queda en historial)
+    const { error: updateError } = await adminClient()
+      .from('notas_pedido')
+      .update({
+        solicitante_nombre:  encabezado.solicitante_nombre,
+        solicitante_email:   encabezado.solicitante_email,
+        area:                encabezado.area,
+        prioridad:           encabezado.prioridad,
+        tipo_compra:         encabezado.tipo_compra,
+        centro_costo:        encabezado.centro_costo,
+        descripcion_general: encabezado.descripcion_general,
+        total_estimado:      totalEstimado,
+        estado:              'pendiente',
+        motivo_rechazo:      null,
+      })
+      .eq('id', id)
+
+    if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 })
+
+    // Reemplazar ítems
+    await adminClient().from('items_np').delete().eq('nota_pedido_id', id)
+    const itemsConNP = (items as {
+      codigo: string; descripcion: string; unidad: string
+      cantidad: number; precio_unitario: number
+    }[]).map((item, index) => ({
+      nota_pedido_id:  id,
+      linea:           index + 1,
+      codigo:          item.codigo   || null,
+      descripcion:     item.descripcion,
+      unidad:          item.unidad,
+      cantidad:        item.cantidad,
+      precio_unitario: item.precio_unitario || 0,
+    }))
+    await adminClient().from('items_np').insert(itemsConNP)
+
+    // Spec: historial registra reenviada con referencia al motivo del rechazo previo
+    const motivoPrevio = np.motivo_rechazo
+      ? `Rechazo previo: "${np.motivo_rechazo}"`
+      : 'NP reenviada tras corrección'
+    await adminClient().from('historial_np').insert({
+      np_id:        id,
+      estado:       'reenviada',
+      actor_email:  perfil.email,
+      actor_nombre: perfil.nombre,
+      notas:        `NP reenviada a aprobación. ${motivoPrevio}`,
+    })
+
+    await registrarAuditoria({
+      accion:     'reenviar_np',
+      entidad:    'nota_pedido',
+      entidad_id: id,
+      referencia: np.numero,
+      detalle:    { estado_anterior: 'rechazada', estado_nuevo: 'pendiente' },
+    })
+
+    // Email al coordinador con links de aprobación
+    const baseUrl    = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const urlAprobar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=aprobar`
+    const urlRechazar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=rechazar`
+    try {
+      await transporter.sendMail({
+        from:    'One ARLIFT <one.arlift@arlift.com.ec>',
+        to:      coordinador.email,
+        subject: `REQSYS NP Corregida ${np.numero} - ${encabezado.area}`,
+        text: [
+          `Estimado/a ${coordinador.nombre},`,
+          '',
+          `La Nota de Pedido ${np.numero} que fue rechazada ha sido corregida y reenviada para aprobacion.`,
+          `Solicitante: ${encabezado.solicitante_nombre}`,
+          `Area: ${encabezado.area}`,
+          `Total estimado: $${totalEstimado.toFixed(2)}`,
+          '',
+          `Aprobar: ${urlAprobar}`,
+          `Rechazar: ${urlRechazar}`,
+          '',
+          'REQSYS - ARLIFT S.A.',
+        ].join('\n'),
+      })
+    } catch (emailErr) {
+      console.error('ERROR SMTP (ignorado):', emailErr)
+    }
+
+    return NextResponse.json({ success: true })
   } catch (err) {
     console.error(err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })

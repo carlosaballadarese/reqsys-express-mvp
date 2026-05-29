@@ -31,6 +31,7 @@ type NP = {
   asignado_a:      string | null
   asignado_nombre: string | null
   asignado_email:  string | null
+  creado_por_id:   string | null
 }
 
 type OCVinculada = {
@@ -91,6 +92,7 @@ const ESTADO_COLOR: Record<string, string> = {
   convertida:    'bg-blue-100 text-blue-800',
   completada:    'bg-teal-100 text-teal-800',
   reabierta:     'bg-purple-100 text-purple-800',
+  reenviada:     'bg-indigo-100 text-indigo-800',
   asignacion:    'bg-cyan-100 text-cyan-800',
   reasignacion:  'bg-cyan-100 text-cyan-800',
   toma_control:  'bg-purple-100 text-purple-800',
@@ -104,6 +106,7 @@ const HISTORIAL_ICON: Record<string, string> = {
   convertida:   '🛒',
   completada:   '🏁',
   reabierta:    '🔓',
+  reenviada:    '↗',
   asignacion:   '👤',
   reasignacion: '🔄',
   toma_control: '🎯',
@@ -115,6 +118,7 @@ const HISTORIAL_LABEL: Record<string, string> = {
   toma_control: 'Toma de control',
   completada:   'Completada',
   reabierta:    'Reabierta',
+  reenviada:    'Reenviada',
 }
 
 function usd(n: number) {
@@ -668,6 +672,20 @@ export default function DetalleNPPage() {
   const [reabriendo, setReabriendo]     = useState(false)
   const [errorReabrir, setErrorReabrir] = useState('')
 
+  // Edición inline de NP rechazada
+  const [modoEdicion, setModoEdicion]     = useState(false)
+  const [editEnc, setEditEnc]             = useState<{
+    solicitante_nombre: string; solicitante_email: string; area: string
+    prioridad: string; tipo_compra: string; centro_costo: string; descripcion_general: string
+  } | null>(null)
+  const [editItems, setEditItems]         = useState<{
+    codigo: string; descripcion: string; unidad: string; cantidad: string; precio_unitario: string
+  }[]>([])
+  const [editAreas, setEditAreas]         = useState<string[]>([])
+  const [editUnidades, setEditUnidades]   = useState<string[]>(['EA'])
+  const [guardando, setGuardando]         = useState(false)
+  const [errorGuardar, setErrorGuardar]   = useState('')
+
   // Asignación (compras/admin)
   const [asistentes, setAsistentes]     = useState<Asistente[]>([])
   const [asistenteSelec, setAsistenteSelec] = useState('')
@@ -746,6 +764,63 @@ export default function DetalleNPPage() {
     cargar()
   }
 
+  async function activarEdicion() {
+    if (!np) return
+    setEditEnc({
+      solicitante_nombre:  np.solicitante_nombre,
+      solicitante_email:   np.solicitante_email,
+      area:                np.area,
+      prioridad:           np.prioridad,
+      tipo_compra:         np.tipo_compra,
+      centro_costo:        np.centro_costo,
+      descripcion_general: np.descripcion_general,
+    })
+    setEditItems(items.map(i => ({
+      codigo:          i.codigo || '',
+      descripcion:     i.descripcion,
+      unidad:          i.unidad,
+      cantidad:        String(i.cantidad),
+      precio_unitario: String(i.precio_unitario),
+    })))
+    if (editAreas.length === 0) {
+      const [resA, resU] = await Promise.all([
+        fetch('/api/compras/areas').then(r => r.json()).catch(() => []),
+        fetch('/api/compras/unidades').then(r => r.json()).catch(() => ['EA']),
+      ])
+      setEditAreas(resA)
+      setEditUnidades(resU)
+    }
+    setErrorGuardar('')
+    setModoEdicion(true)
+  }
+
+  async function handleReenviar() {
+    if (!editEnc) return
+    if (editItems.length === 0) { setErrorGuardar('Agrega al menos un ítem'); return }
+    if (editItems.some(i => !i.descripcion.trim())) { setErrorGuardar('Todos los ítems deben tener descripción'); return }
+    setGuardando(true)
+    setErrorGuardar('')
+    const res = await fetch(`/api/compras/nps/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        encabezado: editEnc,
+        items: editItems.map(i => ({
+          codigo:          i.codigo || null,
+          descripcion:     i.descripcion,
+          unidad:          i.unidad,
+          cantidad:        Number(i.cantidad) || 0,
+          precio_unitario: Number(i.precio_unitario) || 0,
+        })),
+      }),
+    })
+    const data = await res.json()
+    setGuardando(false)
+    if (!res.ok) { setErrorGuardar(data.error ?? 'Error al reenviar'); return }
+    setModoEdicion(false)
+    cargar()
+  }
+
   async function handleReabrir() {
     setReabriendo(true)
     setErrorReabrir('')
@@ -767,8 +842,11 @@ export default function DetalleNPPage() {
     cargar()
   }
 
-  const mostrarAprobacion = np?.estado === 'pendiente' && puedeAprobar
-  const mostrarDevolucion = np?.estado === 'aprobada' && ['compras', 'admin'].includes(rol)
+  const mostrarAprobacion    = np?.estado === 'pendiente' && puedeAprobar
+  const mostrarDevolucion    = np?.estado === 'aprobada' && ['compras', 'admin'].includes(rol)
+  // Spec: puede editar el creador (creado_por_id) o compras/admin; NP debe estar rechazada
+  const puedeEditarRechazada = np?.estado === 'rechazada' &&
+    (np.creado_por_id === userId || ['compras', 'admin'].includes(rol))
 
   if (cargando) return <div className="min-h-screen flex items-center justify-center text-slate-400">Cargando...</div>
   if (error || !np) return (
@@ -790,6 +868,15 @@ export default function DetalleNPPage() {
             <h1 className="text-xl font-bold mt-1">{np.numero}</h1>
           </div>
           <div className="flex items-center gap-3">
+            {/* Spec: botón Editar solo para el creador o compras/admin en NPs rechazadas */}
+            {puedeEditarRechazada && !modoEdicion && (
+              <button
+                onClick={activarEdicion}
+                className="text-xs px-3 py-1.5 rounded-lg border border-white/40 text-white hover:bg-white/10 transition-colors font-medium"
+              >
+                ✏️ Editar NP
+              </button>
+            )}
             {/* Spec: botón Reabrir solo para compras/admin en NPs completadas */}
             {np.estado === 'completada' && ['compras', 'admin'].includes(rol) && (
               <button
@@ -962,6 +1049,146 @@ export default function DetalleNPPage() {
                   </table>
                 </div>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Formulario edición inline — NP rechazada */}
+        {modoEdicion && editEnc && (
+          <Card className="border-amber-300">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base text-amber-800">Editar y Reenviar NP</CardTitle>
+                <button onClick={() => setModoEdicion(false)} className="text-xs text-slate-500 hover:text-slate-700">✕ Cancelar</button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Encabezado editable */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Nombre Solicitante *</Label>
+                  <Input value={editEnc.solicitante_nombre} onChange={e => setEditEnc(f => f && ({ ...f, solicitante_nombre: e.target.value }))} className="mt-1 h-8 text-sm" />
+                </div>
+                <div>
+                  <Label className="text-xs">Email Solicitante *</Label>
+                  <Input type="email" value={editEnc.solicitante_email} onChange={e => setEditEnc(f => f && ({ ...f, solicitante_email: e.target.value }))} className="mt-1 h-8 text-sm" />
+                </div>
+                <div>
+                  <Label className="text-xs">Área *</Label>
+                  <select value={editEnc.area} onChange={e => setEditEnc(f => f && ({ ...f, area: e.target.value }))} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
+                    {editAreas.length === 0 && <option value={editEnc.area}>{editEnc.area}</option>}
+                    {editAreas.map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <Label className="text-xs">Prioridad *</Label>
+                  <select value={editEnc.prioridad} onChange={e => setEditEnc(f => f && ({ ...f, prioridad: e.target.value }))} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
+                    <option value="baja">Baja</option>
+                    <option value="media">Media</option>
+                    <option value="alta">Alta</option>
+                    <option value="excepcional">Excepcional</option>
+                  </select>
+                </div>
+                <div>
+                  <Label className="text-xs">Tipo de Compra *</Label>
+                  <select value={editEnc.tipo_compra} onChange={e => setEditEnc(f => f && ({ ...f, tipo_compra: e.target.value }))} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
+                    <option value="producto">Producto</option>
+                    <option value="servicio">Servicio</option>
+                    <option value="alquiler">Alquiler</option>
+                    <option value="importacion">Importación</option>
+                    <option value="consumible">Consumible</option>
+                  </select>
+                </div>
+                <div>
+                  <Label className="text-xs">Centro de Costo *</Label>
+                  <select value={editEnc.centro_costo} onChange={e => setEditEnc(f => f && ({ ...f, centro_costo: e.target.value }))} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
+                    <option value="costo">Costo</option>
+                    <option value="gasto">Gasto</option>
+                    <option value="activo">Activo</option>
+                    <option value="inventario">Inventario</option>
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <Label className="text-xs">Descripción General *</Label>
+                  <Textarea value={editEnc.descripcion_general} onChange={e => setEditEnc(f => f && ({ ...f, descripcion_general: e.target.value }))} className="mt-1 text-sm min-h-[60px]" />
+                </div>
+              </div>
+
+              {/* Ítems editables */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-xs font-medium text-slate-700">Ítems del Requerimiento</Label>
+                  <button type="button" onClick={() => setEditItems(prev => [...prev, { codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0' }])}
+                    className="text-xs text-blue-600 hover:underline font-medium">+ Agregar ítem</button>
+                </div>
+                <div className="space-y-2">
+                  {editItems.map((item, i) => (
+                    <div key={i} className="border rounded-lg p-3 bg-slate-50 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <Label className="text-xs text-slate-500">Descripción *</Label>
+                          <InventarioSearch
+                            value={item.descripcion}
+                            onChange={val => setEditItems(prev => prev.map((it, idx) => idx === i ? { ...it, descripcion: val } : it))}
+                            onSelect={inv => setEditItems(prev => prev.map((it, idx) => idx === i ? {
+                              ...it, descripcion: inv.descripcion, codigo: inv.codigo,
+                              precio_unitario: inv.costo_unitario > 0 ? String(inv.costo_unitario) : it.precio_unitario,
+                            } : it))}
+                          />
+                        </div>
+                        {editItems.length > 1 && (
+                          <button type="button" onClick={() => setEditItems(prev => prev.filter((_, idx) => idx !== i))} className="text-red-400 hover:text-red-600 text-sm mt-4 shrink-0">✕</button>
+                        )}
+                      </div>
+                      <div className="flex items-end gap-2 flex-wrap pl-0">
+                        <div>
+                          <Label className="text-xs text-slate-500">Código</Label>
+                          <Input value={item.codigo} onChange={e => setEditItems(prev => prev.map((it, idx) => idx === i ? { ...it, codigo: e.target.value } : it))} className="h-7 text-xs font-mono w-28 mt-0.5" placeholder="AL-I-0000" />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-slate-500">Unidad</Label>
+                          <select value={item.unidad} onChange={e => setEditItems(prev => prev.map((it, idx) => idx === i ? { ...it, unidad: e.target.value } : it))} className="mt-0.5 h-7 rounded-md border border-input bg-background px-1 text-xs w-16 block">
+                            {(editUnidades.length > 0 ? editUnidades : ['EA', 'UN', 'M', 'KG', 'L']).map(u => <option key={u} value={u}>{u}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <Label className="text-xs text-slate-500">Cantidad</Label>
+                          <Input type="number" step="0.01" min="0" value={item.cantidad} onChange={e => setEditItems(prev => prev.map((it, idx) => idx === i ? { ...it, cantidad: e.target.value } : it))} className="h-7 text-xs w-20 mt-0.5" />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-slate-500">P. Unit. USD</Label>
+                          <Input type="number" step="0.01" min="0" value={item.precio_unitario} onChange={e => setEditItems(prev => prev.map((it, idx) => idx === i ? { ...it, precio_unitario: e.target.value } : it))} className="h-7 text-xs w-24 mt-0.5" />
+                        </div>
+                        <div className="ml-auto text-right">
+                          <Label className="text-xs text-slate-500">Total</Label>
+                          <p className="text-sm font-bold text-blue-700 mt-0.5">
+                            ${((parseFloat(item.cantidad) || 0) * (parseFloat(item.precio_unitario) || 0)).toFixed(2)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex justify-end pt-1 border-t">
+                    <span className="text-sm text-slate-500 mr-2">Total Estimado:</span>
+                    <span className="text-lg font-bold text-blue-700">
+                      ${editItems.reduce((acc, i) => acc + (parseFloat(i.cantidad) || 0) * (parseFloat(i.precio_unitario) || 0), 0).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {errorGuardar && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2">{errorGuardar}</p>}
+
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={() => setModoEdicion(false)} className="flex-1 py-2 rounded-lg text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors">
+                  Cancelar
+                </button>
+                <button type="button" onClick={handleReenviar} disabled={guardando}
+                  className="flex-1 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-60"
+                  style={{ background: '#1a5252' }}>
+                  {guardando ? 'Reenviando...' : '↗ Reenviar a Aprobación'}
+                </button>
+              </div>
             </CardContent>
           </Card>
         )}

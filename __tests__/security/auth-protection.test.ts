@@ -639,7 +639,43 @@ describe('PUT /api/compras/configuracion/empresa', () => {
   })
 })
 
-// ── 18. Reabrir NP ───────────────────────────────────────────────────────────
+// ── 18. Editar NP rechazada (PUT) ────────────────────────────────────────────
+
+describe('PUT /api/compras/nps/[id]', () => {
+  const { PUT } = require('@/app/api/compras/nps/[id]/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/nps/np-123', {
+        method: 'PUT',
+        body: JSON.stringify({ encabezado: {}, items: [] }),
+      }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 cuando el usuario no es el creador ni compras/admin', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    // Primera llamada: perfil → rol solicitante con id distinto al creado_por_id
+    chain.single = jest.fn()
+      .mockResolvedValueOnce({ data: { rol: 'solicitante', nombre: 'Test', email: 'test@test.com' }, error: null })
+      .mockResolvedValueOnce({ data: { id: 'np-123', estado: 'rechazada', creado_por_id: 'otro-user-id', motivo_rechazo: 'falta info' }, error: null })
+    mockFrom.mockReturnValue(chain)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/nps/np-123', {
+        method: 'PUT',
+        body: JSON.stringify({ encabezado: { area: 'TI' }, items: [{ descripcion: 'X', unidad: 'EA', cantidad: 1, precio_unitario: 10 }] }),
+      }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+})
+
+// ── 19. Reabrir NP ───────────────────────────────────────────────────────────
 
 describe('POST /api/compras/nps/[id]/reabrir', () => {
   const { POST } = require('@/app/api/compras/nps/[id]/reabrir/route')
@@ -666,7 +702,7 @@ describe('POST /api/compras/nps/[id]/reabrir', () => {
   })
 })
 
-// ── 19. Gestión de usuarios — GET lista y DELETE ──────────────────────────────
+// ── 20. Gestión de usuarios — GET lista y DELETE ──────────────────────────────
 
 describe('GET /api/admin/usuarios', () => {
   const { GET } = require('@/app/api/admin/usuarios/route')
