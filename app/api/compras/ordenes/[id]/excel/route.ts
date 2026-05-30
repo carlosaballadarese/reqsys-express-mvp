@@ -33,7 +33,7 @@ function cellStyle(bold = false, align: ExcelJS.Alignment['horizontal'] = 'left'
 }
 
 function allBorder(): Partial<ExcelJS.Borders> {
-  const s: Partial<ExcelJS.BorderLine> = { style: 'thin', color: { argb: 'FFcbd5e1' } }
+  const s: Partial<ExcelJS.Border> = { style: 'thin', color: { argb: 'FFcbd5e1' } }
   return { top: s, bottom: s, left: s, right: s }
 }
 
