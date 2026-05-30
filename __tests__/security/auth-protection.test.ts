@@ -868,3 +868,104 @@ describe('DELETE /api/admin/usuarios/[id]', () => {
     expect(res.status).toBe(403)
   })
 })
+
+// ── 22. Aprobar NP — persistencia del aprobador ───────────────────────────────
+
+describe('POST /api/aprobar/[token] — persistencia de aprobador_np', () => {
+  const { POST } = require('@/app/api/aprobar/[token]/route')
+
+  it('persiste aprobador_np_nombre y aprobador_np_area al aprobar NP', async () => {
+    const { transporter } = require('@/lib/mailer')
+    transporter.sendMail.mockResolvedValue({})
+
+    const np = {
+      id: 'np-apr-1', numero: 'NP-2026-0001', area: 'Operaciones',
+      estado: 'pendiente', token_aprobacion: 'tok-aprobar',
+      descripcion_general: 'Test', total_estimado: 500,
+      solicitante_email: 'sol@arlift.com', solicitante_nombre: 'Solicitante',
+    }
+    const coordinador = { nombre: 'Juan Pérez', email: 'juan@arlift.com' }
+    const comprasCoord = { nombre: 'Ana Compras', email: 'ana@arlift.com' }
+
+    let singleCalls = 0
+    const updateEqMock = jest.fn(() => Promise.resolve({ data: {}, error: null }))
+    const chain = mockChainVacio()
+    chain.update = jest.fn(() => ({ eq: updateEqMock }))
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: np,          error: null }) // NP
+      if (singleCalls === 2) return Promise.resolve({ data: coordinador, error: null }) // coordinadorArea
+      return Promise.resolve({ data: comprasCoord, error: null })                       // Promise.all
+    })
+    mockFrom.mockReturnValue(chain)
+
+    const req = makeRequest('http://localhost/api/aprobar/tok-aprobar', {
+      method: 'POST',
+      body: JSON.stringify({ accion: 'aprobar' }),
+    })
+    await POST(req, { params: Promise.resolve({ token: 'tok-aprobar' }) })
+
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aprobador_np_nombre: 'Juan Pérez',
+        aprobador_np_area:   'Operaciones',
+      })
+    )
+  })
+})
+
+// ── 23. Convertir NP → OC — propagación del aprobador ────────────────────────
+
+describe('POST /api/compras/convertir/[id] — propagación de aprobador_np', () => {
+  const { POST } = require('@/app/api/compras/convertir/[id]/route')
+
+  const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
+  beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+
+  it('copia aprobador_np_nombre y aprobador_np_area de NP a la OC creada', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+
+    const np = {
+      id: 'np-conv-1', numero: 'NP-2026-0002', area: 'Operaciones',
+      estado: 'aprobada', tipo_compra: 'bienes', centro_costo: 'CC01',
+      descripcion_general: 'Test', created_at: '2026-01-01T00:00:00Z',
+      convertida: false, asignado_a: null,
+      aprobador_np_nombre: 'Juan Pérez',
+      aprobador_np_area:   'Operaciones',
+    }
+
+    const insertSelectSingleMock = jest.fn(() =>
+      Promise.resolve({ data: { id: 'oc-new', numero_oc: 'OC-2026-0001' }, error: null })
+    )
+    const insertMock = jest.fn(() => ({ select: jest.fn(() => ({ single: insertSelectSingleMock })) }))
+
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.insert = insertMock
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Carlos B', email: 'cb@arlift.com' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({ data: np,  error: null })
+      if (singleCalls === 3) return Promise.resolve({ data: { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null }, error: null })
+      return Promise.resolve({ data: null, error: null })
+    })
+    mockFrom.mockReturnValue(chain)
+
+    const req = makeRequest('http://localhost/api/compras/convertir/np-conv-1', {
+      method: 'POST',
+      body: JSON.stringify({
+        proveedor_id: 'prov-uuid',
+        items: [{ descripcion: 'Item test', unidad: 'EA', cantidad: 1, precio_unitario: 100 }],
+      }),
+    })
+    await POST(req, { params: Promise.resolve({ id: 'np-conv-1' }) })
+
+    expect(insertMock).toHaveBeenCalled()
+    expect(insertMock.mock.calls[0][0]).toMatchObject({
+      aprobador_np_nombre: 'Juan Pérez',
+      aprobador_np_area:   'Operaciones',
+    })
+  })
+})

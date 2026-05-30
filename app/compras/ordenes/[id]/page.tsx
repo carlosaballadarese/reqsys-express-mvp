@@ -44,6 +44,8 @@ type OC = {
   creado_por_id: string | null
   creado_por_nombre: string | null
   aprobado_por_nombre: string | null
+  aprobador_np_nombre: string | null
+  aprobador_np_area:   string | null
   condiciones_minimas: string | null
   created_at: string
 }

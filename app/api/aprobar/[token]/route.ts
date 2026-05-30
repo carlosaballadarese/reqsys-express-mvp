@@ -100,6 +100,10 @@ export async function POST(
       .update({
         estado: nuevoEstado,
         motivo_rechazo: accion === 'rechazar' ? motivo_rechazo : null,
+        ...(esAprobada && {
+          aprobador_np_nombre: coordinadorArea?.nombre ?? null,
+          aprobador_np_area:   np.area,
+        }),
       })
       .eq('id', np.id)
 

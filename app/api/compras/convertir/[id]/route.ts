@@ -102,6 +102,8 @@ export async function POST(
         estado_oc:           'en_proceso',
         creado_por_id:       user.id,
         creado_por_nombre:   perfil.nombre,
+        aprobador_np_nombre: np.aprobador_np_nombre ?? null,
+        aprobador_np_area:   np.aprobador_np_area   ?? null,
       })
       .select()
       .single()

@@ -291,9 +291,12 @@ export async function GET(
     row++
 
     // Nombre y cargo
+    const coordAprobador = oc.aprobador_np_nombre && oc.aprobador_np_area
+      ? `${oc.aprobador_np_nombre} - ${oc.aprobador_np_area}`
+      : ''
     const aprobVals = [
       ['A', 'B', `${oc.creado_por_nombre ?? ''}\n${creadorCargo}`],
-      ['C', 'D', ''],
+      ['C', 'D', coordAprobador],
       ['E', 'G', `${oc.aprobado_por_nombre ?? ''}\nCoordinador de Compras / Gerente General`],
       ['H', 'J', ''],
     ] as const

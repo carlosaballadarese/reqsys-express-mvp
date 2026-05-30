@@ -223,6 +223,11 @@ export function OCDocument({ oc, items, empresa, logoUrl, creadorCargo }: {
           </View>
           <View style={styles.aprobCell}>
             <Text style={styles.aprobHead}>APROBADO POR{'\n'}COORDINADOR DEL ÁREA</Text>
+            <Text style={styles.aprobName}>
+              {oc.aprobador_np_nombre && oc.aprobador_np_area
+                ? `${oc.aprobador_np_nombre} - ${oc.aprobador_np_area}`
+                : ''}
+            </Text>
             <Text style={styles.aprobFirma}>Firma / Fecha: _______________</Text>
           </View>
           <View style={styles.aprobCell}>
