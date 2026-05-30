@@ -303,10 +303,9 @@ export async function GET(
 
     // ── Generar buffer ───────────────────────────────────────────────────────
     const rawBuffer = await wb.xlsx.writeBuffer()
-    const buffer    = Buffer.isBuffer(rawBuffer) ? rawBuffer : Buffer.from(rawBuffer)
     const nombre    = `OC_${oc.numero_oc}_${(oc.proveedor ?? 'proveedor').replace(/[^a-zA-Z0-9\-_.]/g, '-')}`
 
-    return new NextResponse(buffer as unknown as Uint8Array, {
+    return new NextResponse(new Blob([rawBuffer]), {
       status: 200,
       headers: {
         'Content-Type':        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

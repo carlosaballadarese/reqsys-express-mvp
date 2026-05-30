@@ -51,7 +51,7 @@ export async function GET(
 
     const nombre = `OC_${oc.numero_oc}_${(oc.proveedor ?? 'proveedor').replace(/[^a-zA-Z0-9\-_.]/g, '-')}`
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Blob([buffer]), {
       status: 200,
       headers: {
         'Content-Type':        'application/pdf',
