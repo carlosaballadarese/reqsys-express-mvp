@@ -4,8 +4,6 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { OCDocument } from '@/lib/oc-pdf'
 import React from 'react'
-import path from 'path'
-import fs from 'fs'
 
 export async function GET(
   _req: NextRequest,
@@ -28,7 +26,7 @@ export async function GET(
     if (oc.estado_oc !== 'aprobada')
       return NextResponse.json({ error: 'Solo se puede exportar OCs aprobadas' }, { status: 400 })
 
-    // Derivar cargo del creador desde perfiles
+    // Cargo del creador
     let creadorCargo = 'Compras'
     if (oc.creado_por_id) {
       const { data: perfil } = await adminClient()
@@ -37,18 +35,16 @@ export async function GET(
       else if (perfil?.rol === 'admin')        creadorCargo = 'Administrador'
     }
 
-    // Logo ARLIFT como base64
-    const logoPath = path.join(process.cwd(), 'public', 'logo_arlift.png')
-    const logoSrc  = fs.existsSync(logoPath)
-      ? `data:image/png;base64,${fs.readFileSync(logoPath).toString('base64')}`
-      : ''
+    // Spec: logo via URL pública (no fs — Vercel no incluye public/ en el bundle serverless)
+    const appUrl   = process.env.NEXT_PUBLIC_APP_URL ?? 'https://reqsys-express.vercel.app'
+    const logoUrl  = `${appUrl}/logo_arlift.png`
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const element = React.createElement(OCDocument, {
-      oc, items: items ?? [], empresa: empresa ?? {}, logoSrc, creadorCargo,
+      oc, items: items ?? [], empresa: empresa ?? {}, logoUrl, creadorCargo,
     }) as any
-    const buffer = await renderToBuffer(element)
 
+    const buffer = await renderToBuffer(element)
     const nombre = `OC_${oc.numero_oc}_${(oc.proveedor ?? 'proveedor').replace(/[^a-zA-Z0-9\-_.]/g, '-')}`
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

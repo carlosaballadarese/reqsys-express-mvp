@@ -1,48 +1,79 @@
 import React from 'react'
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
 
-const TEAL   = '#0d2e2e'
-const TEAL2  = '#1a5252'
-const GRIS   = '#64748b'
-const BORDER = '#cbd5e1'
-const BG_HDR = '#f1f5f9'
+// ── Paleta roja corporativa ────────────────────────────────────────────────────
+const ROJO_OSC = '#7f1d1d'   // rojo oscuro — encabezados principales
+const ROJO     = '#991b1b'   // rojo medio — encabezados secundarios
+const DORADO   = '#c9a840'   // dorado ARLIFT
+const GRIS     = '#64748b'
+const BORDER   = '#cbd5e1'
+const BG_HDR   = '#fef2f2'   // fondo muy suave rosado para info bar
 
 const styles = StyleSheet.create({
   page:        { fontFamily: 'Helvetica', fontSize: 8, padding: 20, color: '#1e293b' },
-  headerRow:   { flexDirection: 'row', alignItems: 'center', marginBottom: 4, borderBottom: `2 solid ${TEAL}`, paddingBottom: 4 },
+
+  // Header
+  headerRow:   {
+    flexDirection: 'row', alignItems: 'center', marginBottom: 4,
+    paddingBottom: 4,
+    borderBottomWidth: 2, borderBottomColor: ROJO_OSC, borderBottomStyle: 'solid',
+  },
   logo:        { width: 60, height: 30, objectFit: 'contain' },
-  headerTitle: { flex: 1, textAlign: 'center', fontSize: 16, fontFamily: 'Helvetica-Bold', color: TEAL },
-  headerNum:   { fontSize: 13, fontFamily: 'Helvetica-Bold', color: TEAL2, textAlign: 'right', minWidth: 70 },
+  headerTitle: { flex: 1, textAlign: 'center', fontSize: 16, fontFamily: 'Helvetica-Bold', color: ROJO_OSC },
+  headerNum:   { fontSize: 13, fontFamily: 'Helvetica-Bold', color: ROJO, textAlign: 'right', minWidth: 70 },
+
+  // Info bar
   infoBar:     { flexDirection: 'row', backgroundColor: BG_HDR, padding: '3 6', marginBottom: 6, borderRadius: 2 },
   infoCell:    { flex: 1, flexDirection: 'column' },
   infoLabel:   { fontSize: 6, color: GRIS, textTransform: 'uppercase' },
   infoVal:     { fontSize: 7, fontFamily: 'Helvetica-Bold' },
-  sectionLabel:{ backgroundColor: TEAL, color: 'white', fontSize: 7, fontFamily: 'Helvetica-Bold', padding: '2 6', marginBottom: 0 },
-  twoCol:      { flexDirection: 'row', border: `1 solid ${BORDER}`, marginBottom: 6 },
-  col:         { flex: 1, padding: 5 },
-  colRight:    { flex: 1, padding: 5, borderLeft: `1 solid ${BORDER}` },
-  rowKV:       { flexDirection: 'row', marginBottom: 2 },
-  kvLabel:     { fontSize: 7, color: GRIS, width: 60 },
-  kvVal:       { fontSize: 7, flex: 1 },
-  tableHead:   { flexDirection: 'row', backgroundColor: TEAL, padding: '3 0' },
-  tableRow:    { flexDirection: 'row', borderBottom: `1 solid ${BORDER}`, minHeight: 18 },
-  tableRowAlt: { flexDirection: 'row', borderBottom: `1 solid ${BORDER}`, minHeight: 18, backgroundColor: '#f8fafc' },
+
+  // Sección
+  sectionLabel: {
+    backgroundColor: ROJO_OSC, color: 'white', fontSize: 7,
+    fontFamily: 'Helvetica-Bold', padding: '2 6', marginBottom: 0,
+  },
+
+  // Dos columnas info general
+  twoCol:   {
+    flexDirection: 'row', marginBottom: 6,
+    borderWidth: 1, borderColor: BORDER, borderStyle: 'solid',
+  },
+  col:      { flex: 1, padding: 5 },
+  colRight: {
+    flex: 1, padding: 5,
+    borderLeftWidth: 1, borderLeftColor: BORDER, borderLeftStyle: 'solid',
+  },
+  rowKV:    { flexDirection: 'row', marginBottom: 2 },
+  kvLabel:  { fontSize: 7, color: GRIS, width: 60 },
+  kvVal:    { fontSize: 7, flex: 1 },
+
+  // Tabla ítems
+  tableHead:   { flexDirection: 'row', backgroundColor: ROJO_OSC, padding: '3 0' },
+  tableRow:    { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: BORDER, borderBottomStyle: 'solid', minHeight: 18 },
+  tableRowAlt: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: BORDER, borderBottomStyle: 'solid', minHeight: 18, backgroundColor: '#fff5f5' },
   thCell:      { color: 'white', fontFamily: 'Helvetica-Bold', fontSize: 6, textAlign: 'center', paddingHorizontal: 2, paddingVertical: 2 },
   tdCell:      { fontSize: 7, textAlign: 'center', paddingHorizontal: 2, paddingVertical: 3 },
   tdLeft:      { fontSize: 7, textAlign: 'left', paddingHorizontal: 3, paddingVertical: 3 },
-  totalRow:    { flexDirection: 'row', justifyContent: 'flex-end', padding: '2 6', borderTop: `1 solid ${BORDER}` },
-  totalLabel:  { fontSize: 7, fontFamily: 'Helvetica-Bold', marginRight: 12 },
-  totalVal:    { fontSize: 7, fontFamily: 'Helvetica-Bold', width: 70, textAlign: 'right' },
-  condBox:     { border: `1 solid ${BORDER}`, marginTop: 6, marginBottom: 6 },
-  condHint:    { fontSize: 6, color: GRIS, fontStyle: 'italic', padding: '3 5' },
-  condText:    { fontSize: 7, padding: '2 5 6', minHeight: 28 },
-  aprobRow:    { flexDirection: 'row', border: `1 solid ${BORDER}`, marginTop: 6 },
-  aprobCell:   { flex: 1, borderRight: `1 solid ${BORDER}`, padding: 5, minHeight: 55 },
+
+  // Totales
+  totalRow:   { flexDirection: 'row', justifyContent: 'flex-end', padding: '2 6', borderTopWidth: 1, borderTopColor: BORDER, borderTopStyle: 'solid' },
+  totalLabel: { fontSize: 7, fontFamily: 'Helvetica-Bold', marginRight: 12 },
+  totalVal:   { fontSize: 7, fontFamily: 'Helvetica-Bold', width: 70, textAlign: 'right' },
+
+  // Condiciones
+  condBox:  { borderWidth: 1, borderColor: BORDER, borderStyle: 'solid', marginTop: 6, marginBottom: 6 },
+  condHint: { fontSize: 6, color: GRIS, fontStyle: 'italic', padding: '3 5' },
+  condText: { fontSize: 7, padding: '2 5 6', minHeight: 28 },
+
+  // Aprobaciones
+  aprobRow:      { flexDirection: 'row', borderWidth: 1, borderColor: BORDER, borderStyle: 'solid', marginTop: 6 },
+  aprobCell:     { flex: 1, borderRightWidth: 1, borderRightColor: BORDER, borderRightStyle: 'solid', padding: 5, minHeight: 55 },
   aprobCellLast: { flex: 1, padding: 5, minHeight: 55 },
-  aprobHead:   { backgroundColor: TEAL2, color: 'white', fontFamily: 'Helvetica-Bold', fontSize: 6, padding: '2 4', textAlign: 'center' },
-  aprobName:   { fontSize: 7, marginTop: 4 },
-  aprobCargo:  { fontSize: 6, color: GRIS, marginTop: 1 },
-  aprobFirma:  { fontSize: 6, color: GRIS, marginTop: 14 },
+  aprobHead:     { backgroundColor: ROJO, color: 'white', fontFamily: 'Helvetica-Bold', fontSize: 6, padding: '2 4', textAlign: 'center' },
+  aprobName:     { fontSize: 7, marginTop: 4 },
+  aprobCargo:    { fontSize: 6, color: GRIS, marginTop: 1 },
+  aprobFirma:    { fontSize: 6, color: GRIS, marginTop: 14 },
 })
 
 function usd(n: number) { return `$${Number(n).toFixed(2)}` }
@@ -54,8 +85,8 @@ function fmtDate(s: string | null | undefined) {
 
 const COL = { num:'4%', tipo:'8%', cod:'9%', desc:'25%', und:'5%', qty:'5%', info:'17%', pu:'9%', tot:'9%', fecha:'9%' }
 
-export function OCDocument({ oc, items, empresa, logoSrc, creadorCargo }: {
-  oc: any; items: any[]; empresa: any; logoSrc: string; creadorCargo: string
+export function OCDocument({ oc, items, empresa, logoUrl, creadorCargo }: {
+  oc: any; items: any[]; empresa: any; logoUrl: string; creadorCargo: string
 }) {
   const subtotal = Number(oc.valor_total) || 0
   const iva      = subtotal * 0.15
@@ -67,7 +98,9 @@ export function OCDocument({ oc, items, empresa, logoSrc, creadorCargo }: {
 
         {/* Header */}
         <View style={styles.headerRow}>
-          {logoSrc ? <Image src={logoSrc} style={styles.logo} /> : <View style={styles.logo} />}
+          {logoUrl
+            ? <Image src={logoUrl} style={styles.logo} />
+            : <View style={styles.logo} />}
           <Text style={styles.headerTitle}>ORDEN DE COMPRA</Text>
           <Text style={styles.headerNum}>No. {oc.numero_oc}</Text>
         </View>
@@ -125,9 +158,9 @@ export function OCDocument({ oc, items, empresa, logoSrc, creadorCargo }: {
           </View>
         </View>
 
-        {/* Tabla de ítems */}
+        {/* Tabla ítems */}
         <Text style={styles.sectionLabel}>DETALLE DE ÍTEMS REQUERIDOS</Text>
-        <View style={{ border: `1 solid ${BORDER}` }}>
+        <View style={{ borderWidth: 1, borderColor: BORDER, borderStyle: 'solid' }}>
           <View style={styles.tableHead}>
             {([
               ['ITEM #',COL.num],['TIPO',COL.tipo],['CÓDIGO',COL.cod],
@@ -155,7 +188,7 @@ export function OCDocument({ oc, items, empresa, logoSrc, creadorCargo }: {
         </View>
 
         {/* Totales */}
-        <View style={{ border: `1 solid ${BORDER}`, borderTop: 0 }}>
+        <View style={{ borderWidth: 1, borderColor: BORDER, borderStyle: 'solid', borderTopWidth: 0 }}>
           {([
             ['VALOR TOTAL DEL REQUERIMIENTO (USD) — sin IVA:', usd(subtotal)],
             ['IVA 15%:', usd(iva)],
