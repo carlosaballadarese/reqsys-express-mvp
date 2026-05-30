@@ -24,8 +24,9 @@ export async function GET(
 
     if (error || !np) return NextResponse.json({ error: 'NP no encontrada' }, { status: 404 })
 
-    // Calcular si el usuario autenticado puede aprobar esta NP
-    let puedeAprobar = false
+    // Calcular permisos del usuario autenticado
+    let puedeAprobar    = false
+    let puedeVerPrecio  = false
     try {
       const supabase = await createSupabaseServerClient()
       const { data: { user } } = await supabase.auth.getUser()
@@ -33,6 +34,8 @@ export async function GET(
         const { data: perfil } = await adminClient()
           .from('perfiles').select('rol, email').eq('id', user.id).single()
         if (perfil) {
+          // Spec: precio visible solo para compras, admin y asistente_compras
+          puedeVerPrecio = ['compras', 'admin', 'asistente_compras'].includes(perfil.rol)
           if (['admin', 'compras'].includes(perfil.rol)) {
             puedeAprobar = true
           } else {
@@ -48,7 +51,13 @@ export async function GET(
       }
     } catch {}
 
-    return NextResponse.json({ np, items: items ?? [], historial: historial ?? [], puedeAprobar, ocs: ocs ?? [] })
+    // Spec: enmascarar precios para roles sin permiso
+    const npResp    = puedeVerPrecio ? np : { ...np, total_estimado: null }
+    const itemsResp = puedeVerPrecio
+      ? (items ?? [])
+      : (items ?? []).map((item: any) => ({ ...item, precio_unitario: null }))
+
+    return NextResponse.json({ np: npResp, items: itemsResp, historial: historial ?? [], puedeAprobar, ocs: ocs ?? [] })
   } catch (err) {
     console.error(err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })
@@ -85,8 +94,9 @@ export async function PUT(
       return NextResponse.json({ error: 'NP no encontrada o no está en estado rechazada' }, { status: 404 })
 
     // Spec: puede editar el creador (creado_por_id) o roles compras/admin
-    const esManager = ['compras', 'admin'].includes(perfil.rol)
-    const esCreador  = np.creado_por_id === user.id
+    const esManager      = ['compras', 'admin'].includes(perfil.rol)
+    const esCreador       = np.creado_por_id === user.id
+    const puedeVerPrecio  = ['compras', 'admin', 'asistente_compras'].includes(perfil.rol)
     if (!esManager && !esCreador)
       return NextResponse.json({ error: 'No tienes permiso para editar esta NP' }, { status: 403 })
 
@@ -105,10 +115,12 @@ export async function PUT(
     if (!coordinador)
       return NextResponse.json({ error: 'No se encontró coordinador para el área seleccionada' }, { status: 400 })
 
-    const totalEstimado = (items as { cantidad: number; precio_unitario: number }[]).reduce(
-      (acc, item) => acc + (item.cantidad || 0) * (item.precio_unitario || 0),
-      0
-    )
+    const totalEstimado = puedeVerPrecio
+      ? (items as { cantidad: number; precio_unitario: number }[]).reduce(
+          (acc, item) => acc + (item.cantidad || 0) * (item.precio_unitario || 0),
+          0
+        )
+      : 0
 
     // Actualizar encabezado: vuelve a pendiente, limpia motivo_rechazo (queda en historial)
     const { error: updateError } = await adminClient()
@@ -133,15 +145,16 @@ export async function PUT(
     await adminClient().from('items_np').delete().eq('nota_pedido_id', id)
     const itemsConNP = (items as {
       codigo: string; descripcion: string; unidad: string
-      cantidad: number; precio_unitario: number
+      cantidad: number; precio_unitario: number; proveedor_sugerido?: string
     }[]).map((item, index) => ({
-      nota_pedido_id:  id,
-      linea:           index + 1,
-      codigo:          item.codigo   || null,
-      descripcion:     item.descripcion,
-      unidad:          item.unidad,
-      cantidad:        item.cantidad,
-      precio_unitario: item.precio_unitario || 0,
+      nota_pedido_id:     id,
+      linea:              index + 1,
+      codigo:             item.codigo || null,
+      descripcion:        item.descripcion,
+      unidad:             item.unidad,
+      cantidad:           item.cantidad,
+      precio_unitario:    puedeVerPrecio ? (item.precio_unitario || 0) : 0,
+      proveedor_sugerido: item.proveedor_sugerido || null,
     }))
     await adminClient().from('items_np').insert(itemsConNP)
 

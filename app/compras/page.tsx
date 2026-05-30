@@ -119,9 +119,10 @@ export default function ComprasPage() {
     cargar()
   }
 
-  const esCompras    = ['compras', 'admin'].includes(rol)
-  const esAsistente  = rol === 'asistente_compras'
-  const esSolicitante = rol === 'solicitante'
+  const esCompras      = ['compras', 'admin'].includes(rol)
+  const esAsistente    = rol === 'asistente_compras'
+  const esSolicitante  = rol === 'solicitante'
+  const puedeVerPrecio = ['compras', 'admin', 'asistente_compras'].includes(rol)
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -203,7 +204,7 @@ export default function ComprasPage() {
                       <th className="text-left py-3 pr-4">Área</th>
                       <th className="text-left py-3 pr-4">Prioridad</th>
                       <th className="text-left py-3 pr-4">Tipo</th>
-                      <th className="text-right py-3 pr-4">Total Est.</th>
+                      {puedeVerPrecio && <th className="text-right py-3 pr-4">Total Est.</th>}
                       <th className="text-left py-3 pr-4">Estado</th>
                       <th className="text-left py-3 pr-4">OC</th>
                       {esCompras  && <th className="text-left py-3 pr-4">Asignada a</th>}
@@ -231,7 +232,7 @@ export default function ComprasPage() {
                           </span>
                         </td>
                         <td className="py-3 pr-4 text-slate-600 text-xs capitalize">{np.tipo_compra}</td>
-                        <td className="py-3 pr-4 text-right font-medium">${Number(np.total_estimado).toFixed(2)}</td>
+                        {puedeVerPrecio && <td className="py-3 pr-4 text-right font-medium">{np.total_estimado != null ? `$${Number(np.total_estimado).toFixed(2)}` : '—'}</td>}
                         <td className="py-3 pr-4">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${ESTADO_BADGE[np.estado] ?? ''}`}>
                             {np.estado}

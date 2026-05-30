@@ -69,8 +69,9 @@ type Item = {
   descripcion: string
   unidad: string
   cantidad: number
-  precio_unitario: number
+  precio_unitario: number | null
   total: number
+  proveedor_sugerido: string | null
 }
 
 type Historial = {
@@ -679,7 +680,8 @@ export default function DetalleNPPage() {
     prioridad: string; tipo_compra: string; centro_costo: string; descripcion_general: string
   } | null>(null)
   const [editItems, setEditItems]         = useState<{
-    codigo: string; descripcion: string; unidad: string; cantidad: string; precio_unitario: string
+    codigo: string; descripcion: string; unidad: string
+    cantidad: string; precio_unitario: string; proveedor_sugerido: string
   }[]>([])
   const [editAreas, setEditAreas]         = useState<string[]>([])
   const [editUnidades, setEditUnidades]   = useState<string[]>(['EA'])
@@ -776,11 +778,12 @@ export default function DetalleNPPage() {
       descripcion_general: np.descripcion_general,
     })
     setEditItems(items.map(i => ({
-      codigo:          i.codigo || '',
-      descripcion:     i.descripcion,
-      unidad:          i.unidad,
-      cantidad:        String(i.cantidad),
-      precio_unitario: String(i.precio_unitario),
+      codigo:             i.codigo || '',
+      descripcion:        i.descripcion,
+      unidad:             i.unidad,
+      cantidad:           String(i.cantidad),
+      precio_unitario:    String(i.precio_unitario ?? 0),
+      proveedor_sugerido: i.proveedor_sugerido || '',
     })))
     if (editAreas.length === 0) {
       const [resA, resU] = await Promise.all([
@@ -806,11 +809,12 @@ export default function DetalleNPPage() {
       body: JSON.stringify({
         encabezado: editEnc,
         items: editItems.map(i => ({
-          codigo:          i.codigo || null,
-          descripcion:     i.descripcion,
-          unidad:          i.unidad,
-          cantidad:        Number(i.cantidad) || 0,
-          precio_unitario: Number(i.precio_unitario) || 0,
+          codigo:             i.codigo || null,
+          descripcion:        i.descripcion,
+          unidad:             i.unidad,
+          cantidad:           Number(i.cantidad) || 0,
+          precio_unitario:    Number(i.precio_unitario) || 0,
+          proveedor_sugerido: i.proveedor_sugerido || null,
         })),
       }),
     })
@@ -844,6 +848,7 @@ export default function DetalleNPPage() {
 
   const mostrarAprobacion    = np?.estado === 'pendiente' && puedeAprobar
   const mostrarDevolucion    = np?.estado === 'aprobada' && ['compras', 'admin'].includes(rol)
+  const puedeVerPrecio       = ['compras', 'admin', 'asistente_compras'].includes(rol)
   // Spec: puede editar el creador (creado_por_id) o compras/admin; NP debe estar rechazada
   const puedeEditarRechazada = np?.estado === 'rechazada' &&
     (np.creado_por_id === userId || ['compras', 'admin'].includes(rol))
@@ -907,7 +912,7 @@ export default function DetalleNPPage() {
               <div><p className="text-xs text-slate-500">Prioridad</p><p className="font-medium capitalize">{np.prioridad}</p></div>
               <div><p className="text-xs text-slate-500">Tipo de Compra</p><p className="font-medium capitalize">{np.tipo_compra}</p></div>
               <div><p className="text-xs text-slate-500">Centro de Costo</p><p className="font-medium capitalize">{np.centro_costo}</p></div>
-              <div><p className="text-xs text-slate-500">Total Estimado</p><p className="font-bold text-blue-700">{usd(np.total_estimado)}</p></div>
+              {puedeVerPrecio && <div><p className="text-xs text-slate-500">Total Estimado</p><p className="font-bold text-blue-700">{np.total_estimado != null ? usd(Number(np.total_estimado)) : '—'}</p></div>}
               <div><p className="text-xs text-slate-500">Fecha Solicitud</p><p className="font-medium">{new Date(np.created_at).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })}</p></div>
               <div><p className="text-xs text-slate-500">OC Generada</p><p className={`font-medium ${np.convertida ? 'text-blue-600' : 'text-slate-400'}`}>{np.convertida ? '✓ Sí' : 'No'}</p></div>
               {['compras', 'admin'].includes(rol) && (
@@ -954,8 +959,9 @@ export default function DetalleNPPage() {
                     <th className="text-left py-2 pr-3">Código</th>
                     <th className="text-left py-2 pr-3">Descripción</th>
                     <th className="text-center py-2 pr-3">Cantidad</th>
-                    <th className="text-right py-2 pr-3">P. Unit.</th>
-                    <th className="text-right py-2">Total</th>
+                    <th className="text-left py-2 pr-3">Proveedor Sugerido</th>
+                    {puedeVerPrecio && <th className="text-right py-2 pr-3">P. Unit.</th>}
+                    {puedeVerPrecio && <th className="text-right py-2">Total</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -965,17 +971,20 @@ export default function DetalleNPPage() {
                       <td className="py-2 pr-3 font-mono text-xs text-slate-400">{item.codigo || '—'}</td>
                       <td className="py-2 pr-3">{item.descripcion}</td>
                       <td className="py-2 pr-3 text-center">{item.cantidad} {item.unidad}</td>
-                      <td className="py-2 pr-3 text-right">{usd(item.precio_unitario)}</td>
-                      <td className="py-2 text-right font-medium">{usd(item.total)}</td>
+                      <td className="py-2 pr-3 text-xs text-slate-500">{item.proveedor_sugerido || '—'}</td>
+                      {puedeVerPrecio && <td className="py-2 pr-3 text-right">{item.precio_unitario != null ? usd(Number(item.precio_unitario)) : '—'}</td>}
+                      {puedeVerPrecio && <td className="py-2 text-right font-medium">{usd(item.total)}</td>}
                     </tr>
                   ))}
                 </tbody>
-                <tfoot>
-                  <tr className="bg-slate-50">
-                    <td colSpan={5} className="py-2 pr-3 text-right font-semibold text-sm">Total Estimado</td>
-                    <td className="py-2 text-right font-bold text-blue-700">{usd(np.total_estimado)}</td>
-                  </tr>
-                </tfoot>
+                {puedeVerPrecio && (
+                  <tfoot>
+                    <tr className="bg-slate-50">
+                      <td colSpan={6} className="py-2 pr-3 text-right font-semibold text-sm">Total Estimado</td>
+                      <td className="py-2 text-right font-bold text-blue-700">{np.total_estimado != null ? usd(Number(np.total_estimado)) : '—'}</td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           </CardContent>
@@ -1118,7 +1127,7 @@ export default function DetalleNPPage() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <Label className="text-xs font-medium text-slate-700">Ítems del Requerimiento</Label>
-                  <button type="button" onClick={() => setEditItems(prev => [...prev, { codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0' }])}
+                  <button type="button" onClick={() => setEditItems(prev => [...prev, { codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0', proveedor_sugerido: '' }])}
                     className="text-xs text-blue-600 hover:underline font-medium">+ Agregar ítem</button>
                 </div>
                 <div className="space-y-2">
@@ -1155,25 +1164,37 @@ export default function DetalleNPPage() {
                           <Label className="text-xs text-slate-500">Cantidad</Label>
                           <Input type="number" step="0.01" min="0" value={item.cantidad} onChange={e => setEditItems(prev => prev.map((it, idx) => idx === i ? { ...it, cantidad: e.target.value } : it))} className="h-7 text-xs w-20 mt-0.5" />
                         </div>
-                        <div>
-                          <Label className="text-xs text-slate-500">P. Unit. USD</Label>
-                          <Input type="number" step="0.01" min="0" value={item.precio_unitario} onChange={e => setEditItems(prev => prev.map((it, idx) => idx === i ? { ...it, precio_unitario: e.target.value } : it))} className="h-7 text-xs w-24 mt-0.5" />
-                        </div>
-                        <div className="ml-auto text-right">
-                          <Label className="text-xs text-slate-500">Total</Label>
-                          <p className="text-sm font-bold text-blue-700 mt-0.5">
-                            ${((parseFloat(item.cantidad) || 0) * (parseFloat(item.precio_unitario) || 0)).toFixed(2)}
-                          </p>
-                        </div>
+                        {/* Spec: precio solo visible para compras, admin y asistente_compras */}
+                        {puedeVerPrecio && (
+                          <div>
+                            <Label className="text-xs text-slate-500">P. Unit. USD</Label>
+                            <Input type="number" step="0.01" min="0" value={item.precio_unitario} onChange={e => setEditItems(prev => prev.map((it, idx) => idx === i ? { ...it, precio_unitario: e.target.value } : it))} className="h-7 text-xs w-24 mt-0.5" />
+                          </div>
+                        )}
+                        {puedeVerPrecio && (
+                          <div className="ml-auto text-right">
+                            <Label className="text-xs text-slate-500">Total</Label>
+                            <p className="text-sm font-bold text-blue-700 mt-0.5">
+                              ${((parseFloat(item.cantidad) || 0) * (parseFloat(item.precio_unitario) || 0)).toFixed(2)}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                      {/* Proveedor sugerido — campo opcional, visible para todos */}
+                      <div>
+                        <Label className="text-xs text-slate-500">Proveedor Sugerido (opcional)</Label>
+                        <Input value={item.proveedor_sugerido} onChange={e => setEditItems(prev => prev.map((it, idx) => idx === i ? { ...it, proveedor_sugerido: e.target.value } : it))} className="h-7 text-xs mt-0.5" placeholder="Nombre del proveedor recomendado para este ítem" />
                       </div>
                     </div>
                   ))}
-                  <div className="flex justify-end pt-1 border-t">
-                    <span className="text-sm text-slate-500 mr-2">Total Estimado:</span>
-                    <span className="text-lg font-bold text-blue-700">
-                      ${editItems.reduce((acc, i) => acc + (parseFloat(i.cantidad) || 0) * (parseFloat(i.precio_unitario) || 0), 0).toFixed(2)}
-                    </span>
-                  </div>
+                  {puedeVerPrecio && (
+                    <div className="flex justify-end pt-1 border-t">
+                      <span className="text-sm text-slate-500 mr-2">Total Estimado:</span>
+                      <span className="text-lg font-bold text-blue-700">
+                        ${editItems.reduce((acc, i) => acc + (parseFloat(i.cantidad) || 0) * (parseFloat(i.precio_unitario) || 0), 0).toFixed(2)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 

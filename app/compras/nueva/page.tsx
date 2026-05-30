@@ -12,11 +12,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import Link from 'next/link'
 
 const itemSchema = z.object({
-  codigo: z.string(),
-  descripcion: z.string().min(1, 'Requerido'),
-  unidad: z.string().min(1, 'Requerido'),
-  cantidad: z.string().min(1, 'Requerido'),
-  precio_unitario: z.string(),
+  codigo:              z.string(),
+  descripcion:         z.string().min(1, 'Requerido'),
+  unidad:              z.string().min(1, 'Requerido'),
+  cantidad:            z.string().min(1, 'Requerido'),
+  precio_unitario:     z.string(),
+  proveedor_sugerido:  z.string(),
 })
 
 const formSchema = z.object({
@@ -138,12 +139,13 @@ function InventarioSearch({ value, onChange, onSelect }: InventarioSearchProps) 
   )
 }
 
-function TotalEstimado({ control }: { control: ReturnType<typeof useForm<FormData>>['control'] }) {
+function TotalEstimado({ control, puedeVer }: { control: ReturnType<typeof useForm<FormData>>['control']; puedeVer: boolean }) {
   const items = useWatch({ control, name: 'items' })
   const total = (items ?? []).reduce(
     (acc, item) => acc + (parseFloat(item.cantidad) || 0) * (parseFloat(item.precio_unitario) || 0),
     0
   )
+  if (!puedeVer) return null
   return (
     <div className="flex justify-end pt-2 border-t">
       <div className="text-right">
@@ -155,21 +157,27 @@ function TotalEstimado({ control }: { control: ReturnType<typeof useForm<FormDat
 }
 
 export default function NuevaNotaPedido() {
-  const [estado, setEstado] = useState<EstadoEnvio>('idle')
-  const [numeroNP, setNumeroNP] = useState('')
-  const [errorMsg, setErrorMsg] = useState('')
-  const [areas, setAreas] = useState<string[]>([])
-  const [unidades, setUnidades] = useState<string[]>(['EA'])
+  const [estado, setEstado]           = useState<EstadoEnvio>('idle')
+  const [numeroNP, setNumeroNP]       = useState('')
+  const [errorMsg, setErrorMsg]       = useState('')
+  const [areas, setAreas]             = useState<string[]>([])
+  const [unidades, setUnidades]       = useState<string[]>(['EA'])
+  const [puedeVerPrecio, setPuedeVerPrecio] = useState(false)
 
   useEffect(() => {
     async function loadCatalogs() {
       try {
-        const [resAreas, resUnidades] = await Promise.all([
+        const [resAreas, resUnidades, resPerfil] = await Promise.all([
           fetch('/api/compras/areas'),
-          fetch('/api/compras/unidades')
+          fetch('/api/compras/unidades'),
+          fetch('/api/auth/perfil'),
         ])
-        if (resAreas.ok) setAreas(await resAreas.json())
+        if (resAreas.ok)   setAreas(await resAreas.json())
         if (resUnidades.ok) setUnidades(await resUnidades.json())
+        if (resPerfil.ok) {
+          const p = await resPerfil.json()
+          setPuedeVerPrecio(['compras', 'admin', 'asistente_compras'].includes(p.rol ?? ''))
+        }
       } catch (err) {
         console.error('Error cargando catálogos:', err)
       }
@@ -190,7 +198,7 @@ export default function NuevaNotaPedido() {
       prioridad: 'media',
       tipo_compra: 'producto',
       centro_costo: 'costo',
-      items: [{ codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0' }],
+      items: [{ codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0', proveedor_sugerido: '' }],
     },
   })
 
@@ -443,23 +451,26 @@ export default function NuevaNotaPedido() {
                       <p className="text-red-500 text-xs mt-1">{errors.items[index]?.cantidad?.message}</p>
                     )}
                   </div>
-                  <div className="col-span-4 sm:col-span-2">
-                    <Label className="text-xs">P. Unit. USD</Label>
-                    <Controller
-                      control={control}
-                      name={`items.${index}.precio_unitario`}
-                      render={({ field }) => (
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={field.value}
-                          onChange={e => field.onChange(e.target.value)}
-                          className="mt-1 h-8 text-sm"
-                        />
-                      )}
-                    />
-                  </div>
+                  {/* Spec: precio solo visible para compras, admin y asistente_compras */}
+                  {puedeVerPrecio && (
+                    <div className="col-span-4 sm:col-span-2">
+                      <Label className="text-xs">P. Unit. USD</Label>
+                      <Controller
+                        control={control}
+                        name={`items.${index}.precio_unitario`}
+                        render={({ field }) => (
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={field.value}
+                            onChange={e => field.onChange(e.target.value)}
+                            className="mt-1 h-8 text-sm"
+                          />
+                        )}
+                      />
+                    </div>
+                  )}
                   <div className="col-span-12 sm:col-span-1 flex items-end justify-end">
                     {fields.length > 1 && (
                       <Button
@@ -473,6 +484,22 @@ export default function NuevaNotaPedido() {
                       </Button>
                     )}
                   </div>
+                  {/* Proveedor sugerido — campo opcional, visible para todos */}
+                  <div className="col-span-12">
+                    <Label className="text-xs text-slate-500">Proveedor Sugerido (opcional)</Label>
+                    <Controller
+                      control={control}
+                      name={`items.${index}.proveedor_sugerido`}
+                      render={({ field }) => (
+                        <Input
+                          value={field.value ?? ''}
+                          onChange={e => field.onChange(e.target.value)}
+                          placeholder="Nombre del proveedor recomendado para este ítem"
+                          className="mt-1 h-8 text-sm"
+                        />
+                      )}
+                    />
+                  </div>
                 </div>
               ))}
 
@@ -480,13 +507,13 @@ export default function NuevaNotaPedido() {
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => append({ codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0' })}
+                onClick={() => append({ codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0', proveedor_sugerido: '' })}
                 className="w-full"
               >
                 + Agregar ítem
               </Button>
 
-              <TotalEstimado control={control} />
+              <TotalEstimado control={control} puedeVer={puedeVerPrecio} />
             </CardContent>
           </Card>
 

@@ -17,6 +17,11 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
+    // Spec: precio visible solo para compras, admin y asistente_compras
+    const { data: perfilCreador } = await adminClient()
+      .from('perfiles').select('rol').eq('id', user.id).single()
+    const puedeVerPrecio = ['compras', 'admin', 'asistente_compras'].includes(perfilCreador?.rol ?? '')
+
     const body = await req.json()
     const { encabezado, items } = body
 
@@ -34,12 +39,14 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 2. Calcular total estimado
-    const totalEstimado = items.reduce(
-      (acc: number, item: { cantidad: number; precio_unitario: number }) =>
-        acc + item.cantidad * (item.precio_unitario || 0),
-      0
-    )
+    // 2. Calcular total estimado (0 para roles sin permiso de ver precios)
+    const totalEstimado = puedeVerPrecio
+      ? items.reduce(
+          (acc: number, item: { cantidad: number; precio_unitario: number }) =>
+            acc + item.cantidad * (item.precio_unitario || 0),
+          0
+        )
+      : 0
 
     // 3. Insertar NP
     const numero = await generarNumeroNP()
@@ -71,14 +78,17 @@ export async function POST(req: NextRequest) {
       unidad: string
       cantidad: number
       precio_unitario: number
+      proveedor_sugerido?: string
     }, index: number) => ({
-      nota_pedido_id: np.id,
-      linea: index + 1,
-      codigo: item.codigo || null,
-      descripcion: item.descripcion,
-      unidad: item.unidad,
-      cantidad: item.cantidad,
-      precio_unitario: item.precio_unitario || 0,
+      nota_pedido_id:     np.id,
+      linea:              index + 1,
+      codigo:             item.codigo || null,
+      descripcion:        item.descripcion,
+      unidad:             item.unidad,
+      cantidad:           item.cantidad,
+      // Spec: precio solo se guarda para roles con permiso
+      precio_unitario:    puedeVerPrecio ? (item.precio_unitario || 0) : 0,
+      proveedor_sugerido: item.proveedor_sugerido || null,
     }))
 
     const { error: errorItems } = await anonClient().from('items_np').insert(itemsConNP)
@@ -195,6 +205,9 @@ export async function GET(req: NextRequest) {
 
       rolActual = perfil?.rol ?? ''
 
+      // Spec: precio visible solo para compras, admin y asistente_compras
+      // (evaluado más abajo con puedeVerPrecio)
+
       if (perfil?.rol === 'solicitante') {
         emailFiltro = perfil.email
       }
@@ -213,6 +226,8 @@ export async function GET(req: NextRequest) {
         asistenteId = user.id
       }
     }
+
+    const puedeVerPrecio = ['compras', 'admin', 'asistente_compras'].includes(rolActual)
 
     const SELECT = 'id, numero, solicitante_nombre, solicitante_email, area, prioridad, tipo_compra, centro_costo, estado, total_estimado, convertida, created_at, descripcion_general, asignado_a, asignado_nombre, asignado_email'
 
@@ -257,7 +272,12 @@ export async function GET(req: NextRequest) {
     const { data, error } = await query
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    return NextResponse.json(data ?? [])
+    // Spec: enmascarar total_estimado para roles sin permiso de ver precios
+    const resultado = puedeVerPrecio
+      ? (data ?? [])
+      : (data ?? []).map((np: any) => ({ ...np, total_estimado: null }))
+
+    return NextResponse.json(resultado)
   } catch (err) {
     console.error(err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })
