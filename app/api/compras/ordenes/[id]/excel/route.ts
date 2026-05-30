@@ -91,7 +91,8 @@ export async function GET(
       const logoRes = await fetch(`${appUrl}/logo_arlift.png`)
       if (logoRes.ok) {
         const logoBuf = Buffer.from(await logoRes.arrayBuffer())
-        const imgId   = wb.addImage({ buffer: logoBuf, extension: 'png' })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const imgId   = wb.addImage({ buffer: logoBuf as any, extension: 'png' })
         ws.addImage(imgId, { tl: { col: 0, row: 0 }, ext: { width: 80, height: 36 } })
       }
     } catch { /* logo no crítico */ }
