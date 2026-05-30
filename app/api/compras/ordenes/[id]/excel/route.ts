@@ -302,10 +302,11 @@ export async function GET(
     ws.getRow(row).height = 30
 
     // ── Generar buffer ───────────────────────────────────────────────────────
-    const buffer = await wb.xlsx.writeBuffer()
-    const nombre = `OC_${oc.numero_oc}_${(oc.proveedor ?? 'proveedor').replace(/[^a-zA-Z0-9\-_.]/g, '-')}`
+    const rawBuffer = await wb.xlsx.writeBuffer()
+    const buffer    = Buffer.isBuffer(rawBuffer) ? rawBuffer : Buffer.from(rawBuffer)
+    const nombre    = `OC_${oc.numero_oc}_${(oc.proveedor ?? 'proveedor').replace(/[^a-zA-Z0-9\-_.]/g, '-')}`
 
-    return new NextResponse(buffer as Buffer, {
+    return new NextResponse(buffer as unknown as Uint8Array, {
       status: 200,
       headers: {
         'Content-Type':        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
