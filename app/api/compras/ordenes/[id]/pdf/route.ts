@@ -43,11 +43,11 @@ export async function GET(
       ? `data:image/png;base64,${fs.readFileSync(logoPath).toString('base64')}`
       : ''
 
-    const buffer = await renderToBuffer(
-      React.createElement(OCDocument, {
-        oc, items: items ?? [], empresa: empresa ?? {}, logoSrc, creadorCargo,
-      })
-    )
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const element = React.createElement(OCDocument, {
+      oc, items: items ?? [], empresa: empresa ?? {}, logoSrc, creadorCargo,
+    }) as any
+    const buffer = await renderToBuffer(element)
 
     const nombre = `OC_${oc.numero_oc}_${(oc.proveedor ?? 'proveedor').replace(/[^a-zA-Z0-9\-_.]/g, '-')}`
 
