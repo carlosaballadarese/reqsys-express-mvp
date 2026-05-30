@@ -10,10 +10,10 @@ function fmtDate(s: string | null) {
   catch { return s }
 }
 
-const TEAL   = '0d2e2e'
-const TEAL2  = '1a5252'
+const TEAL   = '7f1d1d'   // rojo oscuro (antes teal)
+const TEAL2  = '991b1b'   // rojo medio (antes teal2)
 const DORADO = 'c9a840'
-const BG_HDR = 'f1f5f9'
+const BG_HDR = 'fef2f2'   // fondo rosado suave
 
 function headerStyle(bg = TEAL): Partial<ExcelJS.Style> {
   return {
@@ -85,9 +85,20 @@ export async function GET(
 
     let row = 1
 
+    // ── Logo ARLIFT ──────────────────────────────────────────────────────────
+    try {
+      const appUrl  = process.env.NEXT_PUBLIC_APP_URL ?? 'https://reqsys-express.vercel.app'
+      const logoRes = await fetch(`${appUrl}/logo_arlift.png`)
+      if (logoRes.ok) {
+        const logoBuf = Buffer.from(await logoRes.arrayBuffer())
+        const imgId   = wb.addImage({ buffer: logoBuf, extension: 'png' })
+        ws.addImage(imgId, { tl: { col: 0, row: 0 }, ext: { width: 80, height: 36 } })
+      }
+    } catch { /* logo no crítico */ }
+
     // ── Título ──────────────────────────────────────────────────────────────
-    ws.mergeCells(`A${row}:I${row}`)
-    const titleCell = ws.getCell(`A${row}`)
+    ws.mergeCells(`B${row}:I${row}`)
+    const titleCell = ws.getCell(`B${row}`)
     titleCell.value = 'ORDEN DE COMPRA'
     titleCell.style = {
       font:      { bold: true, size: 16, color: { argb: `FF${TEAL}` } },
