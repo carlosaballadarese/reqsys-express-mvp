@@ -1132,9 +1132,10 @@ export default function DetalleNPPage() {
                 </div>
                 <div className="space-y-2">
                   {editItems.map((item, i) => (
-                    <div key={i} className="border rounded-lg p-3 bg-slate-50 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1">
+                    <div key={i} className="border rounded-lg p-3 bg-slate-50">
+                      {/* Todos los campos del ítem en una sola fila, alineados por la base */}
+                      <div className="flex items-end gap-2 flex-wrap">
+                        <div className="flex-1 min-w-[180px]">
                           <Label className="text-xs text-slate-500">Descripción *</Label>
                           <InventarioSearch
                             value={item.descripcion}
@@ -1145,11 +1146,6 @@ export default function DetalleNPPage() {
                             } : it))}
                           />
                         </div>
-                        {editItems.length > 1 && (
-                          <button type="button" onClick={() => setEditItems(prev => prev.filter((_, idx) => idx !== i))} className="text-red-400 hover:text-red-600 text-sm mt-4 shrink-0">✕</button>
-                        )}
-                      </div>
-                      <div className="flex items-end gap-2 flex-wrap pl-0">
                         <div>
                           <Label className="text-xs text-slate-500">Código</Label>
                           <Input value={item.codigo} onChange={e => setEditItems(prev => prev.map((it, idx) => idx === i ? { ...it, codigo: e.target.value } : it))} className="h-7 text-xs font-mono w-28 mt-0.5" placeholder="AL-I-0000" />
@@ -1171,19 +1167,22 @@ export default function DetalleNPPage() {
                             <Input type="number" step="0.01" min="0" value={item.precio_unitario} onChange={e => setEditItems(prev => prev.map((it, idx) => idx === i ? { ...it, precio_unitario: e.target.value } : it))} className="h-7 text-xs w-24 mt-0.5" />
                           </div>
                         )}
+                        {/* Proveedor sugerido — campo opcional, visible para todos */}
+                        <div className="w-40">
+                          <Label className="text-xs text-slate-500">Proveedor</Label>
+                          <Input value={item.proveedor_sugerido} onChange={e => setEditItems(prev => prev.map((it, idx) => idx === i ? { ...it, proveedor_sugerido: e.target.value } : it))} className="h-7 text-xs mt-0.5" placeholder="Sugerido (opcional)" />
+                        </div>
                         {puedeVerPrecio && (
-                          <div className="ml-auto text-right">
+                          <div className="text-right">
                             <Label className="text-xs text-slate-500">Total</Label>
-                            <p className="text-sm font-bold text-blue-700 mt-0.5">
+                            <p className="h-7 flex items-center justify-end text-sm font-bold text-blue-700 mt-0.5">
                               ${((parseFloat(item.cantidad) || 0) * (parseFloat(item.precio_unitario) || 0)).toFixed(2)}
                             </p>
                           </div>
                         )}
-                      </div>
-                      {/* Proveedor sugerido — campo opcional, visible para todos */}
-                      <div>
-                        <Label className="text-xs text-slate-500">Proveedor Sugerido (opcional)</Label>
-                        <Input value={item.proveedor_sugerido} onChange={e => setEditItems(prev => prev.map((it, idx) => idx === i ? { ...it, proveedor_sugerido: e.target.value } : it))} className="h-7 text-xs mt-0.5" placeholder="Nombre del proveedor recomendado para este ítem" />
+                        {editItems.length > 1 && (
+                          <button type="button" onClick={() => setEditItems(prev => prev.filter((_, idx) => idx !== i))} className="text-red-400 hover:text-red-600 text-sm shrink-0 h-7 flex items-center">✕</button>
+                        )}
                       </div>
                     </div>
                   ))}

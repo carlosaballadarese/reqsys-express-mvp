@@ -399,7 +399,7 @@ export default function NuevaNotaPedido() {
             <CardContent className="space-y-3">
               {fields.map((field, index) => (
                 <div key={field.id} className="grid grid-cols-12 gap-2 items-start border rounded-md p-3 bg-slate-50">
-                  <div className="col-span-12 sm:col-span-5">
+                  <div className="col-span-12 sm:col-span-4">
                     <Label className="text-xs">Descripción *</Label>
                     <Controller
                       control={control}
@@ -422,7 +422,7 @@ export default function NuevaNotaPedido() {
                       <p className="text-red-500 text-xs mt-1">{errors.items[index]?.descripcion?.message}</p>
                     )}
                   </div>
-                  <div className="col-span-4 sm:col-span-2">
+                  <div className="col-span-3 sm:col-span-1">
                     <Label className="text-xs">Unidad *</Label>
                     <select
                       {...register(`items.${index}.unidad`)}
@@ -453,7 +453,7 @@ export default function NuevaNotaPedido() {
                   </div>
                   {/* Spec: precio solo visible para compras, admin y asistente_compras */}
                   {puedeVerPrecio && (
-                    <div className="col-span-4 sm:col-span-2">
+                    <div className="col-span-5 sm:col-span-2">
                       <Label className="text-xs">P. Unit. USD</Label>
                       <Controller
                         control={control}
@@ -471,7 +471,23 @@ export default function NuevaNotaPedido() {
                       />
                     </div>
                   )}
-                  <div className="col-span-12 sm:col-span-1 flex items-end justify-end">
+                  {/* Proveedor sugerido — campo opcional, visible para todos, en la misma fila */}
+                  <div className={`col-span-9 ${puedeVerPrecio ? 'sm:col-span-2' : 'sm:col-span-4'}`}>
+                    <Label className="text-xs">Proveedor</Label>
+                    <Controller
+                      control={control}
+                      name={`items.${index}.proveedor_sugerido`}
+                      render={({ field }) => (
+                        <Input
+                          value={field.value ?? ''}
+                          onChange={e => field.onChange(e.target.value)}
+                          placeholder="Sugerido (opcional)"
+                          className="mt-1 h-8 text-sm"
+                        />
+                      )}
+                    />
+                  </div>
+                  <div className="col-span-3 sm:col-span-1 flex items-end justify-end">
                     {fields.length > 1 && (
                       <Button
                         type="button"
@@ -483,22 +499,6 @@ export default function NuevaNotaPedido() {
                         ✕
                       </Button>
                     )}
-                  </div>
-                  {/* Proveedor sugerido — campo opcional, visible para todos */}
-                  <div className="col-span-12">
-                    <Label className="text-xs text-slate-500">Proveedor Sugerido (opcional)</Label>
-                    <Controller
-                      control={control}
-                      name={`items.${index}.proveedor_sugerido`}
-                      render={({ field }) => (
-                        <Input
-                          value={field.value ?? ''}
-                          onChange={e => field.onChange(e.target.value)}
-                          placeholder="Nombre del proveedor recomendado para este ítem"
-                          className="mt-1 h-8 text-sm"
-                        />
-                      )}
-                    />
                   </div>
                 </div>
               ))}
