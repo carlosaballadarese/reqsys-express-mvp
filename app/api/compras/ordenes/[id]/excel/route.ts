@@ -305,7 +305,8 @@ export async function GET(
     const rawBuffer = await wb.xlsx.writeBuffer()
     const nombre    = `OC_${oc.numero_oc}_${(oc.proveedor ?? 'proveedor').replace(/[^a-zA-Z0-9\-_.]/g, '-')}`
 
-    return new NextResponse(new Blob([rawBuffer]), {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return new NextResponse(new Blob([rawBuffer as any]), {
       status: 200,
       headers: {
         'Content-Type':        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
