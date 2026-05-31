@@ -969,3 +969,78 @@ describe('POST /api/compras/convertir/[id] — propagación de aprobador_np', ()
     })
   })
 })
+
+// ── 24. Dinamización etiquetas aprobador OC ───────────────────────────────────
+
+describe('POST /api/compras/ordenes/[id]/aprobar — persistencia aprobado_por_rol', () => {
+  const { POST } = require('@/app/api/compras/ordenes/[id]/aprobar/route')
+
+  function setupAprobOC(rolAprobador: string, estadoOC: string) {
+    const chain = mockChainVacio()
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    let singleCalls = 0
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: rolAprobador, nombre: 'Aprobador Test', email: 'aprobador@test.com' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({ data: { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: estadoOC, valor_total: 500, proveedor: 'ACME', creado_por_id: 'user-2', creado_por_nombre: 'Creador' }, error: null })
+      if (singleCalls === 3) return Promise.resolve({ data: { email: 'creador@test.com', nombre: 'Creador' }, error: null })
+      return Promise.resolve({ data: null, error: null })
+    })
+    mockFrom.mockReturnValue(chain)
+    return chain
+  }
+
+  it('persiste aprobado_por_rol = "compras" al aprobar con rol compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = setupAprobOC('compras', 'en_aprobacion_compras')
+    const req = makeRequest('http://localhost/api/compras/ordenes/oc-1/aprobar', {
+      method: 'POST',
+      body: JSON.stringify({ accion: 'aprobar' }),
+    })
+    await POST(req, { params: Promise.resolve({ id: 'oc-1' }) })
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ aprobado_por_rol: 'compras' })
+    )
+  })
+
+  it('persiste aprobado_por_rol = "gerencia" al aprobar con rol gerencia', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = setupAprobOC('gerencia', 'en_aprobacion_gerencia')
+    const req = makeRequest('http://localhost/api/compras/ordenes/oc-1/aprobar', {
+      method: 'POST',
+      body: JSON.stringify({ accion: 'aprobar' }),
+    })
+    await POST(req, { params: Promise.resolve({ id: 'oc-1' }) })
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ aprobado_por_rol: 'gerencia' })
+    )
+  })
+})
+
+describe('resolverEtiquetaAprobador — mapeo rol → etiqueta y cargo', () => {
+  const { resolverEtiquetaAprobador } = require('@/lib/oc-utils')
+
+  it('compras → COORDINADOR DE COMPRAS / Coordinador de Compras', () => {
+    const r = resolverEtiquetaAprobador('compras')
+    expect(r.titulo).toBe('COORDINADOR DE COMPRAS')
+    expect(r.cargo).toBe('Coordinador de Compras')
+  })
+
+  it('gerencia → GERENTE GENERAL / Gerente General', () => {
+    const r = resolverEtiquetaAprobador('gerencia')
+    expect(r.titulo).toBe('GERENTE GENERAL')
+    expect(r.cargo).toBe('Gerente General')
+  })
+
+  it('admin → ADMINISTRADOR DEL SISTEMA / Administrador del Sistema', () => {
+    const r = resolverEtiquetaAprobador('admin')
+    expect(r.titulo).toBe('ADMINISTRADOR DEL SISTEMA')
+    expect(r.cargo).toBe('Administrador del Sistema')
+  })
+
+  it('null → etiqueta combinada default (OCs históricas sin aprobado_por_rol)', () => {
+    const r = resolverEtiquetaAprobador(null)
+    expect(r.titulo).toContain('GERENTE GENERAL')
+    expect(r.cargo).toContain('Gerente General')
+  })
+})

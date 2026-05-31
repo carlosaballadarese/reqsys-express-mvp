@@ -1,5 +1,6 @@
 import React from 'react'
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
+import { resolverEtiquetaAprobador } from '@/lib/oc-utils'
 
 // ── Paleta roja corporativa ────────────────────────────────────────────────────
 const ROJO_OSC = '#7f1d1d'   // rojo oscuro — encabezados principales
@@ -88,9 +89,10 @@ const COL = { num:'4%', tipo:'8%', cod:'9%', desc:'25%', und:'5%', qty:'5%', inf
 export function OCDocument({ oc, items, empresa, logoUrl, creadorCargo }: {
   oc: any; items: any[]; empresa: any; logoUrl: string; creadorCargo: string
 }) {
-  const subtotal = Number(oc.valor_total) || 0
-  const iva      = subtotal * 0.15
-  const total    = subtotal + iva
+  const subtotal         = Number(oc.valor_total) || 0
+  const iva              = subtotal * 0.15
+  const total            = subtotal + iva
+  const aprobadorEtiqueta = resolverEtiquetaAprobador(oc.aprobado_por_rol ?? null)
 
   return (
     <Document>
@@ -231,9 +233,9 @@ export function OCDocument({ oc, items, empresa, logoUrl, creadorCargo }: {
             <Text style={styles.aprobFirma}>Firma / Fecha: _______________</Text>
           </View>
           <View style={styles.aprobCell}>
-            <Text style={styles.aprobHead}>APROBADO POR{'\n'}COORDINADOR DE COMPRAS/GERENTE GENERAL</Text>
+            <Text style={styles.aprobHead}>APROBADO POR{'\n'}{aprobadorEtiqueta.titulo}</Text>
             <Text style={styles.aprobName}>{oc.aprobado_por_nombre ?? ''}</Text>
-            <Text style={styles.aprobCargo}>Coordinador de Compras / Gerente General</Text>
+            <Text style={styles.aprobCargo}>{aprobadorEtiqueta.cargo}</Text>
             <Text style={styles.aprobFirma}>Firma / Fecha: _______________</Text>
           </View>
           <View style={styles.aprobCellLast}>

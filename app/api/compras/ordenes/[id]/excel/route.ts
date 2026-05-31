@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import ExcelJS from 'exceljs'
+import { resolverEtiquetaAprobador } from '@/lib/oc-utils'
 
 function usd(n: number) { return `$${Number(n).toFixed(2)}` }
 function fmtDate(s: string | null) {
@@ -276,10 +277,12 @@ export async function GET(
     row++
 
     // Cabeceras aprobaciones
+    const aprobadorEtiqueta  = resolverEtiquetaAprobador(oc.aprobado_por_rol ?? null)
+    const tituloAprobadorOC  = `APROBADO POR\n${aprobadorEtiqueta.titulo}`
     const aprobCols = [
       ['A', 'B', 'ELABORADO POR'],
       ['C', 'D', 'APROBADO POR\nCOORDINADOR DEL ÁREA'],
-      ['E', 'G', 'APROBADO POR\nCOORDINADOR DE COMPRAS/GERENTE GENERAL'],
+      ['E', 'G', tituloAprobadorOC],
       ['H', 'J', 'RECIBIDO Y CONFIRMADO (PROVEEDOR)'],
     ] as const
     aprobCols.forEach(([from, to, lbl]) => {
@@ -297,7 +300,7 @@ export async function GET(
     const aprobVals = [
       ['A', 'B', `${oc.creado_por_nombre ?? ''}\n${creadorCargo}`],
       ['C', 'D', coordAprobador],
-      ['E', 'G', `${oc.aprobado_por_nombre ?? ''}\nCoordinador de Compras / Gerente General`],
+      ['E', 'G', `${oc.aprobado_por_nombre ?? ''}\n${aprobadorEtiqueta.cargo}`],
       ['H', 'J', ''],
     ] as const
     aprobVals.forEach(([from, to, val]) => {

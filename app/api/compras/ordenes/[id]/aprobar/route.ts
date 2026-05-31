@@ -51,8 +51,9 @@ export async function POST(
     await adminClient()
       .from('registro_compras')
       .update({
-        estado_oc:          nuevoEstado,
+        estado_oc:           nuevoEstado,
         aprobado_por_nombre: accion === 'aprobar' ? perfil.nombre : null,
+        aprobado_por_rol:    accion === 'aprobar' ? perfil.rol    : null,
       })
       .eq('id', id)
 
