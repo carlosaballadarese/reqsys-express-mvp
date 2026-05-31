@@ -43,11 +43,12 @@ type OC = {
   estado_oc: string
   creado_por_id: string | null
   creado_por_nombre: string | null
-  aprobado_por_nombre: string | null
-  aprobado_por_rol:    string | null
-  aprobador_np_nombre: string | null
-  aprobador_np_area:   string | null
-  condiciones_minimas: string | null
+  aprobado_por_nombre:  string | null
+  aprobado_por_rol:     string | null
+  aprobador_np_nombre:  string | null
+  aprobador_np_area:    string | null
+  condiciones_minimas:  string | null
+  motivo_cancelacion:   string | null
   created_at: string
 }
 
@@ -107,6 +108,7 @@ const ESTADO_LABEL: Record<string, string> = {
   en_aprobacion_compras:    'Aprobación Compras',
   rechazada:                'Rechazada',
   aprobada:                 'Aprobada',
+  cancelada:                'Cancelada',
 }
 
 const ESTADO_BADGE: Record<string, string> = {
@@ -115,6 +117,7 @@ const ESTADO_BADGE: Record<string, string> = {
   en_aprobacion_compras:    'bg-blue-100 text-blue-800',
   rechazada:                'bg-red-100 text-red-800',
   aprobada:                 'bg-green-100 text-green-800',
+  cancelada:                'bg-gray-100 text-gray-600',
 }
 
 const TIPOS_ITEM = ['BIENES', 'SERVICIOS']
@@ -285,6 +288,12 @@ export default function DetalleOCPage() {
   const [nuevoEstado, setNuevoEstado]           = useState('')
   const [guardandoEstado, setGuardandoEstado]   = useState(false)
 
+  // Cancelar OC
+  const [modalCancelar, setModalCancelar]   = useState(false)
+  const [motivoCancelar, setMotivoCancelar] = useState('')
+  const [cancelando, setCancelando]         = useState(false)
+  const [errCancelar, setErrCancelar]       = useState('')
+
   // Enviar a aprobación
   const [enviando, setEnviando]   = useState(false)
   const [msgEnvio, setMsgEnvio]   = useState('')
@@ -422,6 +431,27 @@ export default function DetalleOCPage() {
     finally  { setGuardando(false) }
   }
 
+  async function handleCancelar() {
+    if (!motivoCancelar.trim()) { setErrCancelar('El motivo es requerido'); return }
+    setCancelando(true); setErrCancelar('')
+    try {
+      const res = await fetch(`/api/compras/ordenes/${id}/cancelar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo: motivoCancelar }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setModalCancelar(false)
+        setMotivoCancelar('')
+        cargar()
+      } else {
+        setErrCancelar(data.error || 'Error al cancelar')
+      }
+    } catch { setErrCancelar('Error de conexión') }
+    finally { setCancelando(false) }
+  }
+
   async function handleCambiarEstado() {
     if (!nuevoEstado || nuevoEstado === oc?.estado_oc) return
     setGuardandoEstado(true)
@@ -550,21 +580,80 @@ export default function DetalleOCPage() {
                 )}
               </div>
 
-              {/* Enviar a aprobación */}
-              {oc.estado_oc === 'en_proceso' &&
-               ['compras', 'admin', 'asistente_compras'].includes(rol) &&
-               (rol !== 'asistente_compras' || oc.creado_por_id === userId) && (
-                <div className="flex items-center gap-2">
-                  {msgEnvio && <span className="text-xs text-green-600">{msgEnvio}</span>}
-                  {errEnvio && <span className="text-xs text-red-600">{errEnvio}</span>}
-                  <Button onClick={handleEnviarAprobacion} disabled={enviando} className="h-8 btn-primary text-sm">
-                    {enviando ? 'Enviando...' : 'Enviar a Aprobación'}
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Enviar a aprobación */}
+                {oc.estado_oc === 'en_proceso' &&
+                 ['compras', 'admin', 'asistente_compras'].includes(rol) &&
+                 (rol !== 'asistente_compras' || oc.creado_por_id === userId) && (
+                  <>
+                    {msgEnvio && <span className="text-xs text-green-600">{msgEnvio}</span>}
+                    {errEnvio && <span className="text-xs text-red-600">{errEnvio}</span>}
+                    <Button onClick={handleEnviarAprobacion} disabled={enviando} className="h-8 btn-primary text-sm">
+                      {enviando ? 'Enviando...' : 'Enviar a Aprobación'}
+                    </Button>
+                  </>
+                )}
+                {/* Cancelar OC */}
+                {!['cancelada', 'rechazada'].includes(oc.estado_oc) &&
+                 ['compras', 'admin'].includes(rol) && (
+                  <Button
+                    onClick={() => { setMotivoCancelar(''); setErrCancelar(''); setModalCancelar(true) }}
+                    variant="outline"
+                    className="h-8 text-sm border-red-300 text-red-600 hover:bg-red-50"
+                  >
+                    ✕ Cancelar OC
                   </Button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
+
+        {/* Modal cancelación OC */}
+        {modalCancelar && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4 space-y-4">
+              <h2 className="text-base font-bold text-red-700">Cancelar Orden de Compra</h2>
+              <p className="text-sm text-slate-600">
+                Esta acción cancelará la OC <span className="font-semibold">{oc.numero_oc}</span> y liberará
+                las unidades comprometidas en la NP de origen. Es una acción permanente.
+              </p>
+              {oc.estado_oc === 'aprobada' && (
+                <p className="text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded px-3 py-2">
+                  ⚠️ Esta OC está <strong>Aprobada</strong>. La cancelación revertirá la NP a "Aprobada"
+                  si su cobertura baja del 100%.
+                </p>
+              )}
+              <div>
+                <label className="text-xs font-medium text-slate-700 block mb-1">
+                  Motivo de cancelación <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={motivoCancelar}
+                  onChange={e => setMotivoCancelar(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-300"
+                  placeholder="Describe el motivo de la cancelación..."
+                />
+              </div>
+              {errCancelar && (
+                <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2">{errCancelar}</p>
+              )}
+              <div className="flex gap-3">
+                <Button variant="outline" className="flex-1" onClick={() => setModalCancelar(false)} disabled={cancelando}>
+                  Volver
+                </Button>
+                <Button
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                  onClick={handleCancelar}
+                  disabled={cancelando}
+                >
+                  {cancelando ? 'Cancelando...' : 'Confirmar Cancelación'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Aprobar / Rechazar */}
         {((oc.estado_oc === 'en_aprobacion_compras' && ['compras', 'admin'].includes(rol)) ||
@@ -597,6 +686,16 @@ export default function DetalleOCPage() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* Aviso OC cancelada */}
+        {oc.estado_oc === 'cancelada' && (
+          <div className="border border-red-200 bg-red-50 rounded-lg px-4 py-3 text-sm text-red-800 space-y-1">
+            <p className="font-semibold">✕ Orden de Compra Cancelada</p>
+            {oc.motivo_cancelacion && (
+              <p className="text-xs text-red-700">Motivo: {oc.motivo_cancelacion}</p>
+            )}
+          </div>
         )}
 
         {/* Vista detalle */}

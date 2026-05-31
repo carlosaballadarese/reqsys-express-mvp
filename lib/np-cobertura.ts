@@ -45,12 +45,13 @@ export async function calcularCoberturaNP(
     return { por_item: [], np_cubierta: false, porcentaje_global: 0 }
   }
 
-  // OCs válidas para esta NP (todas excepto rechazadas)
+  // OCs válidas para esta NP (excluye rechazadas y canceladas)
   let ocQuery = adminClient()
     .from('registro_compras')
     .select('id')
     .eq('nota_pedido_id', np_id)
     .neq('estado_oc', 'rechazada')
+    .neq('estado_oc', 'cancelada')
 
   if (excluir_oc_id) {
     ocQuery = ocQuery.neq('id', excluir_oc_id)

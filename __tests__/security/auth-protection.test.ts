@@ -1156,3 +1156,89 @@ describe('POST /api/compras/convertir/[id] — validación sobrecompra', () => {
     expect(res.status).not.toBe(409)
   })
 })
+
+// ── 26. Cancelación de OC ─────────────────────────────────────────────────────
+
+describe('POST /api/compras/ordenes/[id]/cancelar', () => {
+  const { POST } = require('@/app/api/compras/ordenes/[id]/cancelar/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const chain = mockChainVacio()
+    mockFrom.mockReturnValue(chain)
+    const req = makeRequest('http://localhost/api/compras/ordenes/oc-1/cancelar', {
+      method: 'POST',
+      body: JSON.stringify({ motivo: 'Error de proveedor' }),
+    })
+    const res = await POST(req, { params: Promise.resolve({ id: 'oc-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol no autorizado (solicitante)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() =>
+      Promise.resolve({ data: { rol: 'solicitante', nombre: 'Ana', email: 'ana@a.com' }, error: null })
+    )
+    mockFrom.mockReturnValue(chain)
+    const req = makeRequest('http://localhost/api/compras/ordenes/oc-1/cancelar', {
+      method: 'POST',
+      body: JSON.stringify({ motivo: 'Error de proveedor' }),
+    })
+    const res = await POST(req, { params: Promise.resolve({ id: 'oc-1' }) })
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 409 si la OC ya está cancelada', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.in = jest.fn(() => chain)
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Carlos', email: 'c@a.com' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({ data: { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'cancelada', nota_pedido_id: null }, error: null })
+      return Promise.resolve({ data: null, error: null })
+    })
+    mockFrom.mockReturnValue(chain)
+    const req = makeRequest('http://localhost/api/compras/ordenes/oc-1/cancelar', {
+      method: 'POST',
+      body: JSON.stringify({ motivo: 'Ya estaba cancelada' }),
+    })
+    const res = await POST(req, { params: Promise.resolve({ id: 'oc-1' }) })
+    expect(res.status).toBe(409)
+  })
+
+  it('cancela OC exitosamente y registra historial NP', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const insertMock = jest.fn(() => Promise.resolve({ data: {}, error: null }))
+    const chain = mockChainVacio()
+    chain.in   = jest.fn(() => chain)
+    chain.insert = insertMock
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Carlos', email: 'c@a.com' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({ data: { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'en_proceso', nota_pedido_id: 'np-1' }, error: null })
+      if (singleCalls === 3) return Promise.resolve({ data: { estado: 'aprobada', numero: 'NP-2026-0001' }, error: null }) // NP
+      return Promise.resolve({ data: null, error: null })
+    })
+    // items_oc sin item_np_id (OC sin trazabilidad, simplifica el test)
+    chain.then = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+
+    const req = makeRequest('http://localhost/api/compras/ordenes/oc-1/cancelar', {
+      method: 'POST',
+      body: JSON.stringify({ motivo: 'Proveedor no disponible' }),
+    })
+    const res = await POST(req, { params: Promise.resolve({ id: 'oc-1' }) })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.success).toBe(true)
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ estado_oc: 'cancelada', motivo_cancelacion: 'Proveedor no disponible' })
+    )
+    expect(insertMock).toHaveBeenCalled()
+  })
+})

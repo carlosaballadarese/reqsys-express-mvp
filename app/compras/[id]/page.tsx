@@ -52,6 +52,7 @@ const ESTADO_OC_BADGE: Record<string, string> = {
   en_aprobacion_gerencia: 'bg-purple-100 text-purple-800',
   aprobada:               'bg-green-100 text-green-800',
   rechazada:              'bg-red-100 text-red-800',
+  cancelada:              'bg-gray-100 text-gray-600',
 }
 
 const ESTADO_OC_LABEL: Record<string, string> = {
@@ -60,6 +61,7 @@ const ESTADO_OC_LABEL: Record<string, string> = {
   en_aprobacion_gerencia: 'Aprobación Gerencia',
   aprobada:               'Aprobada',
   rechazada:              'Rechazada',
+  cancelada:              'Cancelada',
 }
 
 type Item = {
@@ -124,6 +126,7 @@ const ESTADO_COLOR: Record<string, string> = {
   asignacion:    'bg-cyan-100 text-cyan-800',
   reasignacion:  'bg-cyan-100 text-cyan-800',
   toma_control:  'bg-purple-100 text-purple-800',
+  oc_cancelada:  'bg-red-100 text-red-700',
 }
 
 const HISTORIAL_ICON: Record<string, string> = {
@@ -138,6 +141,7 @@ const HISTORIAL_ICON: Record<string, string> = {
   asignacion:   '👤',
   reasignacion: '🔄',
   toma_control: '🎯',
+  oc_cancelada: '✕',
 }
 
 const HISTORIAL_LABEL: Record<string, string> = {
@@ -147,6 +151,7 @@ const HISTORIAL_LABEL: Record<string, string> = {
   completada:   'Completada',
   reabierta:    'Reabierta',
   reenviada:    'Reenviada',
+  oc_cancelada: 'OC Cancelada',
 }
 
 function usd(n: number) {
