@@ -1243,6 +1243,51 @@ describe('POST /api/compras/ordenes/[id]/cancelar', () => {
   })
 })
 
+// ── 28. Portal approval — persistencia de aprobador_np ───────────────────────
+
+describe('PATCH /api/compras/nps/[id] — aprobación portal persiste aprobador_np', () => {
+  const { PATCH } = require('@/app/api/compras/nps/[id]/route')
+
+  it('persiste aprobador_np_nombre y aprobador_np_area al aprobar desde portal con rol compras', async () => {
+    const { transporter } = require('@/lib/mailer')
+    transporter.sendMail.mockResolvedValue({})
+
+    const np = {
+      id: 'np-portal-1', numero: 'NP-2026-0218', area: 'Compras',
+      estado: 'pendiente', total_estimado: 100,
+      solicitante_email: 'sol@arlift.com', solicitante_nombre: 'Solicitante',
+    }
+
+    const updateEqMock = jest.fn(() => Promise.resolve({ data: {}, error: null }))
+    const chain = mockChainVacio()
+    chain.update = jest.fn(() => ({ eq: updateEqMock }))
+
+    let singleCalls = 0
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Claudia Sánchez', email: 'compras@arlift.com.ec' }, error: null }) // perfil
+      if (singleCalls === 2) return Promise.resolve({ data: np, error: null })                                                                              // NP
+      return Promise.resolve({ data: null, error: null })                                                                                                    // coord email (opcional)
+    })
+    mockFrom.mockReturnValue(chain)
+
+    const req = makeRequest('http://localhost/api/compras/nps/np-portal-1', {
+      method: 'PATCH',
+      body: JSON.stringify({ accion: 'aprobar' }),
+    })
+    const res = await PATCH(req, { params: Promise.resolve({ id: 'np-portal-1' }) })
+
+    expect(res.status).toBe(200)
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        estado:              'aprobada',
+        aprobador_np_nombre: 'Claudia Sánchez',
+        aprobador_np_area:   'Compras',
+      })
+    )
+  })
+})
+
 // ── 27. Dashboard cobertura de NPs ────────────────────────────────────────────
 
 describe('GET /api/compras/dashboard/cobertura', () => {

@@ -323,6 +323,10 @@ export async function PATCH(
     const updateData: any = { estado: nuevoEstado }
     if (accion === 'rechazar') updateData.motivo_rechazo = motivo
     if (accion === 'devolver') updateData.motivo_devolucion = motivo
+    if (esAprobada) {
+      updateData.aprobador_np_nombre = perfil.nombre
+      updateData.aprobador_np_area   = np.area
+    }
 
     await adminClient().from('notas_pedido').update(updateData).eq('id', id)
 
