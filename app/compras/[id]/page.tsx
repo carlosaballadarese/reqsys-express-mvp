@@ -74,6 +74,33 @@ type Item = {
   proveedor_sugerido: string | null
 }
 
+type ItemCobertura = {
+  item_np_id:            string
+  linea:                 number
+  descripcion:           string
+  cantidad_solicitada:   number
+  cantidad_comprometida: number
+  saldo:                 number
+  porcentaje:            number
+}
+
+type CoberturaResult = {
+  por_item:          ItemCobertura[]
+  np_cubierta:       boolean
+  porcentaje_global: number
+}
+
+type ItemExcedido = {
+  item_np_id:   string
+  linea:        number
+  descripcion:  string
+  solicitado:   number
+  comprometido: number
+  saldo:        number
+  nuevo:        number
+  exceso:       number
+}
+
 type Historial = {
   id: string
   estado: string
@@ -321,9 +348,13 @@ type ItemOC = {
 
 // ─── Formulario conversión a OC (parcial / multi-OC) ─────────────────────────
 
-function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; onConvertida: (numeroOC: string) => void }) {
-  const [enviando, setEnviando]     = useState(false)
-  const [error, setError]           = useState('')
+function FormularioOC({ np, itemsNP, onConvertida, cobertura }: {
+  np: NP; itemsNP: Item[]; onConvertida: (numeroOC: string) => void
+  cobertura: CoberturaResult | null
+}) {
+  const [enviando, setEnviando]           = useState(false)
+  const [error, setError]                 = useState('')
+  const [sobrecompraData, setSobrecompra] = useState<{ items_excedidos: ItemExcedido[] } | null>(null)
   const [proveedorId, setProveedorId] = useState<string | null>(null)
   const [proximaOC, setProximaOC]   = useState<string>('Cargando...')
   const [unidades, setUnidades]     = useState<string[]>(['EA'])
@@ -405,35 +436,43 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
   )
   const valorRetenido = Number(form.valor_retenido) || 0
 
-  async function handleConvertir() {
+  function buildPayload(sobrecompra_confirmada = false) {
+    return {
+      ...form,
+      proveedor_id: proveedorId,
+      valor_total:  totalOC,
+      sobrecompra_confirmada,
+      items: seleccionados.map(i => ({
+        item_np_id:            i.item_np_id,
+        codigo:                i.codigo || null,
+        descripcion:           i.descripcion,
+        unidad:                i.unidad,
+        cantidad:              Number(i.cantidad) || 0,
+        precio_unitario:       Number(i.precio_unitario) || 0,
+        tipo:                  i.tipo || null,
+        informacion_adicional: i.informacion_adicional || null,
+        fecha_entrega:         i.fecha_entrega || null,
+      })),
+    }
+  }
+
+  async function handleConvertir(sobrecompra_confirmada = false) {
     if (!form.proveedor.trim()) { setError('El proveedor es requerido'); return }
     if (seleccionados.length === 0) { setError('Selecciona al menos un ítem para incluir en la OC'); return }
     if (seleccionados.some(i => !i.descripcion.trim())) { setError('Todos los ítems seleccionados deben tener descripción'); return }
     setEnviando(true)
     setError('')
     try {
-      const payload = {
-        ...form,
-        proveedor_id: proveedorId,
-        valor_total:  totalOC,
-        items: seleccionados.map(i => ({
-          item_np_id:           i.item_np_id,
-          codigo:               i.codigo || null,
-          descripcion:          i.descripcion,
-          unidad:               i.unidad,
-          cantidad:             Number(i.cantidad) || 0,
-          precio_unitario:      Number(i.precio_unitario) || 0,
-          tipo:                 i.tipo || null,
-          informacion_adicional: i.informacion_adicional || null,
-          fecha_entrega:        i.fecha_entrega || null,
-        })),
-      }
       const res = await fetch(`/api/compras/convertir/${np.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(buildPayload(sobrecompra_confirmada)),
       })
       const data = await res.json()
+      if (res.status === 409 && data.error === 'sobrecompra') {
+        setSobrecompra({ items_excedidos: data.items_excedidos })
+        return
+      }
       if (data.success) { onConvertida(data.numero_oc) }
       else { setError(data.error || 'Error al convertir') }
     } catch {
@@ -639,7 +678,53 @@ function FormularioOC({ np, itemsNP, onConvertida }: { np: NP; itemsNP: Item[]; 
 
         {error && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>}
 
-        <Button onClick={handleConvertir} disabled={enviando} className="w-full btn-primary">
+        {/* Diálogo sobrecompra */}
+        {sobrecompraData && (
+          <div className="border border-amber-300 bg-amber-50 rounded-lg p-4 space-y-3">
+            <p className="text-sm font-semibold text-amber-800">⚠️ Sobrecompra detectada</p>
+            <p className="text-xs text-amber-700">La cantidad ingresada supera el saldo disponible en la NP para los siguientes ítems:</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-amber-600 border-b border-amber-200">
+                    <th className="text-left py-1 pr-2">Ítem</th>
+                    <th className="text-right py-1 pr-2">Solicitado</th>
+                    <th className="text-right py-1 pr-2">Comprometido</th>
+                    <th className="text-right py-1 pr-2">Saldo</th>
+                    <th className="text-right py-1 pr-2">Nuevo</th>
+                    <th className="text-right py-1">Exceso</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sobrecompraData.items_excedidos.map(i => (
+                    <tr key={i.item_np_id} className="border-b border-amber-100">
+                      <td className="py-1 pr-2 text-slate-700">{i.linea}. {i.descripcion.slice(0, 30)}{i.descripcion.length > 30 ? '…' : ''}</td>
+                      <td className="py-1 pr-2 text-right">{i.solicitado}</td>
+                      <td className="py-1 pr-2 text-right">{i.comprometido}</td>
+                      <td className="py-1 pr-2 text-right text-green-700 font-medium">{i.saldo}</td>
+                      <td className="py-1 pr-2 text-right">{i.nuevo}</td>
+                      <td className="py-1 text-right text-red-600 font-semibold">+{i.exceso}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-amber-700">¿Desea continuar con esta sobrecompra?</p>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" className="flex-1 border-amber-300 text-amber-700 hover:bg-amber-100"
+                onClick={() => setSobrecompra(null)}>
+                Cancelar
+              </Button>
+              <Button size="sm" className="flex-1 bg-amber-600 hover:bg-amber-700 text-white"
+                disabled={enviando}
+                onClick={() => { setSobrecompra(null); handleConvertir(true) }}>
+                {enviando ? 'Procesando...' : 'Sí, continuar con sobrecompra'}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <Button onClick={() => handleConvertir(false)} disabled={enviando} className="w-full btn-primary">
           {enviando ? 'Procesando...' : '🛒 Registrar Orden de Compra'}
         </Button>
       </CardContent>
@@ -657,6 +742,7 @@ export default function DetalleNPPage() {
   const [items, setItems]         = useState<Item[]>([])
   const [historial, setHistorial] = useState<Historial[]>([])
   const [ocs, setOcs]             = useState<OCVinculada[]>([])
+  const [cobertura, setCobertura] = useState<CoberturaResult | null>(null)
   const [cargando, setCargando]   = useState(true)
   const [error, setError]         = useState('')
   const [ultimaOC, setUltimaOC]  = useState('')
@@ -720,6 +806,7 @@ export default function DetalleNPPage() {
         setItems(data.items)
         setHistorial(data.historial)
         setOcs(data.ocs ?? [])
+        setCobertura(data.cobertura ?? null)
         setPuedeAprobar(data.puedeAprobar ?? false)
         setCargando(false)
       })
@@ -989,6 +1076,71 @@ export default function DetalleNPPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Trazabilidad de cantidades NP → OC */}
+        {cobertura && cobertura.por_item.length > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <CardTitle className="text-base text-slate-700">Trazabilidad de Cantidades</CardTitle>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500">Cobertura global:</span>
+                  <span className={`text-sm font-bold ${cobertura.np_cubierta ? 'text-teal-700' : cobertura.porcentaje_global > 0 ? 'text-blue-700' : 'text-slate-400'}`}>
+                    {Math.min(cobertura.porcentaje_global, 100).toFixed(0)}%
+                  </span>
+                  {cobertura.np_cubierta && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-teal-100 text-teal-700 font-medium">✓ Cubierta al 100%</span>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-xs text-slate-500 uppercase">
+                      <th className="text-left py-2 pr-3">Línea</th>
+                      <th className="text-left py-2 pr-3">Descripción</th>
+                      <th className="text-right py-2 pr-3">Solicitado</th>
+                      <th className="text-right py-2 pr-3">Comprometido</th>
+                      <th className="text-right py-2 pr-3">Saldo</th>
+                      <th className="text-left py-2 w-36">Cobertura</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cobertura.por_item.map(item => {
+                      const pct     = Math.min(item.porcentaje, 100)
+                      const exceso  = item.porcentaje > 100
+                      const color   = exceso ? 'bg-red-500' : item.porcentaje >= 100 ? 'bg-teal-500' : item.porcentaje > 0 ? 'bg-blue-400' : 'bg-slate-200'
+                      const textPct = exceso ? `${item.porcentaje.toFixed(0)}% ⚠` : `${item.porcentaje.toFixed(0)}%`
+                      return (
+                        <tr key={item.item_np_id} className="border-b last:border-0">
+                          <td className="py-2 pr-3 text-slate-500">{item.linea}</td>
+                          <td className="py-2 pr-3 text-slate-700">{item.descripcion}</td>
+                          <td className="py-2 pr-3 text-right font-mono">{item.cantidad_solicitada}</td>
+                          <td className="py-2 pr-3 text-right font-mono text-blue-700">{item.cantidad_comprometida}</td>
+                          <td className={`py-2 pr-3 text-right font-mono font-semibold ${item.saldo === 0 ? 'text-teal-600' : 'text-slate-700'}`}>
+                            {item.saldo}
+                          </td>
+                          <td className="py-2">
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
+                              </div>
+                              <span className={`text-xs font-medium w-14 text-right ${exceso ? 'text-red-600' : item.porcentaje >= 100 ? 'text-teal-700' : 'text-slate-600'}`}>
+                                {textPct}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* OCs vinculadas + acciones de gestión */}
         {(ocs.length > 0 || np.estado === 'aprobada') && (
@@ -1365,7 +1517,7 @@ export default function DetalleNPPage() {
         {/* Formulario conversión — múltiples OCs desde la misma NP */}
         {np.estado === 'aprobada' &&
           (['compras', 'admin'].includes(rol) || (rol === 'asistente_compras' && np.asignado_a === userId)) && (
-          <FormularioOC np={np} itemsNP={items} onConvertida={(numeroOC) => { setUltimaOC(numeroOC); cargar() }} />
+          <FormularioOC np={np} itemsNP={items} cobertura={cobertura} onConvertida={(numeroOC) => { setUltimaOC(numeroOC); cargar() }} />
         )}
 
         {np.convertida && (

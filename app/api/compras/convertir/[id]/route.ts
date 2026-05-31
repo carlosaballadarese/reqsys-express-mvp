@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { verificarSobrecompra, autoCompletarNP } from '@/lib/np-cobertura'
 
 export async function POST(
   req: NextRequest,
@@ -44,6 +45,7 @@ export async function POST(
       tipo_pago, banco, dias_credito, fecha_vencimiento, mes_pago,
       numero_cotizacion,
       items,
+      sobrecompra_confirmada,
     } = body
 
     if (!proveedor_id)
@@ -59,6 +61,18 @@ export async function POST(
       .single()
 
     if (!prov) return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 400 })
+
+    // Spec CA3: verificar sobrecompra antes de insertar
+    if (!sobrecompra_confirmada) {
+      const excedidos = await verificarSobrecompra(np.id, items, undefined)
+      if (excedidos.length > 0) {
+        return NextResponse.json({
+          error:           'sobrecompra',
+          message:         'La cantidad ingresada supera el saldo disponible de la NP. ¿Desea continuar con esta sobrecompra?',
+          items_excedidos: excedidos,
+        }, { status: 409 })
+      }
+    }
 
     const year = new Date().getFullYear()
     const { data: seqData, error: seqError } = await adminClient().rpc('siguiente_numero_oc', { p_year: year })
@@ -142,6 +156,9 @@ export async function POST(
       console.error(errorItems)
       return NextResponse.json({ error: 'Error al guardar ítems de la OC' }, { status: 500 })
     }
+
+    // Spec CA2: auto-completar NP si cobertura alcanza 100%
+    await autoCompletarNP(np.id, np.estado).catch(console.error)
 
     if (!np.convertida) {
       await adminClient().from('notas_pedido').update({ convertida: true }).eq('id', np.id)

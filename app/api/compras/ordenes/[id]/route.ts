@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { verificarSobrecompra, autoCompletarNP } from '@/lib/np-cobertura'
 
 
 export async function GET(
@@ -48,7 +49,7 @@ export async function PUT(
     const { id } = await params
 
     const { data: ocEstado } = await adminClient()
-      .from('registro_compras').select('estado_oc, creado_por_id').eq('id', id).single()
+      .from('registro_compras').select('estado_oc, creado_por_id, nota_pedido_id').eq('id', id).single()
     if (ocEstado && ocEstado.estado_oc !== 'en_proceso')
       return NextResponse.json({ error: 'Solo se pueden editar OCs en estado En Proceso' }, { status: 409 })
 
@@ -67,6 +68,7 @@ export async function PUT(
       tipo_pago, banco, dias_credito, fecha_vencimiento, mes_pago,
       numero_cotizacion, condiciones_minimas,
       items,
+      sobrecompra_confirmada,
     } = body
 
     if (!proveedor_id) {
@@ -84,6 +86,19 @@ export async function PUT(
       .single()
 
     if (!prov) return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 400 })
+
+    // Spec CA3: verificar sobrecompra (excluye los ítems actuales de esta OC)
+    const nota_pedido_id = ocEstado?.nota_pedido_id ?? null
+    if (nota_pedido_id && !sobrecompra_confirmada) {
+      const excedidos = await verificarSobrecompra(nota_pedido_id, items, id)
+      if (excedidos.length > 0) {
+        return NextResponse.json({
+          error:           'sobrecompra',
+          message:         'La cantidad ingresada supera el saldo disponible de la NP. ¿Desea continuar con esta sobrecompra?',
+          items_excedidos: excedidos,
+        }, { status: 409 })
+      }
+    }
 
     const valorTotal    = Number(valor_total)    || 0
     const valorRetenido = Number(valor_retenido) || 0
@@ -123,24 +138,33 @@ export async function PUT(
     await adminClient().from('items_oc').delete().eq('registro_compras_id', id)
 
     const itemsOC = items.map((item: {
+      item_np_id?: string | null
       codigo: string; descripcion: string; unidad: string
       cantidad: number; precio_unitario: number
       tipo?: string; informacion_adicional?: string; fecha_entrega?: string
     }, index: number) => ({
-      registro_compras_id:  id,
-      linea:                index + 1,
-      codigo:               item.codigo || null,
-      descripcion:          item.descripcion,
-      unidad:               item.unidad,
-      cantidad:             item.cantidad,
-      precio_unitario:      item.precio_unitario || 0,
-      tipo:                 item.tipo || null,
+      registro_compras_id:   id,
+      linea:                 index + 1,
+      item_np_id:            item.item_np_id || null,
+      codigo:                item.codigo || null,
+      descripcion:           item.descripcion,
+      unidad:                item.unidad,
+      cantidad:              item.cantidad,
+      precio_unitario:       item.precio_unitario || 0,
+      tipo:                  item.tipo || null,
       informacion_adicional: item.informacion_adicional || null,
-      fecha_entrega:        item.fecha_entrega || null,
+      fecha_entrega:         item.fecha_entrega || null,
     }))
 
     const { error: errorItems } = await adminClient().from('items_oc').insert(itemsOC)
     if (errorItems) return NextResponse.json({ error: errorItems.message }, { status: 500 })
+
+    // Spec CA2: auto-completar NP si cobertura alcanza 100%
+    if (nota_pedido_id) {
+      const { data: np } = await adminClient()
+        .from('notas_pedido').select('estado').eq('id', nota_pedido_id).single()
+      if (np) await autoCompletarNP(nota_pedido_id, np.estado).catch(console.error)
+    }
 
     const { data: ocActual } = await adminClient()
       .from('registro_compras')

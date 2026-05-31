@@ -51,9 +51,21 @@ type OC = {
   created_at: string
 }
 
+type ItemExcedido = {
+  item_np_id:   string
+  linea:        number
+  descripcion:  string
+  solicitado:   number
+  comprometido: number
+  saldo:        number
+  nuevo:        number
+  exceso:       number
+}
+
 type ItemOC = {
   id?: string
   linea: number
+  item_np_id: string | null
   codigo: string
   descripcion: string
   unidad: string
@@ -254,8 +266,9 @@ export default function DetalleOCPage() {
 
   // Edición
   const [editando, setEditando]       = useState(false)
-  const [guardando, setGuardando]     = useState(false)
-  const [errorEdit, setErrorEdit]     = useState('')
+  const [guardando, setGuardando]         = useState(false)
+  const [errorEdit, setErrorEdit]         = useState('')
+  const [sobrecompraEdit, setSobrecompraEdit] = useState<{ items_excedidos: ItemExcedido[] } | null>(null)
   const [areas, setAreas]             = useState<string[]>([])
   const [unidades, setUnidades]       = useState<string[]>(['EA'])
   const [proveedorId, setProveedorId] = useState<string | null>(null)
@@ -358,8 +371,9 @@ export default function DetalleOCPage() {
 
   function agregarItem() {
     setItemsEdit(prev => [...prev, {
-      codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0',
-      linea: prev.length + 1, tipo: null, informacion_adicional: null, fecha_entrega: null,
+      item_np_id: null, codigo: '', descripcion: '', unidad: 'EA', cantidad: '1',
+      precio_unitario: '0', linea: prev.length + 1, tipo: null,
+      informacion_adicional: null, fecha_entrega: null,
     }])
   }
 
@@ -369,7 +383,7 @@ export default function DetalleOCPage() {
   const valorRetenidoEdit = Number(form.valor_retenido) || 0
   const ivaEdit           = totalEdit * 0.15
 
-  async function handleGuardar() {
+  async function handleGuardar(sobrecompra_confirmada = false) {
     if (!proveedorId) { setErrorEdit('Debe seleccionar un proveedor registrado'); return }
     if (itemsEdit.length === 0)  { setErrorEdit('La OC debe tener al menos un ítem'); return }
     if (itemsEdit.some(i => !String(i.descripcion).trim())) { setErrorEdit('Todos los ítems deben tener descripción'); return }
@@ -383,19 +397,25 @@ export default function DetalleOCPage() {
           ...form,
           proveedor_id: proveedorId,
           valor_total:  totalEdit,
+          sobrecompra_confirmada,
           items: itemsEdit.map(i => ({
-            codigo:               i.codigo || null,
-            descripcion:          i.descripcion,
-            unidad:               i.unidad,
-            cantidad:             Number(i.cantidad) || 0,
-            precio_unitario:      Number(i.precio_unitario) || 0,
-            tipo:                 i.tipo || null,
+            item_np_id:            i.item_np_id || null,
+            codigo:                i.codigo || null,
+            descripcion:           i.descripcion,
+            unidad:                i.unidad,
+            cantidad:              Number(i.cantidad) || 0,
+            precio_unitario:       Number(i.precio_unitario) || 0,
+            tipo:                  i.tipo || null,
             informacion_adicional: i.informacion_adicional || null,
-            fecha_entrega:        i.fecha_entrega || null,
+            fecha_entrega:         i.fecha_entrega || null,
           })),
         }),
       })
       const data = await res.json()
+      if (res.status === 409 && data.error === 'sobrecompra') {
+        setSobrecompraEdit({ items_excedidos: data.items_excedidos })
+        return
+      }
       if (data.success) { setEditando(false); cargar() }
       else setErrorEdit(data.error || 'Error al guardar')
     } catch { setErrorEdit('Error de conexión') }
@@ -932,8 +952,48 @@ export default function DetalleOCPage() {
 
               {errorEdit && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2">{errorEdit}</p>}
 
+              {/* Diálogo sobrecompra en edición OC */}
+              {sobrecompraEdit && (
+                <div className="border border-amber-300 bg-amber-50 rounded-lg p-4 space-y-3">
+                  <p className="text-sm font-semibold text-amber-800">⚠️ Sobrecompra detectada</p>
+                  <p className="text-xs text-amber-700">La cantidad ingresada supera el saldo disponible en la NP:</p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-amber-600 border-b border-amber-200">
+                          <th className="text-left py-1 pr-2">Ítem</th>
+                          <th className="text-right py-1 pr-2">Saldo</th>
+                          <th className="text-right py-1 pr-2">Nuevo</th>
+                          <th className="text-right py-1">Exceso</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sobrecompraEdit.items_excedidos.map(i => (
+                          <tr key={i.item_np_id} className="border-b border-amber-100">
+                            <td className="py-1 pr-2">{i.linea}. {i.descripcion.slice(0, 35)}{i.descripcion.length > 35 ? '…' : ''}</td>
+                            <td className="py-1 pr-2 text-right text-green-700">{i.saldo}</td>
+                            <td className="py-1 pr-2 text-right">{i.nuevo}</td>
+                            <td className="py-1 text-right text-red-600 font-semibold">+{i.exceso}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-xs text-amber-700">¿Desea continuar con esta sobrecompra?</p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" className="flex-1 border-amber-300 text-amber-700"
+                      onClick={() => setSobrecompraEdit(null)}>Cancelar</Button>
+                    <Button size="sm" className="flex-1 bg-amber-600 hover:bg-amber-700 text-white"
+                      disabled={guardando}
+                      onClick={() => { setSobrecompraEdit(null); handleGuardar(true) }}>
+                      Sí, continuar con sobrecompra
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               <div className="flex gap-3">
-                <Button onClick={handleGuardar} disabled={guardando} className="flex-1 btn-primary">
+                <Button onClick={() => handleGuardar(false)} disabled={guardando} className="flex-1 btn-primary">
                   {guardando ? 'Guardando...' : 'Guardar Cambios'}
                 </Button>
                 <Button variant="outline" onClick={() => setEditando(false)}>Cancelar</Button>

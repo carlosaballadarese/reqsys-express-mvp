@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { transporter } from '@/lib/mailer'
 import { escapeHtml } from '@/lib/utils'
+import { calcularCoberturaNP } from '@/lib/np-cobertura'
 
 export async function GET(
   req: NextRequest,
@@ -23,6 +24,8 @@ export async function GET(
     ])
 
     if (error || !np) return NextResponse.json({ error: 'NP no encontrada' }, { status: 404 })
+
+    const cobertura = await calcularCoberturaNP(id)
 
     // Calcular permisos del usuario autenticado
     let puedeAprobar    = false
@@ -57,7 +60,7 @@ export async function GET(
       ? (items ?? [])
       : (items ?? []).map((item: any) => ({ ...item, precio_unitario: null }))
 
-    return NextResponse.json({ np: npResp, items: itemsResp, historial: historial ?? [], puedeAprobar, ocs: ocs ?? [] })
+    return NextResponse.json({ np: npResp, items: itemsResp, historial: historial ?? [], puedeAprobar, ocs: ocs ?? [], cobertura })
   } catch (err) {
     console.error(err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })

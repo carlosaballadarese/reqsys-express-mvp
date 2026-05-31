@@ -1044,3 +1044,115 @@ describe('resolverEtiquetaAprobador — mapeo rol → etiqueta y cargo', () => {
     expect(r.cargo).toContain('Gerente General')
   })
 })
+
+// ── 25. Trazabilidad y límites de cantidades NP → OC ─────────────────────────
+
+describe('GET /api/compras/nps/[id] — incluye campo cobertura', () => {
+  const { GET } = require('@/app/api/compras/nps/[id]/route')
+
+  it('devuelve campo cobertura en el response', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+
+    const np = { id: 'np-1', numero: 'NP-2026-0001', area: 'Operaciones', estado: 'aprobada',
+      total_estimado: 500, creado_por_id: 'user-123' }
+
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.in = jest.fn(() => chain)
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: np, error: null })           // notas_pedido
+      if (singleCalls === 2) return Promise.resolve({ data: { rol: 'compras', email: 'c@a.com' }, error: null }) // perfil
+      return Promise.resolve({ data: null, error: null })
+    })
+    chain.then = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+
+    const req = makeRequest(`http://localhost/api/compras/nps/np-1`)
+    const res = await GET(req, { params: Promise.resolve({ id: 'np-1' }) })
+    const body = await res.json()
+
+    expect(body).toHaveProperty('cobertura')
+    expect(body.cobertura).toHaveProperty('por_item')
+    expect(body.cobertura).toHaveProperty('np_cubierta')
+    expect(body.cobertura).toHaveProperty('porcentaje_global')
+  })
+})
+
+describe('POST /api/compras/convertir/[id] — validación sobrecompra', () => {
+  const { POST } = require('@/app/api/compras/convertir/[id]/route')
+
+  const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
+  beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+
+  function setupConvertir(cantidadNP: number, cantidadComprometida: number) {
+    const np = { id: 'np-sob-1', numero: 'NP-2026-0010', area: 'Operaciones',
+      estado: 'aprobada', tipo_compra: 'bienes', centro_costo: 'CC01',
+      descripcion_general: 'Test', created_at: '2026-01-01', convertida: false,
+      asignado_a: null, aprobador_np_nombre: null, aprobador_np_area: null }
+
+    const insertMock = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() =>
+      Promise.resolve({ data: { id: 'oc-new', numero_oc: 'OC-2026-0010' }, error: null })) })) }))
+
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.in   = jest.fn(() => chain)
+    chain.insert = insertMock
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.single = jest.fn(() => {
+      singleCalls++
+      // perfil, np, proveedor
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Carlos', email: 'c@a.com' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({ data: np, error: null })
+      if (singleCalls === 3) return Promise.resolve({ data: { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null }, error: null })
+      return Promise.resolve({ data: null, error: null })
+    })
+    // calcularCoberturaNP: items_np, registro_compras (OC IDs), items_oc
+    let thenCalls = 0
+    chain.then = (resolve: any) => {
+      thenCalls++
+      if (thenCalls === 1) return Promise.resolve({ data: [{ id: 'item-np-1', linea: 1, descripcion: 'Producto', cantidad: cantidadNP }], error: null }).then(resolve)
+      if (thenCalls === 2) return Promise.resolve({ data: [{ id: 'oc-exist' }], error: null }).then(resolve)
+      if (thenCalls === 3) return Promise.resolve({ data: [{ item_np_id: 'item-np-1', cantidad: cantidadComprometida }], error: null }).then(resolve)
+      return Promise.resolve({ data: [], error: null }).then(resolve)
+    }
+    mockFrom.mockReturnValue(chain)
+    return chain
+  }
+
+  it('devuelve 409 con error sobrecompra cuando cantidad excede saldo sin confirmación', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupConvertir(5, 3) // solicitado=5, comprometido=3, saldo=2 → nuevo=4 → excede
+
+    const req = makeRequest('http://localhost/api/compras/convertir/np-sob-1', {
+      method: 'POST',
+      body: JSON.stringify({
+        proveedor_id: 'prov-uuid',
+        items: [{ item_np_id: 'item-np-1', descripcion: 'Producto', unidad: 'EA', cantidad: 4, precio_unitario: 10 }],
+      }),
+    })
+    const res = await POST(req, { params: Promise.resolve({ id: 'np-sob-1' }) })
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.error).toBe('sobrecompra')
+    expect(body.items_excedidos).toHaveLength(1)
+    expect(body.items_excedidos[0].exceso).toBe(2)
+  })
+
+  it('no devuelve 409 cuando sobrecompra_confirmada = true', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupConvertir(5, 3)
+
+    const req = makeRequest('http://localhost/api/compras/convertir/np-sob-1', {
+      method: 'POST',
+      body: JSON.stringify({
+        proveedor_id: 'prov-uuid',
+        sobrecompra_confirmada: true,
+        items: [{ item_np_id: 'item-np-1', descripcion: 'Producto', unidad: 'EA', cantidad: 4, precio_unitario: 10 }],
+      }),
+    })
+    const res = await POST(req, { params: Promise.resolve({ id: 'np-sob-1' }) })
+    expect(res.status).not.toBe(409)
+  })
+})
