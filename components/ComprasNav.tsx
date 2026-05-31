@@ -7,13 +7,14 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 
 type Perfil   = { nombre: string; rol: string; email: string }
-type NavChild = { href: string; label: string }
+type NavChild = { href: string; label: string; roles?: string[]; exact?: boolean }
 type NavGroup = {
   label: string
   href?: string
   roles: string[]
   exact?: boolean
   children?: NavChild[]
+  separator?: boolean
 }
 
 type PassForm = {
@@ -41,30 +42,44 @@ const ROL_LABEL: Record<string, string> = {
 }
 
 const NAV: NavGroup[] = [
-  { label: 'Mis NPs',   href: '/compras', roles: ['solicitante'],                                                    exact: true },
-  { label: 'NPs',       href: '/compras', roles: ['compras','admin','gerencia','consulta','coordinador','bodega','asistente_compras'],   exact: true },
-  { label: 'Dashboard', href: '/compras/dashboard', roles: ['compras','admin','gerencia','consulta','coordinador','solicitante','bodega','asistente_compras'] },
   {
-    label: 'Compras', roles: ['compras','admin','gerencia','consulta','asistente_compras'],
+    label: 'NPs',
+    roles: ['solicitante','bodega','compras','admin','gerencia','consulta','coordinador','asistente_compras'],
     children: [
-      { href: '/compras/ordenes',     label: 'Órdenes de Compra' },
-      { href: '/compras/proveedores', label: 'Proveedores' },
+      { label: 'Mis NPs',   href: '/compras',       exact: true },
+      { label: 'Nueva NP',  href: '/compras/nueva',
+        roles: ['solicitante','bodega','compras','admin','asistente_compras','coordinador','gerencia'] },
     ],
   },
   {
-    label: 'Bodega', roles: ['compras','admin','gerencia','bodega'],
+    label: 'Compras',
+    roles: ['compras','admin','gerencia','consulta','asistente_compras'],
     children: [
-      { href: '/compras/inventario', label: 'Inventario' },
+      { label: 'Órdenes de Compra', href: '/compras/ordenes' },
+      { label: 'Proveedores',       href: '/compras/proveedores',
+        roles: ['compras','admin','asistente_compras'] },
     ],
   },
   {
-    label: 'Configuración', roles: ['compras','admin'],
+    label: 'Bodega',
+    roles: ['compras','admin','gerencia','bodega'],
     children: [
-      { href: '/compras/coordinadores', label: 'Coordinadores' },
-      { href: '/compras/accesos',       label: 'Accesos' },
-      { href: '/compras/configuracion', label: 'Numeraciones' },
-      { href: '/compras/empresa',       label: 'Datos de Empresa' },
-      { href: '/compras/auditoria',     label: 'Auditoría' },
+      { label: 'Inventario', href: '/compras/inventario' },
+    ],
+  },
+  {
+    label: 'Dashboard', href: '/compras/dashboard',
+    roles: ['compras','admin','gerencia','consulta','coordinador','bodega','asistente_compras'],
+  },
+  {
+    label: 'Configuración',
+    roles: ['compras','admin'],
+    children: [
+      { label: 'Coordinadores',    href: '/compras/coordinadores' },
+      { label: 'Numeraciones',     href: '/compras/configuracion' },
+      { label: 'Datos de Empresa', href: '/compras/empresa' },
+      { label: 'Auditoría',        href: '/compras/auditoria' },
+      { label: 'Accesos',          href: '/compras/accesos' },
     ],
   },
 ]
@@ -145,7 +160,10 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
 
   function isGroupActive(g: NavGroup): boolean {
     if (g.href) return g.exact ? pathname === g.href : pathname.startsWith(g.href)
-    return g.children?.some(c => pathname === c.href || pathname.startsWith(c.href + '/')) ?? false
+    return g.children
+      ?.filter(c => !c.roles || c.roles.includes(rol))
+      .some(c => c.exact ? pathname === c.href : pathname.startsWith(c.href + '/'))
+      ?? false
   }
 
   function isChildActive(href: string): boolean {
@@ -179,7 +197,17 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
 
             {/* Desktop nav */}
             <div className="hidden md:flex items-center gap-0.5 flex-1 px-4">
-              {visibles.map(group => {
+              {visibles.map((group, i) => {
+                if (group.separator) {
+                  return (
+                    <span
+                      key={`sep-${i}`}
+                      className="hidden md:block w-px h-5 bg-white/20 mx-1"
+                      aria-hidden="true"
+                    />
+                  )
+                }
+
                 const active = isGroupActive(group)
                 const open   = dropdown === group.label
 
@@ -196,6 +224,9 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
                   )
                 }
 
+                const childrenVisibles = group.children.filter(
+                  c => !c.roles || c.roles.includes(rol)
+                )
                 return (
                   <div key={group.label} className="relative">
                     <button
@@ -215,7 +246,7 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
                     {open && (
                       <div className="absolute top-full left-0 mt-1.5 min-w-[180px] bg-white rounded-md shadow-xl border border-slate-100 z-50 py-1 overflow-hidden"
                            style={{ borderTop: '3px solid #1a5252' }}>
-                        {group.children.map(child => (
+                        {childrenVisibles.map(child => (
                           <Link key={child.label} href={child.href}>
                             <span className={`flex items-center px-4 py-2 text-sm transition-colors ${
                               isChildActive(child.href)
@@ -269,7 +300,17 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
           {/* Mobile menu */}
           {menuAbierto && (
             <div className="md:hidden pb-3 pt-2 space-y-0.5" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-              {visibles.map(group => {
+              {visibles.map((group, i) => {
+                if (group.separator) {
+                  return (
+                    <div
+                      key={`sep-${i}`}
+                      className="h-px bg-white/20 my-1 mx-3"
+                      aria-hidden="true"
+                    />
+                  )
+                }
+
                 const active = isGroupActive(group)
                 if (!group.children) {
                   return (
@@ -283,12 +324,15 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
                     </Link>
                   )
                 }
+                const childrenVisiblesMobile = group.children.filter(
+                  c => !c.roles || c.roles.includes(rol)
+                )
                 return (
                   <div key={group.label} className="pt-1">
                     <p className="px-3 py-1 text-xs font-semibold uppercase tracking-widest text-white/40">
                       {group.label}
                     </p>
-                    {group.children.map(child => (
+                    {childrenVisiblesMobile.map(child => (
                       <Link key={child.label} href={child.href}>
                         <span className={`block px-6 py-1.5 text-sm rounded-md ${
                           isChildActive(child.href) ? 'text-[#c9a840] font-semibold' : 'text-white/70 hover:text-white'
