@@ -18,7 +18,7 @@ const COMPRAS_ONLY = [
 const ADMIN_ONLY: string[] = []
 
 // Admin y compras
-const ADMIN_COMPRAS_ONLY = ['/compras/auditoria', '/compras/configuracion', '/compras/accesos']
+const ADMIN_COMPRAS_ONLY = ['/compras/auditoria', '/compras/configuracion', '/compras/accesos', '/compras/empresa']
 
 function isPublic(pathname: string) {
   return PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))

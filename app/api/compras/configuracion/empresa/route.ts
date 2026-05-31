@@ -28,8 +28,8 @@ export async function PUT(req: NextRequest) {
     .eq('id', user.id)
     .single()
 
-  if (!perfil || perfil.rol !== 'admin')
-    return NextResponse.json({ error: 'Solo administradores pueden modificar la configuración de empresa' }, { status: 403 })
+  if (!perfil || !['admin', 'compras'].includes(perfil.rol))
+    return NextResponse.json({ error: 'Solo administradores y compras pueden modificar la configuración de empresa' }, { status: 403 })
 
   try {
     const body = await req.json()

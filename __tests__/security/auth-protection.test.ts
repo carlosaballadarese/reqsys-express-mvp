@@ -622,11 +622,11 @@ describe('PUT /api/compras/configuracion/empresa', () => {
     expect(res.status).toBe(401)
   })
 
-  it('devuelve 403 cuando el rol no es admin', async () => {
+  it('devuelve 403 cuando el rol no es admin ni compras', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     const chain = mockChainVacio()
     chain.single = jest.fn(() =>
-      Promise.resolve({ data: { rol: 'compras' }, error: null })
+      Promise.resolve({ data: { rol: 'gerencia' }, error: null })
     )
     mockFrom.mockReturnValue(chain)
     const res = await PUT(

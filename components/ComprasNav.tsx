@@ -63,6 +63,7 @@ const NAV: NavGroup[] = [
       { href: '/compras/coordinadores', label: 'Coordinadores' },
       { href: '/compras/accesos',       label: 'Accesos' },
       { href: '/compras/configuracion', label: 'Numeraciones' },
+      { href: '/compras/empresa',       label: 'Datos de Empresa' },
       { href: '/compras/auditoria',     label: 'Auditoría' },
     ],
   },

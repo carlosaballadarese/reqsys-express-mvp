@@ -166,124 +166,13 @@ function PanelSecuenciaOC() {
   )
 }
 
-type Empresa = {
-  razon_social: string
-  ruc: string | null
-  direccion: string | null
-  contacto: string | null
-  telefono: string | null
-  email: string | null
-  documento_numero_oc: string | null
-  revision_oc: string | null
-}
-
-function PanelEmpresa() {
-  const [form, setForm]         = useState<Empresa>({ razon_social: '', ruc: '', direccion: '', contacto: '', telefono: '', email: '', documento_numero_oc: '', revision_oc: '' })
-  const [guardando, setGuardando] = useState(false)
-  const [msg, setMsg]           = useState('')
-  const [cargando, setCargando] = useState(true)
-
-  useEffect(() => {
-    fetch('/api/compras/configuracion/empresa')
-      .then(r => r.json())
-      .then(data => {
-        if (!data.error) setForm({
-          razon_social:        data.razon_social        ?? '',
-          ruc:                 data.ruc                 ?? '',
-          direccion:           data.direccion           ?? '',
-          contacto:            data.contacto            ?? '',
-          telefono:            data.telefono            ?? '',
-          email:               data.email               ?? '',
-          documento_numero_oc: data.documento_numero_oc ?? 'AL-L4-07-F01',
-          revision_oc:         data.revision_oc != null  ? String(data.revision_oc) : '1',
-        })
-        setCargando(false)
-      })
-      .catch(() => setCargando(false))
-  }, [])
-
-  function setField(key: keyof Empresa, val: string) {
-    setForm(f => ({ ...f, [key]: val }))
-  }
-
-  async function handleGuardar() {
-    if (!form.razon_social.trim()) { setMsg('Error: La razón social es requerida'); return }
-    setGuardando(true); setMsg('')
-    const res = await fetch('/api/compras/configuracion/empresa', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
-    })
-    const data = await res.json()
-    setMsg(data.success ? '✓ Datos de empresa actualizados' : `Error: ${data.error}`)
-    setGuardando(false)
-  }
-
-  if (cargando) return <Card><CardContent className="pt-4 text-sm text-slate-400">Cargando...</CardContent></Card>
-
-  return (
-    <Card className="lg:col-span-2">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base text-slate-700">Datos de Empresa (FACTURAR A)</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="sm:col-span-2">
-            <Label className="text-xs">Razón Social *</Label>
-            <Input value={form.razon_social} onChange={e => setField('razon_social', e.target.value)} className="mt-1 h-8 text-sm" />
-          </div>
-          <div>
-            <Label className="text-xs">RUC</Label>
-            <Input value={form.ruc ?? ''} onChange={e => setField('ruc', e.target.value)} className="mt-1 h-8 text-sm font-mono" />
-          </div>
-          <div>
-            <Label className="text-xs">Teléfono</Label>
-            <Input value={form.telefono ?? ''} onChange={e => setField('telefono', e.target.value)} className="mt-1 h-8 text-sm" />
-          </div>
-          <div>
-            <Label className="text-xs">Contacto</Label>
-            <Input value={form.contacto ?? ''} onChange={e => setField('contacto', e.target.value)} className="mt-1 h-8 text-sm" />
-          </div>
-          <div>
-            <Label className="text-xs">Email</Label>
-            <Input type="email" value={form.email ?? ''} onChange={e => setField('email', e.target.value)} className="mt-1 h-8 text-sm" />
-          </div>
-          <div className="sm:col-span-2">
-            <Label className="text-xs">Dirección</Label>
-            <Input value={form.direccion ?? ''} onChange={e => setField('direccion', e.target.value)} className="mt-1 h-8 text-sm" />
-          </div>
-          <div>
-            <Label className="text-xs">Código Formulario OC</Label>
-            <Input value={form.documento_numero_oc ?? ''} onChange={e => setField('documento_numero_oc', e.target.value)} className="mt-1 h-8 text-sm font-mono" placeholder="AL-L4-07-F01" />
-          </div>
-          <div>
-            <Label className="text-xs">Revisión OC</Label>
-            <Input type="number" min={1} value={form.revision_oc ?? ''} onChange={e => setField('revision_oc', e.target.value)} className="mt-1 h-8 text-sm" placeholder="1" />
-          </div>
-        </div>
-        {msg && <p className={`text-sm ${msg.startsWith('✓') ? 'text-green-600' : 'text-red-600'}`}>{msg}</p>}
-        <Button onClick={handleGuardar} disabled={guardando} className="h-8 btn-primary text-sm">
-          {guardando ? 'Guardando...' : 'Guardar Datos de Empresa'}
-        </Button>
-      </CardContent>
-    </Card>
-  )
-}
-
 export default function ConfiguracionPage() {
-  const [rol, setRol] = useState('')
-
-  useEffect(() => {
-    fetch('/api/auth/perfil').then(r => r.json()).then(d => { if (d?.rol) setRol(d.rol) })
-  }, [])
-
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
-      <h1 className="text-xl font-bold text-slate-800 mb-5">Configuración</h1>
+      <h1 className="text-xl font-bold text-slate-800 mb-5">Numeraciones</h1>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <PanelSecuencia />
         <PanelSecuenciaOC />
-        {rol === 'admin' && <PanelEmpresa />}
       </div>
     </div>
   )
