@@ -1242,3 +1242,56 @@ describe('POST /api/compras/ordenes/[id]/cancelar', () => {
     expect(insertMock).toHaveBeenCalled()
   })
 })
+
+// ── 27. Dashboard cobertura de NPs ────────────────────────────────────────────
+
+describe('GET /api/compras/dashboard/cobertura', () => {
+  const { GET } = require('@/app/api/compras/dashboard/cobertura/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const chain = mockChainVacio()
+    mockFrom.mockReturnValue(chain)
+    const req = makeRequest('http://localhost/api/compras/dashboard/cobertura')
+    const res = await GET(req)
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 200 con array nps y campos de cobertura', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+
+    const npsMock = [
+      { id: 'np-1', numero: 'NP-2026-0001', area: 'Operaciones', estado: 'aprobada',
+        prioridad: 'alta', solicitante_nombre: 'Ana', created_at: '2026-01-15T00:00:00Z' },
+    ]
+
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.in = jest.fn(() => chain)
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras' }, error: null })
+      return Promise.resolve({ data: null, error: null })
+    })
+    // notas_pedido query devuelve array via then
+    let thenCalls = 0
+    chain.then = (resolve: any) => {
+      thenCalls++
+      if (thenCalls === 1) return Promise.resolve({ data: npsMock, error: null }).then(resolve)
+      // items_np, registro_compras (OC IDs), items_oc
+      return Promise.resolve({ data: [], error: null }).then(resolve)
+    }
+    mockFrom.mockReturnValue(chain)
+
+    const req = makeRequest('http://localhost/api/compras/dashboard/cobertura')
+    const res = await GET(req)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toHaveProperty('nps')
+    expect(Array.isArray(body.nps)).toBe(true)
+    expect(body.nps[0]).toHaveProperty('porcentaje_global')
+    expect(body.nps[0]).toHaveProperty('np_cubierta')
+    expect(body.nps[0]).toHaveProperty('total_solicitado')
+    expect(body.nps[0]).toHaveProperty('total_comprometido')
+  })
+})

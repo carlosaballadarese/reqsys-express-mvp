@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -15,6 +16,20 @@ type Kpis = {
   devueltas: number
   convertidas: number
   totalEstimado: number
+}
+
+type NpCobertura = {
+  id:                 string
+  numero:             string
+  area:               string
+  estado:             'aprobada' | 'completada'
+  prioridad:          string
+  solicitante_nombre: string
+  created_at:         string
+  porcentaje_global:  number
+  np_cubierta:        boolean
+  total_solicitado:   number
+  total_comprometido: number
 }
 
 type DashData = {
@@ -166,14 +181,40 @@ function BarRow({ label, value, max, badge, badgeClass }: {
   )
 }
 
+// ─── Barra de cobertura coloreada ────────────────────────────────────────────
+
+function CoberturaBar({ pct }: { pct: number }) {
+  const w     = Math.min(pct, 100)
+  const color = pct >= 100 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#ef4444'
+  const cls   = pct >= 100 ? 'text-green-700' : pct >= 50 ? 'text-amber-600' : 'text-red-600'
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden min-w-[60px]">
+        <div className="h-full rounded-full transition-all" style={{ width: `${w}%`, background: color }} />
+      </div>
+      <span className={`text-xs font-semibold w-14 text-right shrink-0 ${cls}`}>
+        {pct.toFixed(0)}%{pct > 100 ? ' ⚠' : ''}
+      </span>
+    </div>
+  )
+}
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  const router = useRouter()
+
   const [data, setData]       = useState<DashData | null>(null)
   const [error, setError]     = useState('')
   const [cargando, setCargando] = useState(true)
   const [areaFiltro, setAreaFiltro] = useState('todas')
   const [yearFiltro, setYearFiltro] = useState<number | null>(null)
+
+  // Cobertura de NPs
+  const [coberturas, setCoberturas]         = useState<NpCobertura[]>([])
+  const [coberturaLoading, setCoberturaLoading] = useState(true)
+  const [coberturaFiltro, setCoberturaFiltro]   = useState<'todas' | 'parciales' | 'completas'>('todas')
+  const [sortDir, setSortDir]                   = useState<'asc' | 'desc'>('asc')
 
   function cargar(area: string, year: number | null) {
     setCargando(true)
@@ -188,6 +229,14 @@ export default function DashboardPage() {
         setCargando(false)
       })
       .catch(() => { setError('Error de conexión'); setCargando(false) })
+
+    // Carga independiente de cobertura
+    setCoberturaLoading(true)
+    fetch(`/api/compras/dashboard/cobertura?${params}`)
+      .then(r => r.json())
+      .then(d => { if (!d.error) setCoberturas(d.nps ?? []) })
+      .catch(() => {})
+      .finally(() => setCoberturaLoading(false))
   }
 
   useEffect(() => { cargar(areaFiltro, yearFiltro) }, [areaFiltro, yearFiltro])
@@ -390,6 +439,118 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* ── Cobertura de NPs ── */}
+        {(() => {
+          const npsFiltradas = coberturas
+            .filter(np =>
+              coberturaFiltro === 'todas'     ? true :
+              coberturaFiltro === 'parciales' ? np.porcentaje_global < 100 :
+                                               np.np_cubierta
+            )
+            .sort((a, b) =>
+              sortDir === 'asc'
+                ? a.porcentaje_global - b.porcentaje_global
+                : b.porcentaje_global - a.porcentaje_global
+            )
+
+          const cubiertasCount  = coberturas.filter(np => np.np_cubierta).length
+          const pendientesCount = coberturas.filter(np => !np.np_cubierta).length
+
+          return (
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-sm text-slate-700">Cobertura de NPs Aprobadas</CardTitle>
+                    {!coberturaLoading && coberturas.length > 0 && (
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        <span className="text-red-600 font-medium">{pendientesCount} con saldo pendiente</span>
+                        {' · '}
+                        <span className="text-green-700 font-medium">{cubiertasCount} cubiertas al 100%</span>
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Toggle filtro */}
+                  <div className="flex gap-1 text-xs">
+                    {(['todas', 'parciales', 'completas'] as const).map(f => (
+                      <button
+                        key={f}
+                        onClick={() => setCoberturaFiltro(f)}
+                        className={`px-2.5 py-1 rounded-md border transition-colors capitalize ${
+                          coberturaFiltro === f
+                            ? 'bg-[#1a5252] text-white border-[#1a5252]'
+                            : 'bg-white text-slate-600 border-slate-300 hover:border-teal-400'
+                        }`}
+                      >
+                        {f === 'parciales' ? '< 100%' : f === 'completas' ? '100%' : 'Todas'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </CardHeader>
+
+              <CardContent>
+                {coberturaLoading ? (
+                  <p className="text-xs text-slate-400 italic py-4 text-center">Cargando cobertura...</p>
+                ) : coberturas.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic py-4 text-center">Sin NPs aprobadas o completadas en el período seleccionado.</p>
+                ) : npsFiltradas.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic py-4 text-center">Sin NPs que coincidan con el filtro seleccionado.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-xs text-slate-500 uppercase">
+                          <th className="text-left py-2 pr-3">NP</th>
+                          <th className="text-left py-2 pr-3">Área</th>
+                          <th className="text-left py-2 pr-3">Solicitante</th>
+                          <th className="text-center py-2 pr-3">Estado</th>
+                          <th className="text-right py-2 pr-3">Solicitado</th>
+                          <th className="text-right py-2 pr-3">Comprometido</th>
+                          <th
+                            className="text-left py-2 pr-2 cursor-pointer select-none hover:text-teal-700 transition-colors"
+                            onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+                          >
+                            % Cobertura {sortDir === 'asc' ? '↑' : '↓'}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {npsFiltradas.map(np => (
+                          <tr
+                            key={np.id}
+                            className="border-b last:border-0 hover:bg-slate-50 cursor-pointer"
+                            onClick={() => router.push(`/compras/${np.id}`)}
+                          >
+                            <td className="py-2 pr-3 font-mono text-xs text-[#1a5252] font-semibold">{np.numero}</td>
+                            <td className="py-2 pr-3 text-xs text-slate-600">{np.area}</td>
+                            <td className="py-2 pr-3 text-xs text-slate-600 max-w-[120px] truncate">{np.solicitante_nombre}</td>
+                            <td className="py-2 pr-3 text-center">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                np.estado === 'completada'
+                                  ? 'bg-teal-100 text-teal-700'
+                                  : 'bg-green-100 text-green-700'
+                              }`}>
+                                {np.estado}
+                              </span>
+                            </td>
+                            <td className="py-2 pr-3 text-right text-xs font-mono">{np.total_solicitado}</td>
+                            <td className="py-2 pr-3 text-right text-xs font-mono text-blue-700">{np.total_comprometido}</td>
+                            <td className="py-2 min-w-[160px]">
+                              <CoberturaBar pct={np.porcentaje_global} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )
+        })()}
 
         <p className="text-center text-xs text-slate-400 pb-4">
           REQSYS — ARLIFT S.A. · Dashboard de Notas de Pedido
