@@ -259,10 +259,18 @@ export async function GET(req: NextRequest) {
       .select(SELECT)
       .order('created_at', { ascending: false })
 
-    if (emailFiltro) query = query.eq('solicitante_email', emailFiltro)
+    // Solicitante: OR(creado_por_id, solicitante_email) — retrocompatibilidad NPs sin creado_por_id
+    if (emailFiltro) {
+      query = query.or(`creado_por_id.eq.${user!.id},solicitante_email.eq.${emailFiltro}`)
+    }
     if (areasFiltro !== null) {
-      if (areasFiltro.length === 0) return NextResponse.json([])
-      query = query.in('area', areasFiltro)
+      if (areasFiltro.length === 0) {
+        // Coordinador sin áreas asignadas — mostrar solo sus propias NPs
+        query = query.eq('creado_por_id', user!.id)
+      } else {
+        // Coordinador: NPs del área gestionada OR NPs que él mismo creó
+        query = query.or(`area.in.(${areasFiltro.join(',')}),creado_por_id.eq.${user!.id}`)
+      }
     }
 
     if (estado && estado !== 'todos') query = query.eq('estado', estado)

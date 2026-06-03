@@ -1288,6 +1288,63 @@ describe('PATCH /api/compras/nps/[id] — aprobación portal persiste aprobador_
   })
 })
 
+// ── 29. GET /api/compras/nps — filtrado correcto por creado_por_id ───────────
+
+describe('GET /api/compras/nps — filtrado por creado_por_id para solicitante y coordinador', () => {
+  const { GET } = require('@/app/api/compras/nps/route')
+
+  it('solicitante: usa OR(creado_por_id, solicitante_email) — ve sus propias NPs', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION) // user.id = 'user-123'
+
+    const chain = mockChainVacio()
+    const orMock = jest.fn(() => chain)
+    chain.or = orMock
+    chain.single = jest.fn(() =>
+      Promise.resolve({ data: { rol: 'solicitante', email: 'sol@arlift.com' }, error: null })
+    )
+    chain.then = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+
+    const req = makeRequest('http://localhost/api/compras/nps')
+    await GET(req)
+
+    expect(orMock).toHaveBeenCalledWith(
+      expect.stringContaining('creado_por_id.eq.user-123')
+    )
+    expect(orMock).toHaveBeenCalledWith(
+      expect.stringContaining('solicitante_email.eq.sol@arlift.com')
+    )
+  })
+
+  it('coordinador: usa OR(area.in.(...), creado_por_id) — ve su área y sus propias NPs', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION) // user.id = 'user-123'
+
+    const chain = mockChainVacio()
+    const orMock = jest.fn(() => chain)
+    chain.or = orMock
+    chain.single = jest.fn(() =>
+      Promise.resolve({ data: { rol: 'coordinador', email: 'coord@arlift.com' }, error: null })
+    )
+    let thenCalls = 0
+    chain.then = (resolve: any) => {
+      thenCalls++
+      if (thenCalls === 1) return Promise.resolve({ data: [{ area: 'Operaciones' }], error: null }).then(resolve) // áreas del coord
+      return Promise.resolve({ data: [], error: null }).then(resolve)  // NPs
+    }
+    mockFrom.mockReturnValue(chain)
+
+    const req = makeRequest('http://localhost/api/compras/nps')
+    await GET(req)
+
+    const orCall = orMock.mock.calls.find((c: string[]) =>
+      c[0].includes('area.in.') && c[0].includes('creado_por_id.eq.user-123')
+    )
+    expect(orCall).toBeDefined()
+    expect(orCall![0]).toContain('area.in.(Operaciones)')
+    expect(orCall![0]).toContain('creado_por_id.eq.user-123')
+  })
+})
+
 // ── 27. Dashboard cobertura de NPs ────────────────────────────────────────────
 
 describe('GET /api/compras/dashboard/cobertura', () => {
