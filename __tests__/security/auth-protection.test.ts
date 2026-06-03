@@ -752,6 +752,30 @@ describe('PUT /api/compras/nps/[id]', () => {
     expect(itemsInsertados[0].precio_unitario).toBe(99)
     expect(itemsInsertados[0].proveedor_sugerido).toBe('ACME S.A.')
   })
+
+  it('permite editar NP en estado devuelta (creador) y limpia motivo_devolucion', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const NP_DEVUELTA = {
+      id: 'np-123', numero: 'NP-2026-0001', estado: 'devuelta',
+      area: 'HSE', creado_por_id: 'user-123', solicitante_nombre: 'Suylen Vargas',
+      token_aprobacion: 'tok-aprob', motivo_rechazo: null,
+      motivo_devolucion: 'SE DEVUELVE PARA CORRECCIONES',
+    }
+    const chain = mockChainEditar([
+      { data: { rol: 'solicitante', nombre: 'Suylen Vargas', email: 'tecnico.hse@arlift.com' }, error: null },
+      { data: NP_DEVUELTA, error: null },
+      { data: COORDINADOR, error: null },
+    ])
+    mockFrom.mockReturnValue(chain)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/nps/np-123', { method: 'PUT', body: bodyEditar(50) }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(200)
+    // El update debe incluir motivo_devolucion: null para limpiar el campo
+    const updatePayload = chain.update.mock.calls[0][0]
+    expect(updatePayload).toMatchObject({ estado: 'pendiente', motivo_devolucion: null })
+  })
 })
 
 // ── 19. Reabrir NP ───────────────────────────────────────────────────────────

@@ -941,8 +941,8 @@ export default function DetalleNPPage() {
   const mostrarAprobacion    = np?.estado === 'pendiente' && puedeAprobar
   const mostrarDevolucion    = np?.estado === 'aprobada' && ['compras', 'admin'].includes(rol)
   const puedeVerPrecio       = ['compras', 'admin', 'asistente_compras'].includes(rol)
-  // Spec: puede editar el creador (creado_por_id) o compras/admin; NP debe estar rechazada
-  const puedeEditarRechazada = np?.estado === 'rechazada' &&
+  // Spec: puede editar el creador (creado_por_id) o compras/admin; NP debe estar rechazada o devuelta
+  const puedeEditarRechazada = (np?.estado === 'rechazada' || np?.estado === 'devuelta') &&
     (np.creado_por_id === userId || ['compras', 'admin'].includes(rol))
 
   if (cargando) return <div className="min-h-screen flex items-center justify-center text-slate-400">Cargando...</div>

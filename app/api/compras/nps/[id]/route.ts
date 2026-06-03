@@ -88,13 +88,13 @@ export async function PUT(
 
     const { data: np } = await adminClient()
       .from('notas_pedido')
-      .select('id, numero, estado, area, creado_por_id, solicitante_nombre, token_aprobacion, motivo_rechazo')
+      .select('id, numero, estado, area, creado_por_id, solicitante_nombre, token_aprobacion, motivo_rechazo, motivo_devolucion')
       .eq('id', id)
       .single()
 
-    // Spec: solo NPs en estado rechazada pueden editarse por este flujo
-    if (!np || np.estado !== 'rechazada')
-      return NextResponse.json({ error: 'NP no encontrada o no está en estado rechazada' }, { status: 404 })
+    // Spec: NPs en estado rechazada (por coordinador) o devuelta (por Compras) pueden editarse
+    if (!np || !['rechazada', 'devuelta'].includes(np.estado))
+      return NextResponse.json({ error: 'NP no encontrada o no está en estado editable (rechazada o devuelta)' }, { status: 404 })
 
     // Spec: puede editar el creador (creado_por_id) o roles compras/admin
     const esManager      = ['compras', 'admin'].includes(perfil.rol)
@@ -139,6 +139,7 @@ export async function PUT(
         total_estimado:      totalEstimado,
         estado:              'pendiente',
         motivo_rechazo:      null,
+        motivo_devolucion:   null,
       })
       .eq('id', id)
 
@@ -164,7 +165,9 @@ export async function PUT(
     // Spec: historial registra reenviada con referencia al motivo del rechazo previo
     const motivoPrevio = np.motivo_rechazo
       ? `Rechazo previo: "${np.motivo_rechazo}"`
-      : 'NP reenviada tras corrección'
+      : np.motivo_devolucion
+        ? `Devolución previa: "${np.motivo_devolucion}"`
+        : 'NP reenviada tras corrección'
     await adminClient().from('historial_np').insert({
       np_id:        id,
       estado:       'reenviada',
