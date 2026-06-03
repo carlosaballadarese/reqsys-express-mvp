@@ -59,6 +59,7 @@ function mockChainVacio() {
   chain.like   = noop
   chain.ilike  = noop
   chain.neq    = noop
+  chain.in     = noop
   chain.limit  = jest.fn(() => Promise.resolve(resolved))
   chain.single = jest.fn(() => Promise.resolve({ data: null, error: null }))
   chain.insert = jest.fn(() => Promise.resolve(resolved))
@@ -981,7 +982,8 @@ describe('POST /api/compras/convertir/[id] — propagación de aprobador_np', ()
       method: 'POST',
       body: JSON.stringify({
         proveedor_id: 'prov-uuid',
-        items: [{ descripcion: 'Item test', unidad: 'EA', cantidad: 1, precio_unitario: 100 }],
+        // item_np_id requerido por HU-003; cantidad coincide con NP → no requiere justificación
+        items: [{ item_np_id: 'np-item-1', descripcion: 'Item test', unidad: 'EA', cantidad: 1, precio_unitario: 100 }],
       }),
     })
     await POST(req, { params: Promise.resolve({ id: 'np-conv-1' }) })
@@ -1132,13 +1134,18 @@ describe('POST /api/compras/convertir/[id] — validación sobrecompra', () => {
       if (singleCalls === 3) return Promise.resolve({ data: { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null }, error: null })
       return Promise.resolve({ data: null, error: null })
     })
-    // calcularCoberturaNP: items_np, registro_compras (OC IDs), items_oc
+    // HU-003: thenCalls=1 es validarEnlaceYJustificacion; 2-4 son calcularCoberturaNP
     let thenCalls = 0
     chain.then = (resolve: any) => {
       thenCalls++
-      if (thenCalls === 1) return Promise.resolve({ data: [{ id: 'item-np-1', linea: 1, descripcion: 'Producto', cantidad: cantidadNP }], error: null }).then(resolve)
-      if (thenCalls === 2) return Promise.resolve({ data: [{ id: 'oc-exist' }], error: null }).then(resolve)
-      if (thenCalls === 3) return Promise.resolve({ data: [{ item_np_id: 'item-np-1', cantidad: cantidadComprometida }], error: null }).then(resolve)
+      // validarEnlaceYJustificacion → items_np (id, cantidad)
+      if (thenCalls === 1) return Promise.resolve({ data: [{ id: 'item-np-1', cantidad: cantidadNP }], error: null }).then(resolve)
+      // calcularCoberturaNP → items_np (completo)
+      if (thenCalls === 2) return Promise.resolve({ data: [{ id: 'item-np-1', linea: 1, descripcion: 'Producto', cantidad: cantidadNP }], error: null }).then(resolve)
+      // calcularCoberturaNP → registro_compras OC IDs
+      if (thenCalls === 3) return Promise.resolve({ data: [{ id: 'oc-exist' }], error: null }).then(resolve)
+      // calcularCoberturaNP → items_oc
+      if (thenCalls === 4) return Promise.resolve({ data: [{ item_np_id: 'item-np-1', cantidad: cantidadComprometida }], error: null }).then(resolve)
       return Promise.resolve({ data: [], error: null }).then(resolve)
     }
     mockFrom.mockReturnValue(chain)
@@ -1153,7 +1160,9 @@ describe('POST /api/compras/convertir/[id] — validación sobrecompra', () => {
       method: 'POST',
       body: JSON.stringify({
         proveedor_id: 'prov-uuid',
-        items: [{ item_np_id: 'item-np-1', descripcion: 'Producto', unidad: 'EA', cantidad: 4, precio_unitario: 10 }],
+        // HU-003: cantidad difiere de NP (4 vs 5) → justificacion_cantidad requerida para pasar CA-03
+        items: [{ item_np_id: 'item-np-1', descripcion: 'Producto', unidad: 'EA', cantidad: 4, precio_unitario: 10,
+                  justificacion_cantidad: 'Entrega parcial, saldo en próxima OC' }],
       }),
     })
     const res = await POST(req, { params: Promise.resolve({ id: 'np-sob-1' }) })
@@ -1173,7 +1182,9 @@ describe('POST /api/compras/convertir/[id] — validación sobrecompra', () => {
       body: JSON.stringify({
         proveedor_id: 'prov-uuid',
         sobrecompra_confirmada: true,
-        items: [{ item_np_id: 'item-np-1', descripcion: 'Producto', unidad: 'EA', cantidad: 4, precio_unitario: 10 }],
+        // HU-003: justificación incluida para pasar CA-03
+        items: [{ item_np_id: 'item-np-1', descripcion: 'Producto', unidad: 'EA', cantidad: 4, precio_unitario: 10,
+                  justificacion_cantidad: 'Entrega parcial, saldo en próxima OC' }],
       }),
     })
     const res = await POST(req, { params: Promise.resolve({ id: 'np-sob-1' }) })
@@ -1419,5 +1430,168 @@ describe('GET /api/compras/dashboard/cobertura', () => {
     expect(body.nps[0]).toHaveProperty('np_cubierta')
     expect(body.nps[0]).toHaveProperty('total_solicitado')
     expect(body.nps[0]).toHaveProperty('total_comprometido')
+  })
+})
+
+// ── 31. HU-003: Trazabilidad obligatoria ítem OC → ítem NP ───────────────────
+
+describe('POST /api/compras/convertir/[id] — HU-003 enlace y justificación', () => {
+  const { POST } = require('@/app/api/compras/convertir/[id]/route')
+
+  const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
+  beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+
+  const NP_APROBADA = {
+    id: 'np-hu003', numero: 'NP-2026-0020', area: 'Operaciones',
+    estado: 'aprobada', tipo_compra: 'bienes', centro_costo: 'CC01',
+    descripcion_general: 'Test HU-003', created_at: '2026-01-01T00:00:00Z',
+    convertida: false, asignado_a: null,
+    aprobador_np_nombre: null, aprobador_np_area: null,
+  }
+
+  function setupConvertirBase() {
+    const chain = mockChainVacio()
+    chain.in = jest.fn(() => chain)
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() =>
+      Promise.resolve({ data: { id: 'oc-new', numero_oc: 'OC-2026-0020' }, error: null })) })) }))
+    let singleCalls = 0
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Carlos', email: 'c@a.com' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({ data: NP_APROBADA, error: null })
+      if (singleCalls === 3) return Promise.resolve({ data: { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null }, error: null })
+      return Promise.resolve({ data: null, error: null })
+    })
+    mockFrom.mockReturnValue(chain)
+    return chain
+  }
+
+  it('CA-01: devuelve 400 item_sin_enlace_np cuando algún ítem no tiene item_np_id', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupConvertirBase()
+
+    const req = makeRequest('http://localhost/api/compras/convertir/np-hu003', {
+      method: 'POST',
+      body: JSON.stringify({
+        proveedor_id: 'prov-uuid',
+        items: [
+          { item_np_id: 'item-np-1', descripcion: 'Con enlace', unidad: 'EA', cantidad: 2, precio_unitario: 10 },
+          { item_np_id: null,        descripcion: 'Sin enlace', unidad: 'EA', cantidad: 1, precio_unitario: 5 },
+        ],
+      }),
+    })
+    const res = await POST(req, { params: Promise.resolve({ id: 'np-hu003' }) })
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toBe('item_sin_enlace_np')
+    expect(body.lineas).toContain(2)
+  })
+
+  it('CA-03: devuelve 400 justificacion_requerida cuando cantidad difiere y falta justificación', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = setupConvertirBase()
+
+    // validarEnlaceYJustificacion consulta items_np via then
+    chain.then = (resolve: any) => {
+      return Promise.resolve({
+        data: [{ id: 'item-np-1', cantidad: 5 }],
+        error: null,
+      }).then(resolve)
+    }
+
+    const req = makeRequest('http://localhost/api/compras/convertir/np-hu003', {
+      method: 'POST',
+      body: JSON.stringify({
+        proveedor_id: 'prov-uuid',
+        items: [
+          // cantidad=3 difiere de NP cantidad=5, sin justificacion
+          { item_np_id: 'item-np-1', descripcion: 'Producto', unidad: 'EA', cantidad: 3, precio_unitario: 10 },
+        ],
+      }),
+    })
+    const res = await POST(req, { params: Promise.resolve({ id: 'np-hu003' }) })
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toBe('justificacion_requerida')
+    expect(body.errores).toHaveLength(1)
+    expect(body.errores[0].linea_oc).toBe(1)
+    expect(body.errores[0].cantidad_np).toBe(5)
+  })
+})
+
+describe('PUT /api/compras/ordenes/[id] — HU-003 enlace y justificación', () => {
+  const { PUT } = require('@/app/api/compras/ordenes/[id]/route')
+
+  it('CA-02: devuelve 400 item_sin_enlace_np cuando OC tiene NP origen e ítem sin item_np_id', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({
+        data: { estado_oc: 'en_proceso', creado_por_id: 'user-123', nota_pedido_id: 'np-trazab' },
+        error: null,
+      })
+      if (singleCalls === 3) return Promise.resolve({
+        data: { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null },
+        error: null,
+      })
+      return Promise.resolve({ data: null, error: null })
+    })
+    mockFrom.mockReturnValue(chain)
+
+    const req = makeRequest('http://localhost/api/compras/ordenes/oc-trazab', {
+      method: 'PUT',
+      body: JSON.stringify({
+        proveedor_id: 'prov-uuid',
+        items: [{ item_np_id: null, descripcion: 'Sin enlace', unidad: 'EA', cantidad: 2, precio_unitario: 10 }],
+      }),
+    })
+    const res = await PUT(req, { params: Promise.resolve({ id: 'oc-trazab' }) })
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toBe('item_sin_enlace_np')
+    expect(body.lineas).toContain(1)
+  })
+
+  it('CA-08: OC sin nota_pedido_id acepta ítems sin item_np_id (no valida enlace)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.in = jest.fn(() => chain)
+    // delete().eq() necesita que delete() devuelva el chain, no una Promise
+    chain.delete = jest.fn(() => chain)
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({
+        data: { estado_oc: 'en_proceso', creado_por_id: 'user-123', nota_pedido_id: null },
+        error: null,
+      })
+      if (singleCalls === 3) return Promise.resolve({
+        data: { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null },
+        error: null,
+      })
+      return Promise.resolve({ data: null, error: null })
+    })
+    mockFrom.mockReturnValue(chain)
+
+    const req = makeRequest('http://localhost/api/compras/ordenes/oc-libre', {
+      method: 'PUT',
+      body: JSON.stringify({
+        proveedor_id: 'prov-uuid',
+        items: [{ item_np_id: null, descripcion: 'Ítem libre', unidad: 'EA', cantidad: 1, precio_unitario: 50 }],
+      }),
+    })
+    const res = await PUT(req, { params: Promise.resolve({ id: 'oc-libre' }) })
+    // Sin nota_pedido_id no se valida item_np_id — debe pasar sin 400
+    expect(res.status).not.toBe(400)
+    expect(res.status).toBe(200)
   })
 })

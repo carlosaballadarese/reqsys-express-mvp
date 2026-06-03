@@ -349,6 +349,7 @@ type ItemOC = {
   tipo: string
   informacion_adicional: string
   fecha_entrega: string
+  justificacion_cantidad: string
 }
 
 // ─── Formulario conversión a OC (parcial / multi-OC) ─────────────────────────
@@ -395,19 +396,26 @@ function FormularioOC({ np, itemsNP, onConvertida, cobertura }: {
       .catch(err => console.error('Error cargando unidades:', err))
   }, [])
 
+  // Map item_np_id → cantidad solicitada en NP (para validación condicional de justificación)
+  const cantidadNP: Record<string, number> = itemsNP.reduce(
+    (acc, i) => ({ ...acc, [i.id]: Number(i.cantidad) }),
+    {} as Record<string, number>
+  )
+
   // Ítems pre-cargados desde la NP — todos seleccionados por defecto
   const [itemsOC, setItemsOC] = useState<ItemOC[]>(() =>
     itemsNP.map(i => ({
-      item_np_id:           i.id,
-      seleccionado:         true,
-      codigo:               i.codigo || '',
-      descripcion:          i.descripcion,
-      unidad:               i.unidad,
-      cantidad:             String(i.cantidad),
-      precio_unitario:      String(i.precio_unitario),
-      tipo:                 '',
-      informacion_adicional: '',
-      fecha_entrega:        '',
+      item_np_id:             i.id,
+      seleccionado:           true,
+      codigo:                 i.codigo || '',
+      descripcion:            i.descripcion,
+      unidad:                 i.unidad,
+      cantidad:               String(i.cantidad),
+      precio_unitario:        String(i.precio_unitario),
+      tipo:                   '',
+      informacion_adicional:  '',
+      fecha_entrega:          '',
+      justificacion_cantidad: '',
     }))
   )
 
@@ -427,6 +435,7 @@ function FormularioOC({ np, itemsNP, onConvertida, cobertura }: {
     setItemsOC(prev => [...prev, {
       item_np_id: null, seleccionado: true, codigo: '', descripcion: '', unidad: 'EA',
       cantidad: '1', precio_unitario: '0', tipo: '', informacion_adicional: '', fecha_entrega: '',
+      justificacion_cantidad: '',
     }])
   }
 
@@ -448,15 +457,16 @@ function FormularioOC({ np, itemsNP, onConvertida, cobertura }: {
       valor_total:  totalOC,
       sobrecompra_confirmada,
       items: seleccionados.map(i => ({
-        item_np_id:            i.item_np_id,
-        codigo:                i.codigo || null,
-        descripcion:           i.descripcion,
-        unidad:                i.unidad,
-        cantidad:              Number(i.cantidad) || 0,
-        precio_unitario:       Number(i.precio_unitario) || 0,
-        tipo:                  i.tipo || null,
-        informacion_adicional: i.informacion_adicional || null,
-        fecha_entrega:         i.fecha_entrega || null,
+        item_np_id:             i.item_np_id,
+        codigo:                 i.codigo || null,
+        descripcion:            i.descripcion,
+        unidad:                 i.unidad,
+        cantidad:               Number(i.cantidad) || 0,
+        precio_unitario:        Number(i.precio_unitario) || 0,
+        tipo:                   i.tipo || null,
+        informacion_adicional:  i.informacion_adicional || null,
+        fecha_entrega:          i.fecha_entrega || null,
+        justificacion_cantidad: i.justificacion_cantidad?.trim() || null,
       })),
     }
   }
@@ -465,6 +475,16 @@ function FormularioOC({ np, itemsNP, onConvertida, cobertura }: {
     if (!form.proveedor.trim()) { setError('El proveedor es requerido'); return }
     if (seleccionados.length === 0) { setError('Selecciona al menos un ítem para incluir en la OC'); return }
     if (seleccionados.some(i => !i.descripcion.trim())) { setError('Todos los ítems seleccionados deben tener descripción'); return }
+    // CA-01: todos los ítems deben estar vinculados a una línea de la NP
+    if (seleccionados.some(i => !i.item_np_id)) { setError('Todos los ítems deben estar vinculados a una línea de la NP. Selecciona el ítem de NP correspondiente.'); return }
+    // CA-03: justificación requerida cuando la cantidad difiere de la NP
+    const sinJustificacion = seleccionados.filter(i =>
+      i.item_np_id &&
+      cantidadNP[i.item_np_id] !== undefined &&
+      Number(i.cantidad) !== cantidadNP[i.item_np_id] &&
+      !i.justificacion_cantidad.trim()
+    )
+    if (sinJustificacion.length > 0) { setError('Ingresa la justificación de cantidad para los ítems cuya cantidad difiere de la NP.'); return }
     setEnviando(true)
     setError('')
     try {
@@ -537,6 +557,33 @@ function FormularioOC({ np, itemsNP, onConvertida, cobertura }: {
                     <button type="button" onClick={() => eliminarItem(i)} className="text-red-400 hover:text-red-600 text-sm mt-4 shrink-0">✕</button>
                   )}
                 </div>
+                {/* Selector de ítem NP — solo para ítems agregados manualmente */}
+                {!item.item_np_id && item.seleccionado && (
+                  <div className="pl-6">
+                    <Label className="text-xs text-slate-500">Ítem de NP vinculado *</Label>
+                    <select
+                      value=""
+                      onChange={e => {
+                        const npItem = itemsNP.find(n => n.id === e.target.value)
+                        if (!npItem) return
+                        setItemsOC(prev => prev.map((it, idx) => idx === i ? {
+                          ...it,
+                          item_np_id:             npItem.id,
+                          justificacion_cantidad: '',
+                        } : it))
+                      }}
+                      className="mt-0.5 w-full h-7 rounded-md border border-amber-300 bg-amber-50 px-2 text-xs"
+                    >
+                      <option value="">— Selecciona el ítem de NP al que corresponde —</option>
+                      {itemsNP.map(n => (
+                        <option key={n.id} value={n.id}>
+                          Línea {n.linea} — {n.descripcion.slice(0, 50)}{n.descripcion.length > 50 ? '…' : ''} (cant: {n.cantidad})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 {/* Fila 2: tipo + código + unidad + cantidad + precio + total */}
                 {item.seleccionado && (
                   <div className="space-y-2 pl-6">
@@ -582,6 +629,23 @@ function FormularioOC({ np, itemsNP, onConvertida, cobertura }: {
                     <Label className="text-xs text-slate-500">Información Adicional</Label>
                     <Input value={item.informacion_adicional} onChange={e => setItem(i, 'informacion_adicional', e.target.value)} className="h-7 text-xs mt-0.5" placeholder="Especificaciones, notas..." />
                   </div>
+                  {/* CA-07: justificación condicional cuando cantidad difiere de la NP */}
+                  {item.item_np_id &&
+                   cantidadNP[item.item_np_id] !== undefined &&
+                   Number(item.cantidad) !== cantidadNP[item.item_np_id] && (
+                    <div>
+                      <Label className="text-xs text-amber-600 font-semibold">
+                        Justificación de cantidad * <span className="font-normal text-slate-400">(solicitado en NP: {cantidadNP[item.item_np_id]})</span>
+                      </Label>
+                      <textarea
+                        value={item.justificacion_cantidad}
+                        onChange={e => setItem(i, 'justificacion_cantidad', e.target.value)}
+                        rows={2}
+                        placeholder="Explica por qué la cantidad difiere de lo solicitado en la NP..."
+                        className="mt-0.5 w-full rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-amber-400"
+                      />
+                    </div>
+                  )}
                   </div>
                 )}
               </div>

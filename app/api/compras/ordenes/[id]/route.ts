@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { verificarSobrecompra, autoCompletarNP } from '@/lib/np-cobertura'
+import { verificarSobrecompra, autoCompletarNP, validarEnlaceYJustificacion } from '@/lib/np-cobertura'
 
 
 export async function GET(
@@ -87,8 +87,24 @@ export async function PUT(
 
     if (!prov) return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 400 })
 
-    // Spec CA3: verificar sobrecompra (excluye los ítems actuales de esta OC)
     const nota_pedido_id = ocEstado?.nota_pedido_id ?? null
+
+    // CA-02: toda línea de OC con NP origen debe tener item_np_id
+    if (nota_pedido_id) {
+      const sinEnlace = items
+        .map((item: { item_np_id?: string | null }, idx: number) => ({ item, linea: idx + 1 }))
+        .filter(({ item }: { item: { item_np_id?: string | null } }) => !item.item_np_id)
+        .map(({ linea }: { linea: number }) => linea)
+      if (sinEnlace.length > 0)
+        return NextResponse.json({ error: 'item_sin_enlace_np', lineas: sinEnlace }, { status: 400 })
+
+      // CA-03: justificación requerida cuando cantidad_oc ≠ cantidad_np
+      const validacionEnlace = await validarEnlaceYJustificacion(items, nota_pedido_id)
+      if (!validacionEnlace.valido)
+        return NextResponse.json({ error: 'justificacion_requerida', errores: validacionEnlace.errores }, { status: 400 })
+    }
+
+    // Verificar sobrecompra (excluye los ítems actuales de esta OC)
     if (nota_pedido_id && !sobrecompra_confirmada) {
       const excedidos = await verificarSobrecompra(nota_pedido_id, items, id)
       if (excedidos.length > 0) {
@@ -142,18 +158,20 @@ export async function PUT(
       codigo: string; descripcion: string; unidad: string
       cantidad: number; precio_unitario: number
       tipo?: string; informacion_adicional?: string; fecha_entrega?: string
+      justificacion_cantidad?: string | null
     }, index: number) => ({
-      registro_compras_id:   id,
-      linea:                 index + 1,
-      item_np_id:            item.item_np_id || null,
-      codigo:                item.codigo || null,
-      descripcion:           item.descripcion,
-      unidad:                item.unidad,
-      cantidad:              item.cantidad,
-      precio_unitario:       item.precio_unitario || 0,
-      tipo:                  item.tipo || null,
-      informacion_adicional: item.informacion_adicional || null,
-      fecha_entrega:         item.fecha_entrega || null,
+      registro_compras_id:    id,
+      linea:                  index + 1,
+      item_np_id:             item.item_np_id || null,
+      codigo:                 item.codigo || null,
+      descripcion:            item.descripcion,
+      unidad:                 item.unidad,
+      cantidad:               item.cantidad,
+      precio_unitario:        item.precio_unitario || 0,
+      tipo:                   item.tipo || null,
+      informacion_adicional:  item.informacion_adicional || null,
+      fecha_entrega:          item.fecha_entrega || null,
+      justificacion_cantidad: item.justificacion_cantidad?.trim() || null,
     }))
 
     const { error: errorItems } = await adminClient().from('items_oc').insert(itemsOC)

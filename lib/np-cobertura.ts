@@ -1,6 +1,64 @@
 import { adminClient } from '@/lib/supabase/clients'
 import { registrarAuditoria } from '@/lib/auditoria'
 
+// HU-003: Trazabilidad ítem OC → ítem NP
+export type ErrorEnlace = {
+  linea_oc:    number   // 1-based
+  item_np_id:  string
+  motivo:      'justificacion_requerida'
+  cantidad_oc: number
+  cantidad_np: number
+}
+
+export type ResultadoValidacionEnlace = {
+  valido:  boolean
+  errores: ErrorEnlace[]
+}
+
+// Valida que cada ítem con item_np_id tenga justificación cuando la cantidad difiere.
+// Solo evalúa ítems que ya tienen item_np_id asignado; el guard previo se encarga de los nulos.
+export async function validarEnlaceYJustificacion(
+  items: {
+    item_np_id:              string | null
+    cantidad:                number
+    justificacion_cantidad?: string | null
+  }[],
+  np_id: string
+): Promise<ResultadoValidacionEnlace> {
+  const itemNpIds = [...new Set(
+    items.map(i => i.item_np_id).filter(Boolean) as string[]
+  )]
+
+  if (itemNpIds.length === 0) return { valido: true, errores: [] }
+
+  const { data: npItems } = await adminClient()
+    .from('items_np')
+    .select('id, cantidad')
+    .in('id', itemNpIds)
+    .eq('nota_pedido_id', np_id)
+
+  const cantidadMap: Record<string, number> = {}
+  for (const it of (npItems ?? [])) cantidadMap[it.id] = Number(it.cantidad)
+
+  const errores: ErrorEnlace[] = []
+  items.forEach((item, index) => {
+    if (!item.item_np_id) return
+    const cantNP = cantidadMap[item.item_np_id]
+    if (cantNP === undefined) return
+    if (item.cantidad !== cantNP && !item.justificacion_cantidad?.trim()) {
+      errores.push({
+        linea_oc:    index + 1,
+        item_np_id:  item.item_np_id,
+        motivo:      'justificacion_requerida',
+        cantidad_oc: item.cantidad,
+        cantidad_np: cantNP,
+      })
+    }
+  })
+
+  return { valido: errores.length === 0, errores }
+}
+
 export type ItemCobertura = {
   item_np_id:            string
   linea:                 number

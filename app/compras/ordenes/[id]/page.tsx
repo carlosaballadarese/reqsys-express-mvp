@@ -75,6 +75,14 @@ type ItemOC = {
   tipo: string | null
   informacion_adicional: string | null
   fecha_entrega: string | null
+  justificacion_cantidad: string | null
+}
+
+type NPItem = {
+  id: string
+  linea: number
+  descripcion: string
+  cantidad: number
 }
 
 type Proveedor = {
@@ -278,6 +286,8 @@ export default function DetalleOCPage() {
   const [proveedorSnap, setProveedorSnap] = useState<Partial<Proveedor>>({})
   const [form, setForm]               = useState<Record<string, string>>({})
   const [itemsEdit, setItemsEdit]     = useState<ItemOC[]>([])
+  const [npItemsEdit, setNpItemsEdit] = useState<NPItem[]>([])
+  const [cantidadNPMap, setCantidadNPMap] = useState<Record<string, number>>({})
 
   // Rol
   const [rol, setRol]     = useState('')
@@ -362,12 +372,37 @@ export default function DetalleOCPage() {
     })
     setItemsEdit(items.map(i => ({
       ...i,
-      cantidad:        String(i.cantidad),
-      precio_unitario: String(i.precio_unitario),
-      tipo:            i.tipo ?? null,
-      informacion_adicional: i.informacion_adicional ?? null,
-      fecha_entrega:   i.fecha_entrega ?? null,
+      cantidad:               String(i.cantidad),
+      precio_unitario:        String(i.precio_unitario),
+      tipo:                   i.tipo ?? null,
+      informacion_adicional:  i.informacion_adicional ?? null,
+      fecha_entrega:          i.fecha_entrega ?? null,
+      justificacion_cantidad: i.justificacion_cantidad ?? null,
     })))
+
+    // Cargar ítems NP para selector y mapa de cantidades (solo si tiene NP origen)
+    if (oc.nota_pedido_id) {
+      fetch(`/api/compras/nps/${oc.nota_pedido_id}`)
+        .then(r => r.json())
+        .then(data => {
+          const npItems: NPItem[] = (data.items ?? []).map((it: { id: string; linea: number; descripcion: string; cantidad: number }) => ({
+            id:          it.id,
+            linea:       it.linea,
+            descripcion: it.descripcion,
+            cantidad:    Number(it.cantidad),
+          }))
+          setNpItemsEdit(npItems)
+          setCantidadNPMap(npItems.reduce(
+            (acc, it) => ({ ...acc, [it.id]: it.cantidad }),
+            {} as Record<string, number>
+          ))
+        })
+        .catch(console.error)
+    } else {
+      setNpItemsEdit([])
+      setCantidadNPMap({})
+    }
+
     setEditando(true)
     setErrorEdit('')
   }
@@ -383,6 +418,7 @@ export default function DetalleOCPage() {
       item_np_id: null, codigo: '', descripcion: '', unidad: 'EA', cantidad: '1',
       precio_unitario: '0', linea: prev.length + 1, tipo: null,
       informacion_adicional: null, fecha_entrega: null,
+      justificacion_cantidad: null,
     }])
   }
 
@@ -396,6 +432,20 @@ export default function DetalleOCPage() {
     if (!proveedorId) { setErrorEdit('Debe seleccionar un proveedor registrado'); return }
     if (itemsEdit.length === 0)  { setErrorEdit('La OC debe tener al menos un ítem'); return }
     if (itemsEdit.some(i => !String(i.descripcion).trim())) { setErrorEdit('Todos los ítems deben tener descripción'); return }
+    // CA-02: todos los ítems con NP origen deben tener item_np_id
+    if (oc?.nota_pedido_id && itemsEdit.some(i => !i.item_np_id)) {
+      setErrorEdit('Todos los ítems deben estar vinculados a una línea de la NP.'); return
+    }
+    // CA-03: justificación requerida cuando la cantidad difiere de la NP
+    if (oc?.nota_pedido_id) {
+      const sinJustificacion = itemsEdit.filter(i =>
+        i.item_np_id &&
+        cantidadNPMap[i.item_np_id] !== undefined &&
+        Number(i.cantidad) !== cantidadNPMap[i.item_np_id] &&
+        !i.justificacion_cantidad?.trim()
+      )
+      if (sinJustificacion.length > 0) { setErrorEdit('Ingresa la justificación de cantidad para los ítems cuya cantidad difiere de la NP.'); return }
+    }
 
     setGuardando(true); setErrorEdit('')
     try {
@@ -408,15 +458,16 @@ export default function DetalleOCPage() {
           valor_total:  totalEdit,
           sobrecompra_confirmada,
           items: itemsEdit.map(i => ({
-            item_np_id:            i.item_np_id || null,
-            codigo:                i.codigo || null,
-            descripcion:           i.descripcion,
-            unidad:                i.unidad,
-            cantidad:              Number(i.cantidad) || 0,
-            precio_unitario:       Number(i.precio_unitario) || 0,
-            tipo:                  i.tipo || null,
-            informacion_adicional: i.informacion_adicional || null,
-            fecha_entrega:         i.fecha_entrega || null,
+            item_np_id:             i.item_np_id || null,
+            codigo:                 i.codigo || null,
+            descripcion:            i.descripcion,
+            unidad:                 i.unidad,
+            cantidad:               Number(i.cantidad) || 0,
+            precio_unitario:        Number(i.precio_unitario) || 0,
+            tipo:                   i.tipo || null,
+            informacion_adicional:  i.informacion_adicional || null,
+            fecha_entrega:          i.fecha_entrega || null,
+            justificacion_cantidad: i.justificacion_cantidad?.trim() || null,
           })),
         }),
       })
@@ -806,7 +857,8 @@ export default function DetalleOCPage() {
                         <th className="text-center py-2 pr-3">Cantidad</th>
                         <th className="text-right py-2 pr-3">P. Unit.</th>
                         <th className="text-right py-2 pr-3">Total</th>
-                        <th className="text-left py-2">Fecha Entrega</th>
+                        <th className="text-left py-2 pr-3">Fecha Entrega</th>
+                        <th className="text-left py-2">Justificación Cantidad</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -820,18 +872,19 @@ export default function DetalleOCPage() {
                           <td className="py-2 pr-3 text-center">{item.cantidad} {item.unidad}</td>
                           <td className="py-2 pr-3 text-right">${Number(item.precio_unitario).toFixed(2)}</td>
                           <td className="py-2 pr-3 text-right font-medium">${((Number(item.cantidad) || 0) * (Number(item.precio_unitario) || 0)).toFixed(2)}</td>
-                          <td className="py-2 text-xs text-slate-500">{item.fecha_entrega ? new Date(item.fecha_entrega).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                          <td className="py-2 pr-3 text-xs text-slate-500">{item.fecha_entrega ? new Date(item.fecha_entrega).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                          <td className="py-2 text-xs text-slate-500">{item.justificacion_cantidad ?? '—'}</td>
                         </tr>
                       ))}
                     </tbody>
                     <tfoot>
                       <tr className="bg-slate-50">
-                        <td colSpan={7} className="py-2 pr-3 text-right font-semibold">Subtotal</td>
+                        <td colSpan={8} className="py-2 pr-3 text-right font-semibold">Subtotal</td>
                         <td className="py-2 pr-3 text-right font-bold text-blue-700">${totalOC.toFixed(2)}</td>
                         <td></td>
                       </tr>
                       <tr className="bg-slate-50">
-                        <td colSpan={7} className="py-1 pr-3 text-right text-slate-500 text-xs">IVA 15%</td>
+                        <td colSpan={8} className="py-1 pr-3 text-right text-slate-500 text-xs">IVA 15%</td>
                         <td className="py-1 pr-3 text-right text-slate-500 text-xs">${ivaOC.toFixed(2)}</td>
                         <td></td>
                       </tr>
@@ -928,6 +981,48 @@ export default function DetalleOCPage() {
                         <Label className="text-xs text-slate-500">Información Adicional</Label>
                         <Input value={item.informacion_adicional ?? ''} onChange={e => setItemEdit(i, 'informacion_adicional', e.target.value || null)} className="h-7 text-xs mt-0.5" placeholder="Especificaciones, notas..." />
                       </div>
+                      {/* CA-06: selector de ítem NP cuando hay NP origen */}
+                      {npItemsEdit.length > 0 && (
+                        <div className="pl-7">
+                          <Label className="text-xs text-slate-500">Ítem de NP vinculado *</Label>
+                          <select
+                            value={item.item_np_id ?? ''}
+                            onChange={e => {
+                              const val = e.target.value || null
+                              setItemsEdit(prev => prev.map((it, idx) => idx === i ? {
+                                ...it,
+                                item_np_id: val,
+                                justificacion_cantidad: null,
+                              } : it))
+                            }}
+                            className="mt-0.5 w-full h-7 rounded-md border border-input bg-background px-2 text-xs"
+                          >
+                            <option value="">— Selecciona el ítem de NP —</option>
+                            {npItemsEdit.map(n => (
+                              <option key={n.id} value={n.id}>
+                                Línea {n.linea} — {n.descripcion.slice(0, 50)}{n.descripcion.length > 50 ? '…' : ''} (cant: {n.cantidad})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      {/* CA-07: justificación condicional cuando cantidad difiere de la NP */}
+                      {item.item_np_id &&
+                       cantidadNPMap[item.item_np_id] !== undefined &&
+                       Number(item.cantidad) !== cantidadNPMap[item.item_np_id] && (
+                        <div className="pl-7">
+                          <Label className="text-xs text-amber-600 font-semibold">
+                            Justificación de cantidad * <span className="font-normal text-slate-400">(solicitado en NP: {cantidadNPMap[item.item_np_id]})</span>
+                          </Label>
+                          <textarea
+                            value={item.justificacion_cantidad ?? ''}
+                            onChange={e => setItemEdit(i, 'justificacion_cantidad', e.target.value || null)}
+                            rows={2}
+                            placeholder="Explica por qué la cantidad difiere de lo solicitado en la NP..."
+                            className="mt-0.5 w-full rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-amber-400"
+                          />
+                        </div>
+                      )}
                     </div>
                   ))}
                   <div className="flex justify-end pt-1 border-t gap-4">
