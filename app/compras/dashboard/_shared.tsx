@@ -49,7 +49,7 @@ export const OC_ESTADO_HEX: Record<string, string> = {
 
 // ─── Gráfico de pastel SVG ────────────────────────────────────────────────────
 
-export function PieChart({ data }: { data: { label: string; value: number; color: string }[] }) {
+export function PieChart({ data }: { data: { label: string; value: number; color: string; valueLabel?: string }[] }) {
   const total = data.reduce((s, d) => s + d.value, 0)
   if (total === 0) return <p className="text-xs text-slate-400 italic">Sin datos</p>
 
@@ -94,7 +94,7 @@ export function PieChart({ data }: { data: { label: string; value: number; color
           <div key={s.label} className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-sm shrink-0" style={{ background: s.color }} />
             <span className="text-xs text-slate-600 capitalize w-24">{s.label}</span>
-            <span className="text-xs font-bold text-slate-800">{s.value}</span>
+            <span className="text-xs font-bold text-slate-800">{s.valueLabel ?? s.value}</span>
             <span className="text-xs text-slate-400">({Math.round(s.value / total * 100)}%)</span>
           </div>
         ))}

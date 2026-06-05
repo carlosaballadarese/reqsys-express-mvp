@@ -43,10 +43,11 @@ export async function GET(req: NextRequest) {
     const { data: ocs, error } = await query
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    const byEstado:    Record<string, number> = {}
-    const byArea:      Record<string, number> = {}
-    const byAreaValor: Record<string, number> = {}
-    const byMesValor:  Record<string, number> = {}
+    const byEstado:      Record<string, number> = {}
+    const byEstadoValor: Record<string, number> = {}
+    const byArea:        Record<string, number> = {}
+    const byAreaValor:   Record<string, number> = {}
+    const byMesValor:    Record<string, number> = {}
     const yearsSet: Set<number> = new Set()
     let valorAprobado     = 0
     let gastoComprometido = 0
@@ -57,7 +58,8 @@ export async function GET(req: NextRequest) {
 
     for (const oc of (ocs ?? [])) {
       const valor = Number(oc.valor_a_pagar) || 0
-      byEstado[oc.estado_oc] = (byEstado[oc.estado_oc] ?? 0) + 1
+      byEstado[oc.estado_oc]      = (byEstado[oc.estado_oc]      ?? 0) + 1
+      byEstadoValor[oc.estado_oc] = (byEstadoValor[oc.estado_oc] ?? 0) + valor
       if (oc.area) {
         byArea[oc.area]      = (byArea[oc.area]      ?? 0) + 1
         byAreaValor[oc.area] = (byAreaValor[oc.area] ?? 0) + valor
@@ -94,7 +96,7 @@ export async function GET(req: NextRequest) {
         gasto_comprometido:  gastoComprometido,
         gasto_total_emitido: gastoTotalEmitido,
       },
-      porEstado: Object.entries(byEstado).map(([estado, count]) => ({ estado, count })),
+      porEstado: Object.entries(byEstado).map(([estado, count]) => ({ estado, count, valor: byEstadoValor[estado] ?? 0 })),
       porArea:   Object.entries(byArea)
         .map(([area, count]) => ({ area, count, valor: byAreaValor[area] ?? 0 }))
         .sort((a, b) => b.count - a.count),

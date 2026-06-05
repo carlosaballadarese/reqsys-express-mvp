@@ -28,7 +28,7 @@ type DashOCData = {
   rol:       string
   scope:     'personal' | 'global'
   kpis:      OcKpis
-  porEstado: { estado: string; count: number }[]
+  porEstado: { estado: string; count: number; valor: number }[]
   porArea:   { area: string; count: number; valor: number }[]
   porMes:    { mes: string; valor: number }[]
   years:     number[]
@@ -51,6 +51,7 @@ export default function DashboardOcsPage() {
   const [coberturaFiltro, setCoberturaFiltro]     = useState<'todas' | 'parciales' | 'completas'>('todas')
   const [sortDir, setSortDir]                     = useState<'asc' | 'desc'>('asc')
   const [vistaArea, setVistaArea]                 = useState<'cantidad' | 'valor'>('cantidad')
+  const [vistaEstado, setVistaEstado]             = useState<'cantidad' | 'valor'>('cantidad')
 
   function cargar(area: string, year: number | null) {
     const params = new URLSearchParams()
@@ -100,7 +101,7 @@ export default function DashboardOcsPage() {
   const scopeLabel  = scope === 'personal' ? 'Mis OCs' : 'Todas las OCs'
 
   // Pie chart data: merge en_aprobacion_compras + en_aprobacion_gerencia bajo "en aprobación"
-  const pieData = (() => {
+  const buildPieData = (vista: 'cantidad' | 'valor') => {
     const merged: Record<string, { value: number; color: string }> = {}
     const labelMap: Record<string, string> = {
       en_proceso:             'en proceso',
@@ -117,13 +118,17 @@ export default function DashboardOcsPage() {
       'rechazada':     OC_ESTADO_HEX.rechazada,
       'cancelada':     OC_ESTADO_HEX.cancelada,
     }
-    for (const { estado, count } of porEstado) {
+    for (const { estado, count, valor } of porEstado) {
       const label = labelMap[estado] ?? estado
       if (!merged[label]) merged[label] = { value: 0, color: colorMap[label] ?? '#94a3b8' }
-      merged[label].value += count
+      merged[label].value += vista === 'cantidad' ? count : valor
     }
-    return Object.entries(merged).map(([label, { value, color }]) => ({ label, value, color }))
-  })()
+    return Object.entries(merged).map(([label, { value, color }]) => ({
+      label, value, color,
+      valueLabel: vista === 'valor' ? usd(value) : undefined,
+    }))
+  }
+  const pieData = buildPieData(vistaEstado)
 
   return (
     <div className="bg-slate-50 min-h-screen">
@@ -194,7 +199,24 @@ export default function DashboardOcsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-700">Distribución por Estado</CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-sm text-slate-700">Distribución por Estado</CardTitle>
+                <div className="flex gap-1">
+                  {(['cantidad', 'valor'] as const).map(v => (
+                    <button
+                      key={v}
+                      onClick={() => setVistaEstado(v)}
+                      className={`px-2.5 py-0.5 text-xs rounded-md border transition-colors ${
+                        vistaEstado === v
+                          ? 'bg-[#1a5252] text-white border-[#1a5252]'
+                          : 'bg-white text-slate-600 border-slate-300 hover:border-teal-400'
+                      }`}
+                    >
+                      {v === 'cantidad' ? '# OCs' : '$ Gasto'}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               <PieChart data={pieData} />
