@@ -28,6 +28,7 @@ const ESTADO_BADGE: Record<string, string> = {
   en_aprobacion_compras:    'bg-blue-100 text-blue-800',
   rechazada:                'bg-red-100 text-red-800',
   aprobada:                 'bg-green-100 text-green-800',
+  cancelada:                'bg-slate-100 text-slate-600',
 }
 
 const ESTADO_LABEL: Record<string, string> = {
@@ -36,9 +37,10 @@ const ESTADO_LABEL: Record<string, string> = {
   en_aprobacion_compras:    'Aprobación Compras',
   rechazada:                'Rechazada',
   aprobada:                 'Aprobada',
+  cancelada:                'Cancelada',
 }
 
-const ESTADOS = ['todos', 'en_proceso', 'en_aprobacion_gerencia', 'en_aprobacion_compras', 'rechazada', 'aprobada']
+const ESTADOS = ['todos', 'en_proceso', 'en_aprobacion_gerencia', 'en_aprobacion_compras', 'rechazada', 'aprobada', 'cancelada']
 
 export default function OrdenesPage() {
   const [ocs, setOcs]           = useState<OC[]>([])
