@@ -119,6 +119,22 @@ export default function ComprasPage() {
     cargar()
   }
 
+  async function handleQuitarAsignacion() {
+    if (!npAsignar) return
+    setAsignando(true)
+    setErrorAsignar('')
+    const res = await fetch(`/api/compras/nps/${npAsignar.id}/asignar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accion: 'tomar_control' }),
+    })
+    const data = await res.json()
+    setAsignando(false)
+    if (!res.ok) { setErrorAsignar(data.error ?? 'Error'); return }
+    setModalAsignar(false)
+    cargar()
+  }
+
   const esCompras      = ['compras', 'admin'].includes(rol)
   const esAsistente    = rol === 'asistente_compras'
   const esSolicitante  = rol === 'solicitante'
@@ -307,8 +323,17 @@ export default function ComprasPage() {
             </div>
             <div className="px-6 py-5 space-y-4">
               {npAsignar.asignado_a && (
-                <div className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
-                  Actualmente asignada a <span className="font-semibold text-slate-700">{npAsignar.asignado_nombre}</span>
+                <div className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2">
+                  <span className="text-xs text-slate-500">
+                    Asignada a <span className="font-semibold text-slate-700">{npAsignar.asignado_nombre}</span>
+                  </span>
+                  <button
+                    onClick={handleQuitarAsignacion}
+                    disabled={asignando}
+                    className="text-xs text-red-600 hover:text-red-800 font-medium underline underline-offset-2 disabled:opacity-50 shrink-0 ml-3"
+                  >
+                    Quitar asignación
+                  </button>
                 </div>
               )}
               <div>
