@@ -1579,6 +1579,8 @@ describe('GET /api/compras/dashboard/ocs', () => {
     expect(body).toHaveProperty('kpis')
     expect(body.kpis).toHaveProperty('total')
     expect(body.kpis).toHaveProperty('valor_aprobado')
+    expect(body.kpis).toHaveProperty('gasto_comprometido')
+    expect(body.kpis).toHaveProperty('gasto_total_emitido')
     expect(body).toHaveProperty('porEstado')
     expect(body).toHaveProperty('porArea')
     expect(body).toHaveProperty('porMes')

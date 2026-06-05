@@ -13,13 +13,15 @@ import {
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 type OcKpis = {
-  total:          number
-  en_proceso:     number
-  en_aprobacion:  number
-  aprobadas:      number
-  rechazadas:     number
-  canceladas:     number
-  valor_aprobado: number
+  total:               number
+  en_proceso:          number
+  en_aprobacion:       number
+  aprobadas:           number
+  rechazadas:          number
+  canceladas:          number
+  valor_aprobado:      number
+  gasto_comprometido:  number
+  gasto_total_emitido: number
 }
 
 type DashOCData = {
@@ -27,8 +29,8 @@ type DashOCData = {
   scope:     'personal' | 'global'
   kpis:      OcKpis
   porEstado: { estado: string; count: number }[]
-  porArea:   { area: string; count: number }[]
-  porMes:    { mes: string; count: number }[]
+  porArea:   { area: string; count: number; valor: number }[]
+  porMes:    { mes: string; valor: number }[]
   years:     number[]
   areas:     string[]
 }
@@ -48,6 +50,7 @@ export default function DashboardOcsPage() {
   const [coberturaLoading, setCoberturaLoading]   = useState(true)
   const [coberturaFiltro, setCoberturaFiltro]     = useState<'todas' | 'parciales' | 'completas'>('todas')
   const [sortDir, setSortDir]                     = useState<'asc' | 'desc'>('asc')
+  const [vistaArea, setVistaArea]                 = useState<'cantidad' | 'valor'>('cantidad')
 
   function cargar(area: string, year: number | null) {
     const params = new URLSearchParams()
@@ -89,11 +92,12 @@ export default function DashboardOcsPage() {
   )
 
   const { kpis, porEstado, porArea, porMes, scope, years, areas } = data
-  const esGlobal   = scope === 'global'
-  const maxArea    = Math.max(...porArea.map(r => r.count), 1)
-  const maxMes     = Math.max(...porMes.map(r => r.count), 1)
-  const pctAprob   = kpis.total > 0 ? Math.round((kpis.aprobadas / kpis.total) * 100) : 0
-  const scopeLabel = scope === 'personal' ? 'Mis OCs' : 'Todas las OCs'
+  const esGlobal    = scope === 'global'
+  const maxAreaCnt  = Math.max(...porArea.map(r => r.count), 1)
+  const maxAreaVal  = Math.max(...porArea.map(r => r.valor), 1)
+  const maxMes      = Math.max(...porMes.map(r => r.valor), 1)
+  const pctAprob    = kpis.total > 0 ? Math.round((kpis.aprobadas / kpis.total) * 100) : 0
+  const scopeLabel  = scope === 'personal' ? 'Mis OCs' : 'Todas las OCs'
 
   // Pie chart data: merge en_aprobacion_compras + en_aprobacion_gerencia bajo "en aprobación"
   const pieData = (() => {
@@ -169,15 +173,21 @@ export default function DashboardOcsPage() {
 
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
 
-        {/* ── KPIs OC ── */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
-          <KpiCard label="Total OCs"      value={kpis.total.toString()}          colorBar="border-l-slate-400" />
-          <KpiCard label="En Proceso"     value={kpis.en_proceso.toString()}      colorBar="border-l-slate-400" />
-          <KpiCard label="En Aprobación"  value={kpis.en_aprobacion.toString()}   colorBar="border-l-blue-500" />
-          <KpiCard label="Aprobadas"      value={kpis.aprobadas.toString()}       sub={`${pctAprob}% del total`} colorBar="border-l-green-600" />
-          <KpiCard label="Rechazadas"     value={kpis.rechazadas.toString()}      colorBar="border-l-red-500" />
-          <KpiCard label="Canceladas"     value={kpis.canceladas.toString()}      colorBar="border-l-slate-500" />
-          <KpiCard label="Valor Aprobado" value={usd(kpis.valor_aprobado)}        colorBar="border-l-[#1a5252]" />
+        {/* ── KPIs conteo ── */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <KpiCard label="Total OCs"     value={kpis.total.toString()}         colorBar="border-l-slate-400" />
+          <KpiCard label="En Proceso"    value={kpis.en_proceso.toString()}     colorBar="border-l-slate-400" />
+          <KpiCard label="En Aprobación" value={kpis.en_aprobacion.toString()}  colorBar="border-l-blue-500" />
+          <KpiCard label="Aprobadas"     value={kpis.aprobadas.toString()}      sub={`${pctAprob}% del total`} colorBar="border-l-green-600" />
+          <KpiCard label="Rechazadas"    value={kpis.rechazadas.toString()}     colorBar="border-l-red-500" />
+          <KpiCard label="Canceladas"    value={kpis.canceladas.toString()}     colorBar="border-l-slate-500" />
+        </div>
+
+        {/* ── KPIs financieros ── */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <KpiCard label="Gasto Comprometido"  value={usd(kpis.gasto_comprometido)}  sub="OCs activas sin aprobar" colorBar="border-l-amber-500" />
+          <KpiCard label="Valor Aprobado"      value={usd(kpis.valor_aprobado)}      sub="OCs en estado aprobada"  colorBar="border-l-[#1a5252]" />
+          <KpiCard label="Gasto Total Emitido" value={usd(kpis.gasto_total_emitido)} sub="Excluye rechazadas y canceladas" colorBar="border-l-indigo-500" />
         </div>
 
         {/* ── Por estado (pie) + Por área ── */}
@@ -193,12 +203,35 @@ export default function DashboardOcsPage() {
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-700">OCs por Área</CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-sm text-slate-700">OCs por Área</CardTitle>
+                <div className="flex gap-1">
+                  {(['cantidad', 'valor'] as const).map(v => (
+                    <button
+                      key={v}
+                      onClick={() => setVistaArea(v)}
+                      className={`px-2.5 py-0.5 text-xs rounded-md border transition-colors ${
+                        vistaArea === v
+                          ? 'bg-[#1a5252] text-white border-[#1a5252]'
+                          : 'bg-white text-slate-600 border-slate-300 hover:border-teal-400'
+                      }`}
+                    >
+                      {v === 'cantidad' ? '# OCs' : '$ Valor'}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="space-y-0.5">
               {porArea.length > 0
                 ? porArea.map(r => (
-                    <BarRow key={r.area} label={r.area} value={r.count} max={maxArea} />
+                    <BarRow
+                      key={r.area}
+                      label={r.area}
+                      value={vistaArea === 'cantidad' ? r.count : r.valor}
+                      max={vistaArea === 'cantidad' ? maxAreaCnt : maxAreaVal}
+                      valueLabel={vistaArea === 'valor' ? usd(r.valor) : undefined}
+                    />
                   ))
                 : <p className="text-xs text-slate-400 italic">Sin datos</p>
               }
@@ -206,15 +239,15 @@ export default function DashboardOcsPage() {
           </Card>
         </div>
 
-        {/* ── Evolución mensual ── */}
+        {/* ── Evolución mensual de gasto ── */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-slate-700">Evolución Mensual (últimos 12 meses)</CardTitle>
+            <CardTitle className="text-sm text-slate-700">Gasto Mensual (últimos 12 meses)</CardTitle>
           </CardHeader>
           <CardContent className="space-y-0.5">
             {porMes.length > 0
               ? porMes.map(r => (
-                  <BarRow key={r.mes} label={r.mes} value={r.count} max={maxMes} />
+                  <BarRow key={r.mes} label={r.mes} value={r.valor} max={maxMes} valueLabel={usd(r.valor)} />
                 ))
               : <p className="text-xs text-slate-400 italic">Sin datos</p>
             }

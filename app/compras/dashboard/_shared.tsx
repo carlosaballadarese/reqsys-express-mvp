@@ -147,8 +147,8 @@ export function KpiCard({ label, value, sub, colorBar }: {
 
 // ─── Barra horizontal ─────────────────────────────────────────────────────────
 
-export function BarRow({ label, value, max, badge, badgeClass }: {
-  label: string; value: number; max: number; badge?: string; badgeClass?: string
+export function BarRow({ label, value, max, badge, badgeClass, valueLabel }: {
+  label: string; value: number; max: number; badge?: string; badgeClass?: string; valueLabel?: string
 }) {
   const w = max > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0
   return (
@@ -160,7 +160,7 @@ export function BarRow({ label, value, max, badge, badgeClass }: {
       <div className="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden">
         <div className="h-3 rounded-full bg-[#1a5252] transition-all" style={{ width: `${w}%` }} />
       </div>
-      <span className="text-xs font-semibold text-slate-700 w-8 text-right shrink-0">{value}</span>
+      <span className="text-xs font-semibold text-slate-700 w-16 text-right shrink-0">{valueLabel ?? value}</span>
     </div>
   )
 }
