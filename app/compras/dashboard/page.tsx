@@ -3,218 +3,41 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { KpiCard, BarRow, BarChartV, PieChart, ESTADO_HEX, PRIORIDAD_HEX } from './_shared'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 type Kpis = {
-  total: number
+  total:      number
   pendientes: number
-  aprobadas: number
+  aprobadas:  number
   rechazadas: number
-  devueltas: number
+  devueltas:  number
   convertidas: number
-  totalEstimado: number
-}
-
-type NpCobertura = {
-  id:                 string
-  numero:             string
-  area:               string
-  estado:             'aprobada' | 'completada'
-  prioridad:          string
-  solicitante_nombre: string
-  created_at:         string
-  porcentaje_global:  number
-  np_cubierta:        boolean
-  total_solicitado:   number
-  total_comprometido: number
 }
 
 type DashData = {
-  rol: string
+  rol:  string
   scope: 'personal' | 'area' | 'global'
   kpis: Kpis
   porEstado:    { estado: string; count: number }[]
-  porArea:      { area: string; count: number; total: number }[]
+  porArea:      { area: string; count: number }[]
   porPrioridad: { prioridad: string; count: number }[]
   porTipo:      { tipo: string; count: number }[]
-  porMes:       { mes: string; count: number; total: number }[]
+  porMes:       { mes: string; count: number }[]
   years:        number[]
   areas:        string[]
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function usd(n: number) {
-  return new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
-}
-
-const ESTADO_HEX: Record<string, string> = {
-  pendiente:  '#f59e0b',
-  aprobada:   '#22c55e',
-  rechazada:  '#ef4444',
-  devuelta:   '#f97316',
-  convertida: '#3b82f6',
-}
-
-const PRIORIDAD_HEX: Record<string, string> = {
-  alta:  '#ef4444',
-  media: '#f59e0b',
-  baja:  '#22c55e',
-}
-
-// ─── Gráfico de pastel SVG ────────────────────────────────────────────────────
-
-function PieChart({ data }: { data: { label: string; value: number; color: string }[] }) {
-  const total = data.reduce((s, d) => s + d.value, 0)
-  if (total === 0) return <p className="text-xs text-slate-400 italic">Sin datos</p>
-
-  const R = 70; const cx = 80; const cy = 80
-
-  function polar(angle: number) {
-    const rad = (angle * Math.PI) / 180
-    return { x: cx + R * Math.cos(rad), y: cy + R * Math.sin(rad) }
-  }
-
-  let start = -90
-  const slices = data.map(d => {
-    const sweep = (d.value / total) * 360
-    const s = { ...d, start, sweep }
-    start += sweep
-    return s
-  })
-
-  return (
-    <div className="flex items-center gap-6 flex-wrap">
-      <svg width="160" height="160" viewBox="0 0 160 160" className="shrink-0">
-        {slices.map(s => {
-          if (s.sweep >= 359.9) {
-            return <circle key={s.label} cx={cx} cy={cy} r={R} fill={s.color} />
-          }
-          const p1 = polar(s.start)
-          const p2 = polar(s.start + s.sweep)
-          const large = s.sweep > 180 ? 1 : 0
-          return (
-            <path
-              key={s.label}
-              d={`M${cx},${cy} L${p1.x},${p1.y} A${R},${R} 0 ${large} 1 ${p2.x},${p2.y} Z`}
-              fill={s.color}
-              stroke="white"
-              strokeWidth="2"
-            />
-          )
-        })}
-      </svg>
-      <div className="space-y-2">
-        {slices.map(s => (
-          <div key={s.label} className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-sm shrink-0" style={{ background: s.color }} />
-            <span className="text-xs text-slate-600 capitalize w-24">{s.label}</span>
-            <span className="text-xs font-bold text-slate-800">{s.value}</span>
-            <span className="text-xs text-slate-400">({Math.round(s.value / total * 100)}%)</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ─── Gráfico de barras vertical SVG ──────────────────────────────────────────
-
-function BarChartV({ data }: { data: { label: string; value: number; color: string }[] }) {
-  if (data.length === 0) return <p className="text-xs text-slate-400 italic">Sin datos</p>
-  const max = Math.max(...data.map(d => d.value), 1)
-  const H = 110; const BW = 56
-
-  return (
-    <div className="flex items-end justify-center gap-6 pt-4 pb-2">
-      {data.map(d => {
-        const barH = Math.max(4, (d.value / max) * H)
-        return (
-          <div key={d.label} className="flex flex-col items-center gap-1">
-            <span className="text-sm font-bold text-slate-700">{d.value}</span>
-            <div
-              className="rounded-t-md transition-all"
-              style={{ width: BW, height: barH, background: d.color }}
-            />
-            <span className="text-xs text-slate-500 capitalize mt-1">{d.label}</span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-// ─── KPI Card ─────────────────────────────────────────────────────────────────
-
-function KpiCard({ label, value, sub, colorBar }: { label: string; value: string; sub?: string; colorBar: string }) {
-  return (
-    <Card className={`border-l-4 ${colorBar}`}>
-      <CardContent className="pt-4 pb-3">
-        <p className="text-xs text-slate-500 uppercase tracking-wide">{label}</p>
-        <p className="text-2xl font-bold text-slate-800 mt-1">{value}</p>
-        {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
-      </CardContent>
-    </Card>
-  )
-}
-
-// ─── Barra horizontal ─────────────────────────────────────────────────────────
-
-function BarRow({ label, value, max, badge, badgeClass }: {
-  label: string; value: number; max: number; badge?: string; badgeClass?: string
-}) {
-  const w = max > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0
-  return (
-    <div className="flex items-center gap-3 py-1.5">
-      <div className="flex items-center gap-2 w-48 shrink-0">
-        <span className="text-xs text-slate-600 truncate">{label}</span>
-        {badge && <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium shrink-0 ${badgeClass}`}>{badge}</span>}
-      </div>
-      <div className="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden">
-        <div className="h-3 rounded-full bg-[#1a5252] transition-all" style={{ width: `${w}%` }} />
-      </div>
-      <span className="text-xs font-semibold text-slate-700 w-8 text-right shrink-0">{value}</span>
-    </div>
-  )
-}
-
-// ─── Barra de cobertura coloreada ────────────────────────────────────────────
-
-function CoberturaBar({ pct }: { pct: number }) {
-  const w     = Math.min(pct, 100)
-  const color = pct >= 100 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#ef4444'
-  const cls   = pct >= 100 ? 'text-green-700' : pct >= 50 ? 'text-amber-600' : 'text-red-600'
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden min-w-[60px]">
-        <div className="h-full rounded-full transition-all" style={{ width: `${w}%`, background: color }} />
-      </div>
-      <span className={`text-xs font-semibold w-14 text-right shrink-0 ${cls}`}>
-        {pct.toFixed(0)}%{pct > 100 ? ' ⚠' : ''}
-      </span>
-    </div>
-  )
 }
 
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const router = useRouter()
-
-  const [data, setData]       = useState<DashData | null>(null)
-  const [error, setError]     = useState('')
-  const [cargando, setCargando] = useState(true)
+  const [data, setData]           = useState<DashData | null>(null)
+  const [error, setError]         = useState('')
+  const [cargando, setCargando]   = useState(true)
   const [areaFiltro, setAreaFiltro] = useState('todas')
   const [yearFiltro, setYearFiltro] = useState<number | null>(null)
-
-  // Cobertura de NPs
-  const [coberturas, setCoberturas]         = useState<NpCobertura[]>([])
-  const [coberturaLoading, setCoberturaLoading] = useState(true)
-  const [coberturaFiltro, setCoberturaFiltro]   = useState<'todas' | 'parciales' | 'completas'>('todas')
-  const [sortDir, setSortDir]                   = useState<'asc' | 'desc'>('asc')
 
   function cargar(area: string, year: number | null) {
     setCargando(true)
@@ -229,14 +52,6 @@ export default function DashboardPage() {
         setCargando(false)
       })
       .catch(() => { setError('Error de conexión'); setCargando(false) })
-
-    // Carga independiente de cobertura
-    setCoberturaLoading(true)
-    fetch(`/api/compras/dashboard/cobertura?${params}`)
-      .then(r => r.json())
-      .then(d => { if (!d.error) setCoberturas(d.nps ?? []) })
-      .catch(() => {})
-      .finally(() => setCoberturaLoading(false))
   }
 
   useEffect(() => { cargar(areaFiltro, yearFiltro) }, [areaFiltro, yearFiltro])
@@ -256,13 +71,12 @@ export default function DashboardPage() {
   )
 
   const { kpis, porEstado, porArea, porPrioridad, porTipo, porMes, scope, years, areas } = data
-  const esGlobal  = scope === 'global'
-  const maxArea   = Math.max(...porArea.map(r => r.count), 1)
-  const maxTipo   = Math.max(...porTipo.map(r => r.count), 1)
-  const maxMes    = Math.max(...porMes.map(r => r.count), 1)
-  const pctAprob  = kpis.total > 0 ? Math.round((kpis.aprobadas / kpis.total) * 100) : 0
-  const pctPend   = kpis.total > 0 ? Math.round((kpis.pendientes / kpis.total) * 100) : 0
-
+  const esGlobal = scope === 'global'
+  const maxArea  = Math.max(...porArea.map(r => r.count), 1)
+  const maxTipo  = Math.max(...porTipo.map(r => r.count), 1)
+  const maxMes   = Math.max(...porMes.map(r => r.count), 1)
+  const pctAprob = kpis.total > 0 ? Math.round((kpis.aprobadas  / kpis.total) * 100) : 0
+  const pctPend  = kpis.total > 0 ? Math.round((kpis.pendientes / kpis.total) * 100) : 0
   const scopeLabel = scope === 'personal' ? 'Mis NPs' : scope === 'area' ? 'NPs de mi área' : 'Todas las NPs'
 
   return (
@@ -313,15 +127,14 @@ export default function DashboardPage() {
 
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
 
-        {/* ── KPIs principales ── */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
-          <KpiCard label="Total NPs"      value={kpis.total.toString()}       colorBar="border-l-slate-400" />
-          <KpiCard label="Pendientes"     value={kpis.pendientes.toString()}   sub={`${pctPend}% del total`}  colorBar="border-l-amber-500" />
-          <KpiCard label="Aprobadas"      value={kpis.aprobadas.toString()}    sub={`${pctAprob}% del total`} colorBar="border-l-green-600" />
-          <KpiCard label="Rechazadas"     value={kpis.rechazadas.toString()}   colorBar="border-l-red-500" />
-          <KpiCard label="Devueltas"      value={kpis.devueltas.toString()}    colorBar="border-l-orange-500" />
-          <KpiCard label="Convertidas"    value={kpis.convertidas.toString()}  colorBar="border-l-blue-600" />
-          <KpiCard label="Total Estimado" value={usd(kpis.totalEstimado)}      colorBar="border-l-[#1a5252]" />
+        {/* ── KPIs — CA-01: sin "Total Estimado" ── */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <KpiCard label="Total NPs"   value={kpis.total.toString()}       colorBar="border-l-slate-400" />
+          <KpiCard label="Pendientes"  value={kpis.pendientes.toString()}   sub={`${pctPend}% del total`}  colorBar="border-l-amber-500" />
+          <KpiCard label="Aprobadas"   value={kpis.aprobadas.toString()}    sub={`${pctAprob}% del total`} colorBar="border-l-green-600" />
+          <KpiCard label="Rechazadas"  value={kpis.rechazadas.toString()}   colorBar="border-l-red-500" />
+          <KpiCard label="Devueltas"   value={kpis.devueltas.toString()}    colorBar="border-l-orange-500" />
+          <KpiCard label="Convertidas" value={kpis.convertidas.toString()}  colorBar="border-l-blue-600" />
         </div>
 
         {/* ── Distribución por estado + prioridad ── */}
@@ -357,51 +170,18 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* ── Por área (solo global y area) ── */}
+        {/* ── NPs por Área — CA-02: sin "Total Estimado por Área" ── */}
         {porArea.length > 0 && (scope === 'global' || scope === 'area') && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-slate-700">NPs por Área</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-0.5">
-                {porArea.map(r => (
-                  <BarRow
-                    key={r.area}
-                    label={r.area}
-                    value={r.count}
-                    max={maxArea}
-                  />
-                ))}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-slate-700">Total Estimado por Área</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-xs text-slate-500 uppercase">
-                      <th className="text-left py-2">Área</th>
-                      <th className="text-right py-2">NPs</th>
-                      <th className="text-right py-2">Total Estimado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {porArea.map(r => (
-                      <tr key={r.area} className="border-b last:border-0 hover:bg-slate-50">
-                        <td className="py-1.5 text-slate-700 text-xs">{r.area}</td>
-                        <td className="py-1.5 text-right text-slate-600 text-xs">{r.count}</td>
-                        <td className="py-1.5 text-right font-semibold text-[#1a5252] text-xs">{usd(r.total)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
-          </div>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-slate-700">NPs por Área</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-0.5">
+              {porArea.map(r => (
+                <BarRow key={r.area} label={r.area} value={r.count} max={maxArea} />
+              ))}
+            </CardContent>
+          </Card>
         )}
 
         {/* ── Por tipo de compra + evolución mensual ── */}
@@ -427,130 +207,13 @@ export default function DashboardPage() {
             <CardContent className="space-y-0.5">
               {porMes.length > 0
                 ? porMes.map(r => (
-                    <BarRow
-                      key={r.mes}
-                      label={r.mes}
-                      value={r.count}
-                      max={maxMes}
-                    />
+                    <BarRow key={r.mes} label={r.mes} value={r.count} max={maxMes} />
                   ))
                 : <p className="text-xs text-slate-400 italic">Sin datos</p>
               }
             </CardContent>
           </Card>
         </div>
-
-        {/* ── Cobertura de NPs ── */}
-        {(() => {
-          const npsFiltradas = coberturas
-            .filter(np =>
-              coberturaFiltro === 'todas'     ? true :
-              coberturaFiltro === 'parciales' ? np.porcentaje_global < 100 :
-                                               np.np_cubierta
-            )
-            .sort((a, b) =>
-              sortDir === 'asc'
-                ? a.porcentaje_global - b.porcentaje_global
-                : b.porcentaje_global - a.porcentaje_global
-            )
-
-          const cubiertasCount  = coberturas.filter(np => np.np_cubierta).length
-          const pendientesCount = coberturas.filter(np => !np.np_cubierta).length
-
-          return (
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <CardTitle className="text-sm text-slate-700">Cobertura de NPs Aprobadas</CardTitle>
-                    {!coberturaLoading && coberturas.length > 0 && (
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        <span className="text-red-600 font-medium">{pendientesCount} con saldo pendiente</span>
-                        {' · '}
-                        <span className="text-green-700 font-medium">{cubiertasCount} cubiertas al 100%</span>
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Toggle filtro */}
-                  <div className="flex gap-1 text-xs">
-                    {(['todas', 'parciales', 'completas'] as const).map(f => (
-                      <button
-                        key={f}
-                        onClick={() => setCoberturaFiltro(f)}
-                        className={`px-2.5 py-1 rounded-md border transition-colors capitalize ${
-                          coberturaFiltro === f
-                            ? 'bg-[#1a5252] text-white border-[#1a5252]'
-                            : 'bg-white text-slate-600 border-slate-300 hover:border-teal-400'
-                        }`}
-                      >
-                        {f === 'parciales' ? '< 100%' : f === 'completas' ? '100%' : 'Todas'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </CardHeader>
-
-              <CardContent>
-                {coberturaLoading ? (
-                  <p className="text-xs text-slate-400 italic py-4 text-center">Cargando cobertura...</p>
-                ) : coberturas.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic py-4 text-center">Sin NPs aprobadas o completadas en el período seleccionado.</p>
-                ) : npsFiltradas.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic py-4 text-center">Sin NPs que coincidan con el filtro seleccionado.</p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b text-xs text-slate-500 uppercase">
-                          <th className="text-left py-2 pr-3">NP</th>
-                          <th className="text-left py-2 pr-3">Área</th>
-                          <th className="text-left py-2 pr-3">Solicitante</th>
-                          <th className="text-center py-2 pr-3">Estado</th>
-                          <th className="text-right py-2 pr-3">Solicitado</th>
-                          <th className="text-right py-2 pr-3">Comprometido</th>
-                          <th
-                            className="text-left py-2 pr-2 cursor-pointer select-none hover:text-teal-700 transition-colors"
-                            onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-                          >
-                            % Cobertura {sortDir === 'asc' ? '↑' : '↓'}
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {npsFiltradas.map(np => (
-                          <tr
-                            key={np.id}
-                            className="border-b last:border-0 hover:bg-slate-50 cursor-pointer"
-                            onClick={() => router.push(`/compras/${np.id}`)}
-                          >
-                            <td className="py-2 pr-3 font-mono text-xs text-[#1a5252] font-semibold">{np.numero}</td>
-                            <td className="py-2 pr-3 text-xs text-slate-600">{np.area}</td>
-                            <td className="py-2 pr-3 text-xs text-slate-600 max-w-[120px] truncate">{np.solicitante_nombre}</td>
-                            <td className="py-2 pr-3 text-center">
-                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                                np.estado === 'completada'
-                                  ? 'bg-teal-100 text-teal-700'
-                                  : 'bg-green-100 text-green-700'
-                              }`}>
-                                {np.estado}
-                              </span>
-                            </td>
-                            <td className="py-2 pr-3 text-right text-xs font-mono">{np.total_solicitado}</td>
-                            <td className="py-2 pr-3 text-right text-xs font-mono text-blue-700">{np.total_comprometido}</td>
-                            <td className="py-2 min-w-[160px]">
-                              <CoberturaBar pct={np.porcentaje_global} />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )
-        })()}
 
         <p className="text-center text-xs text-slate-400 pb-4">
           REQSYS — ARLIFT S.A. · Dashboard de Notas de Pedido

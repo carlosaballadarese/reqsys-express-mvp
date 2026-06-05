@@ -1431,6 +1431,20 @@ describe('GET /api/compras/dashboard/cobertura', () => {
     expect(body.nps[0]).toHaveProperty('total_solicitado')
     expect(body.nps[0]).toHaveProperty('total_comprometido')
   })
+
+  it('devuelve 200 para asistente_compras (D2: scope personal por asignado_a_id)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.in = jest.fn(() => chain)
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'asistente_compras' }, error: null }))
+    chain.then   = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+    const req = makeRequest('http://localhost/api/compras/dashboard/cobertura')
+    const res = await GET(req)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toHaveProperty('nps')
+  })
 })
 
 // ── 31. HU-003: Trazabilidad obligatoria ítem OC → ítem NP ───────────────────
@@ -1518,6 +1532,80 @@ describe('POST /api/compras/convertir/[id] — HU-003 enlace y justificación', 
     expect(body.errores).toHaveLength(1)
     expect(body.errores[0].linea_oc).toBe(1)
     expect(body.errores[0].cantidad_np).toBe(5)
+  })
+})
+
+// ── 32. Dashboard OCs — auth y scope ─────────────────────────────────────────
+
+describe('GET /api/compras/dashboard/ocs', () => {
+  const { GET } = require('@/app/api/compras/dashboard/ocs/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const chain = mockChainVacio()
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/compras/dashboard/ocs'))
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol consulta (no autorizado)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'consulta' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/compras/dashboard/ocs'))
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 403 para rol solicitante (no autorizado)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/compras/dashboard/ocs'))
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 200 para rol compras con scope global y kpis', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+    chain.then   = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/compras/dashboard/ocs'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.scope).toBe('global')
+    expect(body).toHaveProperty('kpis')
+    expect(body.kpis).toHaveProperty('total')
+    expect(body.kpis).toHaveProperty('valor_aprobado')
+    expect(body).toHaveProperty('porEstado')
+    expect(body).toHaveProperty('porArea')
+    expect(body).toHaveProperty('porMes')
+  })
+
+  it('devuelve 200 para asistente_compras con scope personal', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'asistente_compras' }, error: null }))
+    chain.then   = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/compras/dashboard/ocs'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.scope).toBe('personal')
+  })
+
+  it('devuelve 200 para gerencia con scope global', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'gerencia' }, error: null }))
+    chain.then   = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/compras/dashboard/ocs'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.scope).toBe('global')
   })
 })
 

@@ -20,6 +20,9 @@ const ADMIN_ONLY: string[] = []
 // Admin y compras
 const ADMIN_COMPRAS_ONLY = ['/compras/auditoria', '/compras/configuracion', '/compras/accesos', '/compras/empresa']
 
+// Dashboard OCs — fuente de verdad para acceso a /compras/dashboard-ocs
+const DASHBOARD_OCS_ROLES = ['compras', 'admin', 'asistente_compras', 'gerencia']
+
 function isPublic(pathname: string) {
   return PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
 }
@@ -100,6 +103,14 @@ export async function proxy(req: NextRequest) {
   }
 
   const rol = perfil.rol as string
+
+  // Dashboard OCs — roles no autorizados redirigen a Dashboard NPs
+  if (
+    (pathname === '/compras/dashboard-ocs' || pathname.startsWith('/compras/dashboard-ocs/')) &&
+    !DASHBOARD_OCS_ROLES.includes(rol)
+  ) {
+    return NextResponse.redirect(new URL('/compras/dashboard', req.url))
+  }
 
   // Admin only
   if (requiresAdmin(pathname) && rol !== 'admin') {

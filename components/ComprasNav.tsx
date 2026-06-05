@@ -68,8 +68,13 @@ const NAV: NavGroup[] = [
     ],
   },
   {
-    label: 'Dashboard', href: '/compras/dashboard',
-    roles: ['compras','admin','gerencia','consulta','coordinador','bodega','asistente_compras'],
+    label: 'Dashboard',
+    roles: ['compras','admin','gerencia','consulta','coordinador','bodega','asistente_compras','solicitante'],
+    children: [
+      { label: 'Dashboard NPs', href: '/compras/dashboard',     exact: true },
+      { label: 'Dashboard OCs', href: '/compras/dashboard-ocs', exact: true,
+        roles: ['compras','admin','asistente_compras','gerencia'] },
+    ],
   },
   {
     label: 'Configuración',
@@ -227,6 +232,23 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
                 const childrenVisibles = group.children.filter(
                   c => !c.roles || c.roles.includes(rol)
                 )
+
+                // CA-19: un solo subitem visible → enlace directo sin dropdown
+                if (childrenVisibles.length === 1) {
+                  const solo = childrenVisibles[0]
+                  const soloActive = isChildActive(solo.href)
+                  return (
+                    <Link key={group.label} href={solo.href}>
+                      <span
+                        className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all inline-block ${soloActive ? activeClass : inactiveClass}`}
+                        style={soloActive ? activeStyle : {}}
+                      >
+                        {group.label}
+                      </span>
+                    </Link>
+                  )
+                }
+
                 return (
                   <div key={group.label} className="relative">
                     <button
@@ -327,6 +349,23 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
                 const childrenVisiblesMobile = group.children.filter(
                   c => !c.roles || c.roles.includes(rol)
                 )
+
+                // CA-19: un solo subitem visible → enlace directo sin sección expandida
+                if (childrenVisiblesMobile.length === 1) {
+                  const solo = childrenVisiblesMobile[0]
+                  const soloActive = isChildActive(solo.href)
+                  return (
+                    <Link key={group.label} href={solo.href}>
+                      <span
+                        className={`block px-3 py-2 rounded-md text-sm font-medium ${soloActive ? activeClass : 'text-white/80'}`}
+                        style={soloActive ? activeStyle : {}}
+                      >
+                        {group.label}
+                      </span>
+                    </Link>
+                  )
+                }
+
                 return (
                   <div key={group.label} className="pt-1">
                     <p className="px-3 py-1 text-xs font-semibold uppercase tracking-widest text-white/40">

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 
-const ROLES_PERMITIDOS = ['compras', 'admin', 'gerencia', 'consulta']
+const ROLES_PERMITIDOS = ['compras', 'admin', 'gerencia', 'consulta', 'asistente_compras']
 
 export async function GET(req: NextRequest) {
   try {
@@ -27,6 +27,11 @@ export async function GET(req: NextRequest) {
       .from('notas_pedido')
       .select('id, numero, area, estado, prioridad, solicitante_nombre, created_at')
       .in('estado', ['aprobada', 'completada'])
+
+    // D2: asistente_compras ve solo las NPs que Compras le asignó
+    if (perfil.rol === 'asistente_compras') {
+      npQuery = npQuery.eq('asignado_a_id', user.id)
+    }
 
     if (areaParam && areaParam !== 'todas') npQuery = npQuery.eq('area', areaParam)
     if (yearParam) {

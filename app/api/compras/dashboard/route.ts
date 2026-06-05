@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 
     let query = adminClient()
       .from('notas_pedido')
-      .select('id, estado, area, prioridad, tipo_compra, total_estimado, convertida, created_at')
+      .select('id, estado, area, prioridad, tipo_compra, convertida, created_at')
 
     if (rol === 'solicitante') {
       query = query.eq('solicitante_email', email)
@@ -50,29 +50,23 @@ export async function GET(req: NextRequest) {
 
     // Agregación en JS — evita RPC y funciona con cualquier filtro
     const byEstado:    Record<string, number> = {}
-    const byArea:      Record<string, { count: number; total: number }> = {}
+    const byArea:      Record<string, number> = {}
     const byPrioridad: Record<string, number> = {}
     const byTipo:      Record<string, number> = {}
-    const byMes:       Record<string, { count: number; total: number }> = {}
+    const byMes:       Record<string, number> = {}
     const yearsSet:    Set<number> = new Set()
-    let totalEstimado = 0
-    let convertidas   = 0
+    let convertidas = 0
 
     for (const np of (nps ?? [])) {
-      byEstado[np.estado] = (byEstado[np.estado] ?? 0) + 1
-      if (!byArea[np.area]) byArea[np.area] = { count: 0, total: 0 }
-      byArea[np.area].count++
-      byArea[np.area].total += Number(np.total_estimado) || 0
+      byEstado[np.estado]    = (byEstado[np.estado]    ?? 0) + 1
+      byArea[np.area]        = (byArea[np.area]        ?? 0) + 1
       byPrioridad[np.prioridad] = (byPrioridad[np.prioridad] ?? 0) + 1
-      byTipo[np.tipo_compra]    = (byTipo[np.tipo_compra]    ?? 0) + 1
+      byTipo[np.tipo_compra] = (byTipo[np.tipo_compra] ?? 0) + 1
       const mes = np.created_at?.slice(0, 7)
       if (mes) {
-        if (!byMes[mes]) byMes[mes] = { count: 0, total: 0 }
-        byMes[mes].count++
-        byMes[mes].total += Number(np.total_estimado) || 0
+        byMes[mes] = (byMes[mes] ?? 0) + 1
         yearsSet.add(Number(mes.slice(0, 4)))
       }
-      totalEstimado += Number(np.total_estimado) || 0
       if (np.convertida) convertidas++
     }
 
@@ -88,17 +82,16 @@ export async function GET(req: NextRequest) {
       rol,
       scope: rol === 'solicitante' ? 'personal' : rol === 'coordinador' ? 'area' : 'global',
       kpis: {
-        total:         nps?.length ?? 0,
-        pendientes:    byEstado['pendiente']  ?? 0,
-        aprobadas:     byEstado['aprobada']   ?? 0,
-        rechazadas:    byEstado['rechazada']  ?? 0,
-        devueltas:     byEstado['devuelta']   ?? 0,
+        total:      nps?.length ?? 0,
+        pendientes: byEstado['pendiente'] ?? 0,
+        aprobadas:  byEstado['aprobada']  ?? 0,
+        rechazadas: byEstado['rechazada'] ?? 0,
+        devueltas:  byEstado['devuelta']  ?? 0,
         convertidas,
-        totalEstimado,
       },
       porEstado:    Object.entries(byEstado).map(([estado, count]) => ({ estado, count })),
       porArea:      Object.entries(byArea)
-        .map(([area, d]) => ({ area, count: d.count, total: d.total }))
+        .map(([area, count]) => ({ area, count }))
         .sort((a, b) => b.count - a.count),
       porPrioridad: Object.entries(byPrioridad)
         .map(([prioridad, count]) => ({ prioridad, count }))
@@ -107,7 +100,7 @@ export async function GET(req: NextRequest) {
         .map(([tipo, count]) => ({ tipo, count }))
         .sort((a, b) => b.count - a.count),
       porMes:       Object.entries(byMes)
-        .map(([mes, d]) => ({ mes, count: d.count, total: d.total }))
+        .map(([mes, count]) => ({ mes, count }))
         .sort((a, b) => a.mes.localeCompare(b.mes))
         .slice(-12),
       years:  [...yearsSet].sort((a, b) => b - a),
@@ -122,7 +115,7 @@ export async function GET(req: NextRequest) {
 function emptyResponse(rol: string) {
   return {
     rol, scope: 'area',
-    kpis: { total: 0, pendientes: 0, aprobadas: 0, rechazadas: 0, devueltas: 0, convertidas: 0, totalEstimado: 0 },
+    kpis: { total: 0, pendientes: 0, aprobadas: 0, rechazadas: 0, devueltas: 0, convertidas: 0 },
     porEstado: [], porArea: [], porPrioridad: [], porTipo: [], porMes: [], years: [], areas: [],
   }
 }
