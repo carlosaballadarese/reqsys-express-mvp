@@ -20,9 +20,17 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
 
     const { rol } = perfil
-    const scope     = rol === 'asistente_compras' ? 'personal' : 'global'
-    const areaParam = req.nextUrl.searchParams.get('area')
-    const yearParam = req.nextUrl.searchParams.get('year')
+    const scope       = rol === 'asistente_compras' ? 'personal' : 'global'
+    const areaParam   = req.nextUrl.searchParams.get('area')
+    const yearParam   = req.nextUrl.searchParams.get('year')
+    const filtroGasto = req.nextUrl.searchParams.get('filtro_gasto') ?? 'activas'
+
+    const FILTRO_ESTADOS: Record<string, string[]> = {
+      activas:       ['en_proceso', 'en_aprobacion_compras', 'en_aprobacion_gerencia', 'aprobada'],
+      aprobadas:     ['aprobada'],
+      comprometidas: ['en_proceso', 'en_aprobacion_compras', 'en_aprobacion_gerencia'],
+    }
+    const estadosFinancieros = FILTRO_ESTADOS[filtroGasto] ?? FILTRO_ESTADOS['activas']
 
     let query = adminClient()
       .from('registro_compras')
@@ -58,15 +66,16 @@ export async function GET(req: NextRequest) {
 
     for (const oc of (ocs ?? [])) {
       const valor = Number(oc.valor_a_pagar) || 0
-      byEstado[oc.estado_oc]      = (byEstado[oc.estado_oc]      ?? 0) + 1
-      byEstadoValor[oc.estado_oc] = (byEstadoValor[oc.estado_oc] ?? 0) + valor
+      const enFiltro = estadosFinancieros.includes(oc.estado_oc)
+      byEstado[oc.estado_oc] = (byEstado[oc.estado_oc] ?? 0) + 1
+      if (enFiltro) byEstadoValor[oc.estado_oc] = (byEstadoValor[oc.estado_oc] ?? 0) + valor
       if (oc.area) {
         byArea[oc.area]      = (byArea[oc.area]      ?? 0) + 1
-        byAreaValor[oc.area] = (byAreaValor[oc.area] ?? 0) + valor
+        if (enFiltro) byAreaValor[oc.area] = (byAreaValor[oc.area] ?? 0) + valor
       }
       const mes = oc.created_at?.slice(0, 7)
       if (mes) {
-        byMesValor[mes] = (byMesValor[mes] ?? 0) + valor
+        if (enFiltro) byMesValor[mes] = (byMesValor[mes] ?? 0) + valor
         yearsSet.add(Number(mes.slice(0, 4)))
       }
       if (oc.estado_oc === 'aprobada')                    valorAprobado     += valor

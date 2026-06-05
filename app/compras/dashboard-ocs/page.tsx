@@ -35,6 +35,24 @@ type DashOCData = {
   areas:     string[]
 }
 
+// ─── Constantes de leyenda ────────────────────────────────────────────────────
+
+const FILTROS_GASTO = [
+  { key: 'activas',       label: 'Activas',       desc: 'En proceso, en aprobación y aprobadas — todo lo que no fue rechazado ni cancelado' },
+  { key: 'aprobadas',     label: 'Aprobadas',     desc: 'Solo OCs con pago ya confirmado por el aprobador' },
+  { key: 'comprometidas', label: 'Comprometidas', desc: 'Solo OCs pendientes de aprobación (en proceso o en aprobación)' },
+] as const
+
+type FiltroGasto = typeof FILTROS_GASTO[number]['key']
+
+const ESTADOS_OC_LEGEND = [
+  { estado: 'en_proceso',    color: '#94a3b8', label: 'En Proceso',    desc: 'borrador editable, no enviado a aprobación' },
+  { estado: 'en_aprobacion', color: '#3b82f6', label: 'En Aprobación', desc: 'enviado al aprobador, pendiente de decisión' },
+  { estado: 'aprobada',      color: '#22c55e', label: 'Aprobada',      desc: 'pago autorizado' },
+  { estado: 'rechazada',     color: '#ef4444', label: 'Rechazada',     desc: 'no aprobada por el aprobador' },
+  { estado: 'cancelada',     color: '#64748b', label: 'Cancelada',     desc: 'anulada por Compras o Admin' },
+]
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function DashboardOcsPage() {
@@ -52,14 +70,18 @@ export default function DashboardOcsPage() {
   const [sortDir, setSortDir]                     = useState<'asc' | 'desc'>('asc')
   const [vistaArea, setVistaArea]                 = useState<'cantidad' | 'valor'>('cantidad')
   const [vistaEstado, setVistaEstado]             = useState<'cantidad' | 'valor'>('cantidad')
+  const [filtroGasto, setFiltroGasto]             = useState<FiltroGasto>('activas')
 
-  function cargar(area: string, year: number | null) {
-    const params = new URLSearchParams()
-    if (area !== 'todas') params.set('area', area)
-    if (year) params.set('year', String(year))
+  function cargar(area: string, year: number | null, filtro: FiltroGasto) {
+    const baseParams = new URLSearchParams()
+    if (area !== 'todas') baseParams.set('area', area)
+    if (year) baseParams.set('year', String(year))
+
+    const ocsParams = new URLSearchParams(baseParams)
+    ocsParams.set('filtro_gasto', filtro)
 
     setCargando(true)
-    fetch(`/api/compras/dashboard/ocs?${params}`)
+    fetch(`/api/compras/dashboard/ocs?${ocsParams}`)
       .then(r => r.json())
       .then(d => {
         if (d.error) { setError(d.error); setCargando(false); return }
@@ -69,14 +91,14 @@ export default function DashboardOcsPage() {
       .catch(() => { setError('Error de conexión'); setCargando(false) })
 
     setCoberturaLoading(true)
-    fetch(`/api/compras/dashboard/cobertura?${params}`)
+    fetch(`/api/compras/dashboard/cobertura?${baseParams}`)
       .then(r => r.json())
       .then(d => { if (!d.error) setCoberturas(d.nps ?? []) })
       .catch(() => {})
       .finally(() => setCoberturaLoading(false))
   }
 
-  useEffect(() => { cargar(areaFiltro, yearFiltro) }, [areaFiltro, yearFiltro])
+  useEffect(() => { cargar(areaFiltro, yearFiltro, filtroGasto) }, [areaFiltro, yearFiltro, filtroGasto])
 
   if (error) return (
     <div className="flex items-center justify-center py-24">
@@ -194,6 +216,50 @@ export default function DashboardOcsPage() {
           <KpiCard label="Valor Aprobado"      value={usd(kpis.valor_aprobado)}      sub="OCs en estado aprobada"  colorBar="border-l-[#1a5252]" />
           <KpiCard label="Gasto Total Emitido" value={usd(kpis.gasto_total_emitido)} sub="Excluye rechazadas y canceladas" colorBar="border-l-indigo-500" />
         </div>
+
+        {/* ── Filtro financiero + leyenda de estados ── */}
+        <Card className="bg-slate-50/70 border-slate-200">
+          <CardContent className="py-4 px-5">
+            {/* Selector de filtro */}
+            <div className="flex flex-wrap items-start gap-4">
+              <div className="shrink-0">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Vista financiera</p>
+                <div className="flex gap-1">
+                  {FILTROS_GASTO.map(f => (
+                    <button
+                      key={f.key}
+                      onClick={() => setFiltroGasto(f.key)}
+                      className={`px-3 py-1 text-xs rounded-md border transition-colors ${
+                        filtroGasto === f.key
+                          ? 'bg-[#1a5252] text-white border-[#1a5252]'
+                          : 'bg-white text-slate-600 border-slate-300 hover:border-teal-400'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 pt-6 italic">
+                {FILTROS_GASTO.find(f => f.key === filtroGasto)?.desc}
+              </p>
+            </div>
+
+            {/* Leyenda de estados */}
+            <div className="mt-3 pt-3 border-t border-slate-200">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Estados de OC</p>
+              <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+                {ESTADOS_OC_LEGEND.map(e => (
+                  <div key={e.estado} className="flex items-center gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: e.color }} />
+                    <span className="text-xs font-medium text-slate-700">{e.label}</span>
+                    <span className="text-xs text-slate-400">— {e.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* ── Por estado (pie) + Por área ── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
