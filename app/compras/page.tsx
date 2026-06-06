@@ -15,6 +15,7 @@ type NP = {
   area: string
   prioridad: string
   tipo_compra: string
+  descripcion_general: string | null
   estado: string
   total_estimado: number
   convertida: boolean
@@ -233,9 +234,16 @@ export default function ComprasPage() {
                     {nps.map(np => (
                       <tr key={np.id} className="border-b hover:bg-slate-50 transition-colors">
                         <td className="py-3 pr-4">
-                          <Link href={`/compras/${np.id}`} className="font-mono font-medium text-blue-700 hover:underline">
-                            {np.numero}
-                          </Link>
+                          <div className="flex items-center gap-1.5">
+                            <Link href={`/compras/${np.id}`} className="font-mono font-medium text-blue-700 hover:underline">
+                              {np.numero}
+                            </Link>
+                            {np.descripcion_general && (
+                              <span title={np.descripcion_general} className="text-slate-400 text-xs cursor-help" aria-label="Descripción general">
+                                ℹ️
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 pr-4">
                           <div className="font-medium">{np.solicitante_nombre}</div>
