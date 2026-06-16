@@ -23,7 +23,7 @@ type NP = {
   asignado_a:      string | null
   asignado_nombre: string | null
   asignado_email:  string | null
-  origen?: 'propia' | 'asignada'
+  origen?: 'propia' | 'asignada' | null
 }
 
 type Asistente = { id: string; nombre: string; email: string }
@@ -284,7 +284,9 @@ export default function ComprasPage() {
                           <td className="py-3 pr-4">
                             {np.origen === 'asignada'
                               ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-800">Asignada</span>
-                              : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">Propia</span>}
+                              : np.origen === 'propia'
+                              ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">Propia</span>
+                              : <span className="text-xs text-slate-400">—</span>}
                           </td>
                         )}
 

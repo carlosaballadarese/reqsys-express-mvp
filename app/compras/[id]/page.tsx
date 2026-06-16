@@ -1223,7 +1223,8 @@ export default function DetalleNPPage() {
                       ⬇ Exportar ítems NP
                     </Button>
                   </a>
-                  {np.estado === 'aprobada' && np.convertida && ['compras', 'admin', 'asistente_compras'].includes(rol) && (
+                  {np.estado === 'aprobada' && np.convertida &&
+                    (['compras', 'admin'].includes(rol) || (rol === 'asistente_compras' && np.asignado_a === userId)) && (
                     <Button
                       onClick={handleCompletar}
                       disabled={completando}
