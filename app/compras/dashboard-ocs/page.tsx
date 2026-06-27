@@ -12,6 +12,18 @@ import {
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
+type OcCancelada = {
+  id:                 string
+  numero_oc:          string
+  numero_np:          string | null
+  nota_pedido_id:     string | null
+  area:               string
+  proveedor:          string
+  created_at:         string
+  valor_a_pagar:      number
+  motivo_cancelacion: string | null
+}
+
 type OcKpis = {
   total:               number
   en_proceso:          number
@@ -68,6 +80,12 @@ export default function DashboardOcsPage() {
   const [coberturaLoading, setCoberturaLoading]   = useState(true)
   const [coberturaFiltro, setCoberturaFiltro]     = useState<'todas' | 'parciales' | 'completas'>('todas')
   const [sortDir, setSortDir]                     = useState<'asc' | 'desc'>('asc')
+
+  // Spec CA-02/CA-06: tabs Cobertura NPs / OCs Canceladas
+  const [tabCobertura, setTabCobertura]           = useState<'nps' | 'canceladas'>('nps')
+  const [canceladas, setCanceladas]               = useState<OcCancelada[]>([])
+  const [canceladasLoading, setCanceladasLoading] = useState(false)
+  const [canceladasCargadas, setCanceladasCargadas] = useState(false) // flag lazy load
   const [vistaArea, setVistaArea]                 = useState<'cantidad' | 'valor'>('cantidad')
   const [vistaEstado, setVistaEstado]             = useState<'cantidad' | 'valor'>('cantidad')
   const [filtroGasto, setFiltroGasto]             = useState<FiltroGasto>('activas')
@@ -98,7 +116,26 @@ export default function DashboardOcsPage() {
       .finally(() => setCoberturaLoading(false))
   }
 
-  useEffect(() => { cargar(areaFiltro, yearFiltro, filtroGasto) }, [areaFiltro, yearFiltro, filtroGasto])
+  // Spec CA-06: carga lazy de canceladas — solo al activar tab, re-fetch al cambiar filtros
+  function cargarCanceladas(area: string, year: number | null) {
+    const params = new URLSearchParams()
+    if (area !== 'todas') params.set('area', area)
+    if (year) params.set('year', String(year))
+    setCanceladasLoading(true)
+    fetch(`/api/compras/dashboard/canceladas?${params}`)
+      .then(r => r.json())
+      .then(d => { if (!d.error) setCanceladas(d) })
+      .catch(() => {})
+      .finally(() => { setCanceladasLoading(false); setCanceladasCargadas(true) })
+  }
+
+  useEffect(() => {
+    cargar(areaFiltro, yearFiltro, filtroGasto)
+    // Spec CA-08: si el tab activo es canceladas, re-fetch al cambiar filtros globales
+    if (tabCobertura === 'canceladas' && canceladasCargadas) {
+      cargarCanceladas(areaFiltro, yearFiltro)
+    }
+  }, [areaFiltro, yearFiltro, filtroGasto])
 
   if (error) return (
     <div className="flex items-center justify-center py-24">
@@ -342,7 +379,7 @@ export default function DashboardOcsPage() {
           </CardContent>
         </Card>
 
-        {/* ── Cobertura de NPs Aprobadas ── */}
+        {/* ── Cobertura de NPs / OCs Canceladas — sección con tabs ── */}
         {(() => {
           const npsFiltradas = coberturas
             .filter(np =>
@@ -359,13 +396,53 @@ export default function DashboardOcsPage() {
           const cubiertasCount  = coberturas.filter(np => np.np_cubierta).length
           const pendientesCount = coberturas.filter(np => !np.np_cubierta).length
 
+          // Spec CA-02: activar tab canceladas con carga lazy
+          function activarTabCanceladas() {
+            setTabCobertura('canceladas')
+            if (!canceladasCargadas) cargarCanceladas(areaFiltro, yearFiltro)
+          }
+
           return (
             <Card>
               <CardHeader className="pb-2">
                 <div className="flex flex-wrap items-center justify-between gap-3">
+
+                  {/* Título + subtítulo dinámico por tab */}
                   <div>
-                    <CardTitle className="text-sm text-slate-700">Cobertura de NPs Aprobadas</CardTitle>
-                    {!coberturaLoading && coberturas.length > 0 && (
+                    <div className="flex items-center gap-3">
+                      <CardTitle className="text-sm text-slate-700">
+                        {tabCobertura === 'nps' ? 'Cobertura de NPs Aprobadas' : 'OCs Canceladas'}
+                      </CardTitle>
+                      {/* Spec CA-02: tabs de modo */}
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => setTabCobertura('nps')}
+                          className={`px-2.5 py-0.5 text-xs rounded-md border transition-colors ${
+                            tabCobertura === 'nps'
+                              ? 'bg-[#1a5252] text-white border-[#1a5252]'
+                              : 'bg-white text-slate-500 border-slate-300 hover:border-teal-400'
+                          }`}
+                        >
+                          Cobertura NPs
+                        </button>
+                        <button
+                          onClick={activarTabCanceladas}
+                          className={`px-2.5 py-0.5 text-xs rounded-md border transition-colors ${
+                            tabCobertura === 'canceladas'
+                              ? 'bg-slate-600 text-white border-slate-600'
+                              : 'bg-white text-slate-500 border-slate-300 hover:border-slate-400'
+                          }`}
+                        >
+                          OCs Canceladas
+                          {kpis.canceladas > 0 && (
+                            <span className="ml-1.5 bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded-full text-xs">
+                              {kpis.canceladas}
+                            </span>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                    {tabCobertura === 'nps' && !coberturaLoading && coberturas.length > 0 && (
                       <p className="text-xs text-slate-400 mt-0.5">
                         <span className="text-red-600 font-medium">{pendientesCount} con saldo pendiente</span>
                         {' · '}
@@ -374,79 +451,147 @@ export default function DashboardOcsPage() {
                     )}
                   </div>
 
-                  <div className="flex gap-1 text-xs">
-                    {(['todas', 'parciales', 'completas'] as const).map(f => (
-                      <button
-                        key={f}
-                        onClick={() => setCoberturaFiltro(f)}
-                        className={`px-2.5 py-1 rounded-md border transition-colors capitalize ${
-                          coberturaFiltro === f
-                            ? 'bg-[#1a5252] text-white border-[#1a5252]'
-                            : 'bg-white text-slate-600 border-slate-300 hover:border-teal-400'
-                        }`}
-                      >
-                        {f === 'parciales' ? '< 100%' : f === 'completas' ? '100%' : 'Todas'}
-                      </button>
-                    ))}
-                  </div>
+                  {/* Spec CA-03: filtros de fila solo en tab Cobertura NPs */}
+                  {tabCobertura === 'nps' && (
+                    <div className="flex gap-1 text-xs">
+                      {(['todas', 'parciales', 'completas'] as const).map(f => (
+                        <button
+                          key={f}
+                          onClick={() => setCoberturaFiltro(f)}
+                          className={`px-2.5 py-1 rounded-md border transition-colors capitalize ${
+                            coberturaFiltro === f
+                              ? 'bg-[#1a5252] text-white border-[#1a5252]'
+                              : 'bg-white text-slate-600 border-slate-300 hover:border-teal-400'
+                          }`}
+                        >
+                          {f === 'parciales' ? '< 100%' : f === 'completas' ? '100%' : 'Todas'}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </CardHeader>
 
               <CardContent>
-                {coberturaLoading ? (
-                  <p className="text-xs text-slate-400 italic py-4 text-center">Cargando cobertura...</p>
-                ) : coberturas.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic py-4 text-center">Sin NPs aprobadas o completadas en el período seleccionado.</p>
-                ) : npsFiltradas.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic py-4 text-center">Sin NPs que coincidan con el filtro seleccionado.</p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b text-xs text-slate-500 uppercase">
-                          <th className="text-left py-2 pr-3">NP</th>
-                          <th className="text-left py-2 pr-3">Área</th>
-                          <th className="text-left py-2 pr-3">Solicitante</th>
-                          <th className="text-center py-2 pr-3">Estado</th>
-                          <th className="text-right py-2 pr-3">Solicitado</th>
-                          <th className="text-right py-2 pr-3">Comprometido</th>
-                          <th
-                            className="text-left py-2 pr-2 cursor-pointer select-none hover:text-teal-700 transition-colors"
-                            onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-                          >
-                            % Cobertura {sortDir === 'asc' ? '↑' : '↓'}
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {npsFiltradas.map(np => (
-                          <tr
-                            key={np.id}
-                            className="border-b last:border-0 hover:bg-slate-50 cursor-pointer"
-                            onClick={() => router.push(`/compras/${np.id}`)}
-                          >
-                            <td className="py-2 pr-3 font-mono text-xs text-[#1a5252] font-semibold">{np.numero}</td>
-                            <td className="py-2 pr-3 text-xs text-slate-600">{np.area}</td>
-                            <td className="py-2 pr-3 text-xs text-slate-600 max-w-[120px] truncate">{np.solicitante_nombre}</td>
-                            <td className="py-2 pr-3 text-center">
-                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                                np.estado === 'completada'
-                                  ? 'bg-teal-100 text-teal-700'
-                                  : 'bg-green-100 text-green-700'
-                              }`}>
-                                {np.estado}
-                              </span>
-                            </td>
-                            <td className="py-2 pr-3 text-right text-xs font-mono">{np.total_solicitado}</td>
-                            <td className="py-2 pr-3 text-right text-xs font-mono text-blue-700">{np.total_comprometido}</td>
-                            <td className="py-2 min-w-[160px]">
-                              <CoberturaBar pct={np.porcentaje_global} />
-                            </td>
+                {/* ── Tab: Cobertura NPs (comportamiento actual) ── */}
+                {tabCobertura === 'nps' && (
+                  coberturaLoading ? (
+                    <p className="text-xs text-slate-400 italic py-4 text-center">Cargando cobertura...</p>
+                  ) : coberturas.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic py-4 text-center">Sin NPs aprobadas o completadas en el período seleccionado.</p>
+                  ) : npsFiltradas.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic py-4 text-center">Sin NPs que coincidan con el filtro seleccionado.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b text-xs text-slate-500 uppercase">
+                            <th className="text-left py-2 pr-3">NP</th>
+                            <th className="text-left py-2 pr-3">Área</th>
+                            <th className="text-left py-2 pr-3">Solicitante</th>
+                            <th className="text-center py-2 pr-3">Estado</th>
+                            <th className="text-right py-2 pr-3">Solicitado</th>
+                            <th className="text-right py-2 pr-3">Comprometido</th>
+                            <th
+                              className="text-left py-2 pr-2 cursor-pointer select-none hover:text-teal-700 transition-colors"
+                              onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+                            >
+                              % Cobertura {sortDir === 'asc' ? '↑' : '↓'}
+                            </th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody>
+                          {npsFiltradas.map(np => (
+                            <tr
+                              key={np.id}
+                              className="border-b last:border-0 hover:bg-slate-50 cursor-pointer"
+                              onClick={() => router.push(`/compras/${np.id}`)}
+                            >
+                              <td className="py-2 pr-3 font-mono text-xs text-[#1a5252] font-semibold">{np.numero}</td>
+                              <td className="py-2 pr-3 text-xs text-slate-600">{np.area}</td>
+                              <td className="py-2 pr-3 text-xs text-slate-600 max-w-[120px] truncate">{np.solicitante_nombre}</td>
+                              <td className="py-2 pr-3 text-center">
+                                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                  np.estado === 'completada'
+                                    ? 'bg-teal-100 text-teal-700'
+                                    : 'bg-green-100 text-green-700'
+                                }`}>
+                                  {np.estado}
+                                </span>
+                              </td>
+                              <td className="py-2 pr-3 text-right text-xs font-mono">{np.total_solicitado}</td>
+                              <td className="py-2 pr-3 text-right text-xs font-mono text-blue-700">{np.total_comprometido}</td>
+                              <td className="py-2 min-w-[160px]">
+                                <CoberturaBar pct={np.porcentaje_global} />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                )}
+
+                {/* ── Tab: OCs Canceladas — Spec CA-04/CA-05/CA-09 ── */}
+                {tabCobertura === 'canceladas' && (
+                  canceladasLoading ? (
+                    <p className="text-xs text-slate-400 italic py-4 text-center">Cargando OCs canceladas...</p>
+                  ) : canceladas.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic py-4 text-center">No hay OCs canceladas en el período seleccionado.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b text-xs text-slate-500 uppercase">
+                            <th className="text-left py-2 pr-3">OC</th>
+                            <th className="text-left py-2 pr-3">NP Origen</th>
+                            <th className="text-left py-2 pr-3">Área</th>
+                            <th className="text-left py-2 pr-3">Proveedor</th>
+                            <th className="text-left py-2 pr-3">Fecha OC</th>
+                            <th className="text-right py-2 pr-3">Monto</th>
+                            <th className="text-left py-2">Motivo cancelación</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {canceladas.map(oc => (
+                            <tr key={oc.id} className="border-b last:border-0 hover:bg-slate-50">
+                              <td className="py-2 pr-3">
+                                <a
+                                  href={`/compras/ordenes/${oc.id}`}
+                                  className="font-mono text-xs text-[#1a5252] font-semibold hover:underline"
+                                  onClick={e => { e.stopPropagation() }}
+                                >
+                                  {oc.numero_oc}
+                                </a>
+                              </td>
+                              <td className="py-2 pr-3 text-xs">
+                                {oc.nota_pedido_id ? (
+                                  <a
+                                    href={`/compras/${oc.nota_pedido_id}`}
+                                    className="font-mono text-blue-700 hover:underline"
+                                    onClick={e => { e.stopPropagation() }}
+                                  >
+                                    {oc.numero_np ?? oc.nota_pedido_id.slice(0, 8)}
+                                  </a>
+                                ) : (
+                                  <span className="text-slate-400">—</span>
+                                )}
+                              </td>
+                              <td className="py-2 pr-3 text-xs text-slate-600">{oc.area}</td>
+                              <td className="py-2 pr-3 text-xs text-slate-600 max-w-[140px] truncate">{oc.proveedor}</td>
+                              <td className="py-2 pr-3 text-xs text-slate-500">
+                                {new Date(oc.created_at).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                              </td>
+                              <td className="py-2 pr-3 text-right text-xs font-mono text-slate-700">{usd(oc.valor_a_pagar)}</td>
+                              <td className="py-2 text-xs text-slate-500 max-w-[200px] truncate" title={oc.motivo_cancelacion ?? ''}>
+                                {oc.motivo_cancelacion ?? <span className="text-slate-300">—</span>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
                 )}
               </CardContent>
             </Card>

@@ -1611,6 +1611,47 @@ describe('GET /api/compras/dashboard/ocs', () => {
   })
 })
 
+// ── Sección 32: Dashboard OCs canceladas ────────────────────────────────────
+describe('GET /api/compras/dashboard/canceladas', () => {
+  const { GET } = require('@/app/api/compras/dashboard/canceladas/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const chain = mockChainVacio()
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/compras/dashboard/canceladas'))
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol solicitante (no autorizado)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/compras/dashboard/canceladas'))
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 200 para rol compras con array de OCs canceladas', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+    chain.then = (resolve: any) => Promise.resolve({ data: [
+      { id: 'oc-1', numero_oc: 'OC-2026-0001', numero_np: 'NP-2026-0001',
+        nota_pedido_id: 'np-uuid-1', area: 'Producción', proveedor: 'ACME',
+        created_at: '2026-06-01T10:00:00', valor_a_pagar: 500, motivo_cancelacion: 'Error de ingreso' },
+    ], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/compras/dashboard/canceladas'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(Array.isArray(body)).toBe(true)
+    expect(body[0]).toHaveProperty('numero_oc')
+    expect(body[0]).toHaveProperty('motivo_cancelacion')
+    expect(body[0]).toHaveProperty('nota_pedido_id')
+  })
+})
+
 describe('PUT /api/compras/ordenes/[id] — HU-003 enlace y justificación', () => {
   const { PUT } = require('@/app/api/compras/ordenes/[id]/route')
 
