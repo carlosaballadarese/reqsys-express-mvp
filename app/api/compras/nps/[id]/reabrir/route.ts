@@ -34,9 +34,10 @@ export async function POST(
     if (!np || np.estado !== 'completada')
       return NextResponse.json({ error: 'NP no encontrada o no está en estado completada' }, { status: 404 })
 
+    // Spec CA-11: limpiar flag y motivo de completado manual al reabrir
     await adminClient()
       .from('notas_pedido')
-      .update({ estado: 'aprobada' })
+      .update({ estado: 'aprobada', completado_manualmente: false, motivo_completado: null })
       .eq('id', id)
 
     // Spec: registrar en historial de la NP

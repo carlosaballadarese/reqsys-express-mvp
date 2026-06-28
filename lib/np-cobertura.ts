@@ -203,9 +203,10 @@ export async function autoCompletarNP(np_id: string, np_estado: string): Promise
   const { np_cubierta } = await calcularCoberturaNP(np_id)
   if (!np_cubierta) return
 
+  // Spec CA-05: limpiar flag de completado manual cuando el sistema auto-completa
   await adminClient()
     .from('notas_pedido')
-    .update({ estado: 'completada' })
+    .update({ estado: 'completada', completado_manualmente: false })
     .eq('id', np_id)
 
   await adminClient().from('historial_np').insert({

@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     // Spec CA1: NPs en estados aprobada y completada
     let npQuery = adminClient()
       .from('notas_pedido')
-      .select('id, numero, area, estado, prioridad, solicitante_nombre, created_at')
+      .select('id, numero, area, estado, prioridad, solicitante_nombre, created_at, completado_manualmente')
       .in('estado', ['aprobada', 'completada'])
 
     // D2: asistente_compras ve solo las NPs que Compras le asignó
@@ -84,28 +84,32 @@ export async function GET(req: NextRequest) {
       itemsPorNP[item.nota_pedido_id].push({ id: item.id, cantidad: Number(item.cantidad) })
     }
 
-    // Spec CA1 + CA2: calcular porcentaje por NP
+    // Spec CA1 + CA2 + CA-06: calcular porcentaje por NP; forzar 100% si completado_manualmente
     const result = nps.map(np => {
-      const items             = itemsPorNP[np.id] ?? []
-      const total_solicitado  = items.reduce((s, i) => s + i.cantidad, 0)
+      const items              = itemsPorNP[np.id] ?? []
+      const total_solicitado   = items.reduce((s, i) => s + i.cantidad, 0)
       const total_comprometido = items.reduce((s, i) => s + (comprometidoMap[i.id] ?? 0), 0)
-      const porcentaje_global = total_solicitado > 0
+      const esManual           = np.completado_manualmente ?? false
+
+      // Spec CA-06: NP completada manualmente se fuerza a 100% en el dashboard
+      const porcentaje_global = esManual ? 100 : (total_solicitado > 0
         ? (total_comprometido / total_solicitado) * 100
-        : 0
-      const np_cubierta       = total_solicitado > 0 && total_comprometido >= total_solicitado
+        : 0)
+      const np_cubierta = esManual ? true : (total_solicitado > 0 && total_comprometido >= total_solicitado)
 
       return {
-        id:                 np.id,
-        numero:             np.numero,
-        area:               np.area,
-        estado:             np.estado as 'aprobada' | 'completada',
-        prioridad:          np.prioridad,
-        solicitante_nombre: np.solicitante_nombre,
-        created_at:         np.created_at,
+        id:                    np.id,
+        numero:                np.numero,
+        area:                  np.area,
+        estado:                np.estado as 'aprobada' | 'completada',
+        prioridad:             np.prioridad,
+        solicitante_nombre:    np.solicitante_nombre,
+        created_at:            np.created_at,
         porcentaje_global,
         np_cubierta,
         total_solicitado,
         total_comprometido,
+        completado_manualmente: esManual,
       }
     })
 

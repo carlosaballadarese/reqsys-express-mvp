@@ -1652,6 +1652,92 @@ describe('GET /api/compras/dashboard/canceladas', () => {
   })
 })
 
+// ── Sección 33: HU-006 Completado administrativo de NPs ──────────────────────
+
+describe('POST /api/compras/nps/[id]/completar — HU-006', () => {
+  const { POST } = require('@/app/api/compras/nps/[id]/completar/route')
+
+  it('devuelve 400 si no se incluye motivo en el body', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() =>
+      Promise.resolve({ data: { rol: 'compras', nombre: 'Compras', email: 'c@arlift.com' }, error: null })
+    )
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-id/completar', { method: 'POST' }),
+      { params: Promise.resolve({ id: 'np-id' }) }
+    )
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toBe('El motivo de completado es requerido')
+  })
+
+  it('devuelve 403 para asistente_compras en NP no asignada a él', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({
+        data: { rol: 'asistente_compras', nombre: 'Asistente', email: 'ast@arlift.com' }, error: null,
+      })
+      // NP con asignado_a diferente al user.id ('user-123')
+      return Promise.resolve({
+        data: { id: 'np-id', estado: 'aprobada', numero: 'NP-2026-0001', asignado_a: 'otro-user-id' }, error: null,
+      })
+    })
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-id/completar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo: 'Ítems ya no requeridos' }),
+      }),
+      { params: Promise.resolve({ id: 'np-id' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+})
+
+describe('GET /api/compras/dashboard/cobertura — campo completado_manualmente (HU-006)', () => {
+  const { GET } = require('@/app/api/compras/dashboard/cobertura/route')
+
+  it('incluye completado_manualmente y fuerza porcentaje_global=100 para NPs manuales', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+
+    const npsMock = [
+      { id: 'np-m', numero: 'NP-2026-0099', area: 'Operaciones', estado: 'completada',
+        prioridad: 'normal', solicitante_nombre: 'Pedro', created_at: '2026-06-01T00:00:00Z',
+        completado_manualmente: true },
+    ]
+
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.in = jest.fn(() => chain)
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras' }, error: null })
+      return Promise.resolve({ data: null, error: null })
+    })
+    let thenCalls = 0
+    chain.then = (resolve: any) => {
+      thenCalls++
+      if (thenCalls === 1) return Promise.resolve({ data: npsMock, error: null }).then(resolve)
+      return Promise.resolve({ data: [], error: null }).then(resolve)
+    }
+    mockFrom.mockReturnValue(chain)
+
+    const req = makeRequest('http://localhost/api/compras/dashboard/cobertura')
+    const res = await GET(req)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.nps[0]).toHaveProperty('completado_manualmente', true)
+    expect(body.nps[0].porcentaje_global).toBe(100)
+    expect(body.nps[0].np_cubierta).toBe(true)
+  })
+})
+
 describe('PUT /api/compras/ordenes/[id] — HU-003 enlace y justificación', () => {
   const { PUT } = require('@/app/api/compras/ordenes/[id]/route')
 

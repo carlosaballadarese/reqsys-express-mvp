@@ -522,7 +522,7 @@ export default function DashboardOcsPage() {
                               <td className="py-2 pr-3 text-right text-xs font-mono">{np.total_solicitado}</td>
                               <td className="py-2 pr-3 text-right text-xs font-mono text-blue-700">{np.total_comprometido}</td>
                               <td className="py-2 min-w-[160px]">
-                                <CoberturaBar pct={np.porcentaje_global} />
+                                <CoberturaBar pct={np.porcentaje_global} manual={np.completado_manualmente} />
                               </td>
                             </tr>
                           ))}

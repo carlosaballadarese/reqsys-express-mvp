@@ -31,7 +31,9 @@ type NP = {
   asignado_a:      string | null
   asignado_nombre: string | null
   asignado_email:  string | null
-  creado_por_id:   string | null
+  creado_por_id:          string | null
+  completado_manualmente: boolean | null
+  motivo_completado:      string | null
 }
 
 type OCVinculada = {
@@ -819,9 +821,11 @@ export default function DetalleNPPage() {
   const [userId, setUserId]       = useState('')
   const [puedeAprobar, setPuedeAprobar] = useState(false)
 
-  // Completar NP
-  const [completando, setCompletando] = useState(false)
-  const [errorCompletar, setErrorCompletar] = useState('')
+  // Completar NP — modal con motivo (Spec CA-09)
+  const [modalCompletar, setModalCompletar]   = useState(false)
+  const [motivoCompletar, setMotivoCompletar] = useState('')
+  const [completando, setCompletando]         = useState(false)
+  const [errorCompletar, setErrorCompletar]   = useState('')
 
   // Reabrir NP
   const [modalReabrir, setModalReabrir] = useState(false)
@@ -995,10 +999,16 @@ export default function DetalleNPPage() {
   async function handleCompletar() {
     setCompletando(true)
     setErrorCompletar('')
-    const res = await fetch(`/api/compras/nps/${id}/completar`, { method: 'POST' })
+    const res = await fetch(`/api/compras/nps/${id}/completar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo: motivoCompletar.trim() }),
+    })
     const data = await res.json()
     setCompletando(false)
     if (!res.ok) { setErrorCompletar(data.error ?? 'Error'); return }
+    setModalCompletar(false)
+    setMotivoCompletar('')
     cargar()
   }
 
@@ -1096,6 +1106,14 @@ export default function DetalleNPPage() {
               <div className="mt-3 bg-amber-50 border border-amber-200 rounded-md p-3 text-sm">
                 <p className="text-xs font-semibold text-amber-700 mb-1">MOTIVO DE DEVOLUCIÓN</p>
                 <p className="text-amber-800">{np.motivo_devolucion}</p>
+              </div>
+            )}
+            {/* Spec CA-13: motivo de completado manual visible para compras/admin/asistente_compras */}
+            {np.estado === 'completada' && np.completado_manualmente && np.motivo_completado &&
+              ['compras', 'admin', 'asistente_compras'].includes(rol) && (
+              <div className="mt-3 bg-slate-50 border border-slate-200 rounded-md p-3 text-sm">
+                <p className="text-xs font-semibold text-slate-500 mb-1">COMPLETADA MANUALMENTE</p>
+                <p className="text-slate-700">{np.motivo_completado}</p>
               </div>
             )}
           </CardContent>
@@ -1223,14 +1241,14 @@ export default function DetalleNPPage() {
                       ⬇ Exportar ítems NP
                     </Button>
                   </a>
-                  {np.estado === 'aprobada' && np.convertida &&
+                  {/* Spec CA-12: condición sin np.convertida; CA-09: abre modal */}
+                  {np.estado === 'aprobada' &&
                     (['compras', 'admin'].includes(rol) || (rol === 'asistente_compras' && np.asignado_a === userId)) && (
                     <Button
-                      onClick={handleCompletar}
-                      disabled={completando}
+                      onClick={() => { setErrorCompletar(''); setModalCompletar(true) }}
                       className="h-8 text-xs bg-teal-600 hover:bg-teal-700 text-white"
                     >
-                      {completando ? 'Procesando...' : '🏁 Marcar como Completada'}
+                      🏁 Marcar como Completada
                     </Button>
                   )}
                 </div>
@@ -1597,6 +1615,58 @@ export default function DetalleNPPage() {
           </div>
         )}
       </div>
+
+      {/* Modal completado manual — Spec CA-09 */}
+      {modalCompletar && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.5)' }}
+          onClick={e => { if (e.target === e.currentTarget) { setModalCompletar(false); setMotivoCompletar('') } }}
+        >
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+            <div className="px-6 py-4" style={{ background: 'linear-gradient(90deg, #0d2e2e, #1a5252)' }}>
+              <h2 className="text-white font-semibold text-base">Completar NP administrativamente</h2>
+              <p className="text-xs mt-0.5" style={{ color: 'rgba(201,168,64,0.9)' }}>{np.numero}</p>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <p className="text-sm text-slate-700">
+                Esta NP quedará marcada como <span className="font-semibold">Completada</span>. Indica el motivo (ítems no requeridos, NP ya no procede, etc.).
+              </p>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">
+                  Motivo de completado administrativo <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={motivoCompletar}
+                  onChange={e => setMotivoCompletar(e.target.value)}
+                  placeholder="Ej: Ítems ya no son requeridos por el área solicitante."
+                  className="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none"
+                />
+              </div>
+              {errorCompletar && (
+                <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-2">{errorCompletar}</div>
+              )}
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => { setModalCompletar(false); setMotivoCompletar(''); setErrorCompletar('') }}
+                  className="flex-1 py-2 rounded-lg text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleCompletar}
+                  disabled={!motivoCompletar.trim() || completando}
+                  className="flex-1 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-60"
+                  style={{ background: '#1a5252' }}
+                >
+                  {completando ? 'Procesando...' : '🏁 Confirmar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal confirmación reabrir NP */}
       {modalReabrir && (

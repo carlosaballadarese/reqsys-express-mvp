@@ -5,17 +5,18 @@ import { Card, CardContent } from '@/components/ui/card'
 // ─── Tipos compartidos ────────────────────────────────────────────────────────
 
 export type NpCobertura = {
-  id:                 string
-  numero:             string
-  area:               string
-  estado:             'aprobada' | 'completada'
-  prioridad:          string
-  solicitante_nombre: string
-  created_at:         string
-  porcentaje_global:  number
-  np_cubierta:        boolean
-  total_solicitado:   number
-  total_comprometido: number
+  id:                     string
+  numero:                 string
+  area:                   string
+  estado:                 'aprobada' | 'completada'
+  prioridad:              string
+  solicitante_nombre:     string
+  created_at:             string
+  porcentaje_global:      number
+  np_cubierta:            boolean
+  total_solicitado:       number
+  total_comprometido:     number
+  completado_manualmente: boolean  // Spec CA-06/CA-07
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -167,7 +168,8 @@ export function BarRow({ label, value, max, badge, badgeClass, valueLabel }: {
 
 // ─── Barra de cobertura coloreada ────────────────────────────────────────────
 
-export function CoberturaBar({ pct }: { pct: number }) {
+// Spec CA-07: prop manual opcional — muestra badge "M" para NPs completadas administrativamente
+export function CoberturaBar({ pct, manual = false }: { pct: number; manual?: boolean }) {
   const w     = Math.min(pct, 100)
   const color = pct >= 100 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#ef4444'
   const cls   = pct >= 100 ? 'text-green-700' : pct >= 50 ? 'text-amber-600' : 'text-red-600'
@@ -179,6 +181,14 @@ export function CoberturaBar({ pct }: { pct: number }) {
       <span className={`text-xs font-semibold w-14 text-right shrink-0 ${cls}`}>
         {pct.toFixed(0)}%{pct > 100 ? ' ⚠' : ''}
       </span>
+      {manual && (
+        <span
+          className="text-xs font-semibold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 shrink-0"
+          title="Completada manualmente por Compras"
+        >
+          M
+        </span>
+      )}
     </div>
   )
 }
