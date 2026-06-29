@@ -5,6 +5,7 @@ import { registrarAuditoria } from '@/lib/auditoria'
 import { transporter } from '@/lib/mailer'
 import { escapeHtml } from '@/lib/utils'
 import { calcularCoberturaNP } from '@/lib/np-cobertura'
+import { puedeVerPrecioNP, puedeGuardarPrecioNP } from '@/lib/np-precio'
 
 export async function GET(
   req: NextRequest,
@@ -28,8 +29,8 @@ export async function GET(
     const cobertura = await calcularCoberturaNP(id)
 
     // Calcular permisos del usuario autenticado
-    let puedeAprobar    = false
-    let puedeVerPrecio  = false
+    let puedeAprobar   = false
+    let verPrecio      = false
     try {
       const supabase = await createSupabaseServerClient()
       const { data: { user } } = await supabase.auth.getUser()
@@ -37,8 +38,8 @@ export async function GET(
         const { data: perfil } = await adminClient()
           .from('perfiles').select('rol, email').eq('id', user.id).single()
         if (perfil) {
-          // Spec: precio visible solo para compras, admin y asistente_compras
-          puedeVerPrecio = ['compras', 'admin', 'asistente_compras'].includes(perfil.rol)
+          // Spec CA-06: puedeVerPrecioNP — levanta restricción para creador de regularización
+          verPrecio = puedeVerPrecioNP(perfil.rol, np.es_regularizacion ?? false, np.creado_por_id, user.id)
           if (['admin', 'compras'].includes(perfil.rol)) {
             puedeAprobar = true
           } else {
@@ -54,9 +55,9 @@ export async function GET(
       }
     } catch {}
 
-    // Spec: enmascarar precios para roles sin permiso
-    const npResp    = puedeVerPrecio ? np : { ...np, total_estimado: null }
-    const itemsResp = puedeVerPrecio
+    // Spec CA-06: enmascarar precios según puedeVerPrecioNP
+    const npResp    = verPrecio ? np : { ...np, total_estimado: null }
+    const itemsResp = verPrecio
       ? (items ?? [])
       : (items ?? []).map((item: any) => ({ ...item, precio_unitario: null }))
 
@@ -97,9 +98,8 @@ export async function PUT(
       return NextResponse.json({ error: 'NP no encontrada o no está en estado editable (rechazada o devuelta)' }, { status: 404 })
 
     // Spec: puede editar el creador (creado_por_id) o roles compras/admin
-    const esManager      = ['compras', 'admin'].includes(perfil.rol)
-    const esCreador       = np.creado_por_id === user.id
-    const puedeVerPrecio  = ['compras', 'admin', 'asistente_compras'].includes(perfil.rol)
+    const esManager = ['compras', 'admin'].includes(perfil.rol)
+    const esCreador = np.creado_por_id === user.id
     if (!esManager && !esCreador)
       return NextResponse.json({ error: 'No tienes permiso para editar esta NP' }, { status: 403 })
 
@@ -107,6 +107,17 @@ export async function PUT(
 
     if (!items || items.length === 0)
       return NextResponse.json({ error: 'La NP debe tener al menos un ítem' }, { status: 400 })
+
+    // Spec CA-01 / RN-03: validar campos obligatorios de regularización
+    const esRegularizacion = encabezado.es_regularizacion === true
+    if (esRegularizacion) {
+      if (!encabezado.fecha_provision || !encabezado.proveedor_regularizacion_nombre) {
+        return NextResponse.json(
+          { error: 'campos_regularizacion_requeridos: fecha_provision y proveedor son obligatorios' },
+          { status: 400 }
+        )
+      }
+    }
 
     // Buscar coordinador del área (puede haber cambiado en el encabezado)
     const { data: coordinador } = await adminClient()
@@ -118,14 +129,17 @@ export async function PUT(
     if (!coordinador)
       return NextResponse.json({ error: 'No se encontró coordinador para el área seleccionada' }, { status: 400 })
 
-    const totalEstimado = puedeVerPrecio
+    // Spec CA-13: guardar precio real si es regularización, sin importar el rol
+    const guardarPrecio = puedeGuardarPrecioNP(perfil.rol, esRegularizacion)
+
+    const totalEstimado = guardarPrecio
       ? (items as { cantidad: number; precio_unitario: number }[]).reduce(
           (acc, item) => acc + (item.cantidad || 0) * (item.precio_unitario || 0),
           0
         )
       : 0
 
-    // Actualizar encabezado: vuelve a pendiente, limpia motivo_rechazo (queda en historial)
+    // Actualizar encabezado: vuelve a pendiente, limpia motivos (quedan en historial)
     const { error: updateError } = await adminClient()
       .from('notas_pedido')
       .update({
@@ -140,6 +154,11 @@ export async function PUT(
         estado:              'pendiente',
         motivo_rechazo:      null,
         motivo_devolucion:   null,
+        // Spec CA-07: campos de regularización editables en rechazada/devuelta
+        es_regularizacion:                     esRegularizacion,
+        fecha_provision:                       esRegularizacion ? (encabezado.fecha_provision ?? null) : null,
+        proveedor_regularizacion_nombre:       esRegularizacion ? (encabezado.proveedor_regularizacion_nombre ?? null) : null,
+        proveedor_regularizacion_identificacion: esRegularizacion ? (encabezado.proveedor_regularizacion_identificacion ?? null) : null,
       })
       .eq('id', id)
 
@@ -149,7 +168,7 @@ export async function PUT(
     await adminClient().from('items_np').delete().eq('nota_pedido_id', id)
     const itemsConNP = (items as {
       codigo: string; descripcion: string; unidad: string
-      cantidad: number; precio_unitario: number; proveedor_sugerido?: string
+      cantidad: number; precio_unitario: number; proveedor_sugerido?: string; fecha_requerida?: string
     }[]).map((item, index) => ({
       nota_pedido_id:     id,
       linea:              index + 1,
@@ -157,8 +176,11 @@ export async function PUT(
       descripcion:        item.descripcion,
       unidad:             item.unidad,
       cantidad:           item.cantidad,
-      precio_unitario:    puedeVerPrecio ? (item.precio_unitario || 0) : 0,
+      // Spec CA-13: precio real si regularización o rol con permiso
+      precio_unitario:    guardarPrecio ? (item.precio_unitario || 0) : 0,
       proveedor_sugerido: item.proveedor_sugerido || null,
+      // Spec CA-07: fecha requerida por ítem
+      fecha_requerida:    item.fecha_requerida || null,
     }))
     await adminClient().from('items_np').insert(itemsConNP)
 

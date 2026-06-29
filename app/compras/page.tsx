@@ -20,10 +20,11 @@ type NP = {
   total_estimado: number
   convertida: boolean
   created_at: string
-  asignado_a:      string | null
-  asignado_nombre: string | null
-  asignado_email:  string | null
-  origen?: 'propia' | 'asignada' | null
+  asignado_a:       string | null
+  asignado_nombre:  string | null
+  asignado_email:   string | null
+  origen?:          'propia' | 'asignada' | null
+  es_regularizacion: boolean
 }
 
 type Asistente = { id: string; nombre: string; email: string }
@@ -238,6 +239,11 @@ export default function ComprasPage() {
                             <Link href={`/compras/${np.id}`} className="font-mono font-medium text-blue-700 hover:underline">
                               {np.numero}
                             </Link>
+                            {np.es_regularizacion && (
+                              <span className="px-1 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-300">
+                                REG
+                              </span>
+                            )}
                             {np.descripcion_general && (
                               <span title={np.descripcion_general} className="text-slate-400 text-xs cursor-help" aria-label="Descripción general">
                                 ℹ️

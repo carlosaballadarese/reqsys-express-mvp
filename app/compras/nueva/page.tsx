@@ -18,6 +18,7 @@ const itemSchema = z.object({
   cantidad:            z.string().min(1, 'Requerido'),
   precio_unitario:     z.string(),
   proveedor_sugerido:  z.string(),
+  fecha_requerida:     z.string().optional(),
 })
 
 const formSchema = z.object({
@@ -29,6 +30,21 @@ const formSchema = z.object({
   centro_costo: z.enum(['costo', 'gasto', 'activo', 'inventario']),
   descripcion_general: z.string().min(10, 'Mínimo 10 caracteres'),
   items: z.array(itemSchema).min(1, 'Agrega al menos un ítem'),
+  // Spec CA-03 / CA-05: campos de regularización
+  es_regularizacion:                      z.boolean().default(false),
+  fecha_provision:                        z.string().optional(),
+  proveedor_regularizacion_nombre:        z.string().optional(),
+  proveedor_regularizacion_identificacion: z.string().optional(),
+}).superRefine((data, ctx) => {
+  // Spec RN-03: campos obligatorios cuando es regularización
+  if (data.es_regularizacion) {
+    if (!data.fecha_provision) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Requerido en regularización', path: ['fecha_provision'] })
+    }
+    if (!data.proveedor_regularizacion_nombre) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Requerido en regularización', path: ['proveedor_regularizacion_nombre'] })
+    }
+  }
 })
 
 type FormData = z.infer<typeof formSchema>
@@ -39,6 +55,8 @@ type ItemPayload = {
   unidad: string
   cantidad: number
   precio_unitario: number
+  fecha_requerida?: string
+  proveedor_sugerido?: string
 }
 
 type EstadoEnvio = 'idle' | 'enviando' | 'exitoso' | 'error'
@@ -156,6 +174,8 @@ function TotalEstimado({ control, puedeVer }: { control: ReturnType<typeof useFo
   )
 }
 
+type ProveedorCatalogo = { id: string; nombre: string; ruc: string | null }
+
 export default function NuevaNotaPedido() {
   const [estado, setEstado]           = useState<EstadoEnvio>('idle')
   const [numeroNP, setNumeroNP]       = useState('')
@@ -163,20 +183,29 @@ export default function NuevaNotaPedido() {
   const [areas, setAreas]             = useState<string[]>([])
   const [unidades, setUnidades]       = useState<string[]>(['EA'])
   const [puedeVerPrecio, setPuedeVerPrecio] = useState(false)
+  // Spec CA-03/CA-04: estado de regularización
+  const [esRegularizacion, setEsRegularizacion] = useState(false)
+  const [modoProveedor, setModoProveedor]       = useState<'existente' | 'libre'>('existente')
+  const [proveedoresCatalogo, setProveedoresCatalogo] = useState<ProveedorCatalogo[]>([])
 
   useEffect(() => {
     async function loadCatalogs() {
       try {
-        const [resAreas, resUnidades, resPerfil] = await Promise.all([
+        const [resAreas, resUnidades, resPerfil, resProveedores] = await Promise.all([
           fetch('/api/compras/areas'),
           fetch('/api/compras/unidades'),
           fetch('/api/auth/perfil'),
+          fetch('/api/compras/proveedores?activo=true&limit=200'),
         ])
-        if (resAreas.ok)   setAreas(await resAreas.json())
+        if (resAreas.ok)    setAreas(await resAreas.json())
         if (resUnidades.ok) setUnidades(await resUnidades.json())
         if (resPerfil.ok) {
           const p = await resPerfil.json()
           setPuedeVerPrecio(['compras', 'admin', 'asistente_compras'].includes(p.rol ?? ''))
+        }
+        if (resProveedores.ok) {
+          const data = await resProveedores.json()
+          setProveedoresCatalogo((data.proveedores ?? data ?? []).map((p: any) => ({ id: p.id, nombre: p.nombre, ruc: p.ruc ?? null })))
         }
       } catch (err) {
         console.error('Error cargando catálogos:', err)
@@ -195,10 +224,11 @@ export default function NuevaNotaPedido() {
   } = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      prioridad: 'media',
-      tipo_compra: 'producto',
-      centro_costo: 'costo',
-      items: [{ codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0', proveedor_sugerido: '' }],
+      prioridad:        'media',
+      tipo_compra:      'producto',
+      centro_costo:     'costo',
+      es_regularizacion: false,
+      items: [{ codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0', proveedor_sugerido: '', fecha_requerida: '' }],
     },
   })
 
@@ -217,17 +247,28 @@ export default function NuevaNotaPedido() {
     setEstado('enviando')
     setErrorMsg('')
     const itemsPayload: ItemPayload[] = data.items.map((item) => ({
-      codigo: item.codigo || '',
-      descripcion: item.descripcion,
-      unidad: item.unidad,
-      cantidad: Number(item.cantidad),
-      precio_unitario: Number(item.precio_unitario) || 0,
+      codigo:           item.codigo || '',
+      descripcion:      item.descripcion,
+      unidad:           item.unidad,
+      cantidad:         Number(item.cantidad),
+      precio_unitario:  Number(item.precio_unitario) || 0,
+      proveedor_sugerido: item.proveedor_sugerido || undefined,
+      fecha_requerida:  item.fecha_requerida || undefined,
     }))
     try {
       const res = await fetch('/api/compras/nps', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ encabezado: data, items: itemsPayload }),
+        body: JSON.stringify({
+          encabezado: {
+            ...data,
+            es_regularizacion:                     data.es_regularizacion,
+            fecha_provision:                       data.fecha_provision || null,
+            proveedor_regularizacion_nombre:       data.proveedor_regularizacion_nombre || null,
+            proveedor_regularizacion_identificacion: data.proveedor_regularizacion_identificacion || null,
+          },
+          items: itemsPayload,
+        }),
       })
       const result = await res.json()
       if (result.success) {
@@ -388,6 +429,88 @@ export default function NuevaNotaPedido() {
                 />
                 {errors.descripcion_general && <p className="text-red-500 text-xs mt-1">{errors.descripcion_general.message}</p>}
               </div>
+
+              {/* Spec CA-03/CA-04: bloque Regularización */}
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    {...register('es_regularizacion')}
+                    onChange={(e) => {
+                      const checked = e.target.checked
+                      setEsRegularizacion(checked)
+                      setValue('es_regularizacion', checked)
+                      if (!checked) {
+                        setValue('fecha_provision', '')
+                        setValue('proveedor_regularizacion_nombre', '')
+                        setValue('proveedor_regularizacion_identificacion', '')
+                        setModoProveedor('existente')
+                      }
+                    }}
+                    className="h-4 w-4 rounded border-amber-400 accent-amber-600"
+                  />
+                  <span className="font-medium text-amber-800">Esta es una Regularización</span>
+                  <span className="text-xs text-amber-600">(bien o servicio ya adquirido)</span>
+                </label>
+
+                {esRegularizacion && (
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <Label htmlFor="fecha_provision" className="text-amber-800">Fecha de Provisión *</Label>
+                      <input
+                        type="date"
+                        id="fecha_provision"
+                        {...register('fecha_provision')}
+                        className="mt-1 w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                      />
+                      {errors.fecha_provision && (
+                        <p className="text-red-500 text-xs mt-1">{errors.fecha_provision.message}</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <Label className="text-amber-800">Proveedor de Regularización *</Label>
+                      <div className="mt-1 flex gap-2 mb-1">
+                        <button type="button" onClick={() => setModoProveedor('existente')}
+                          className={`text-xs px-2 py-1 rounded border transition-colors ${modoProveedor === 'existente' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-amber-700 border-amber-300 hover:bg-amber-50'}`}>
+                          Seleccionar
+                        </button>
+                        <button type="button" onClick={() => setModoProveedor('libre')}
+                          className={`text-xs px-2 py-1 rounded border transition-colors ${modoProveedor === 'libre' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-amber-700 border-amber-300 hover:bg-amber-50'}`}>
+                          Texto libre
+                        </button>
+                      </div>
+
+                      {modoProveedor === 'existente' ? (
+                        <select
+                          {...register('proveedor_regularizacion_nombre')}
+                          onChange={(e) => {
+                            const selected = proveedoresCatalogo.find(p => p.nombre === e.target.value)
+                            setValue('proveedor_regularizacion_nombre', e.target.value)
+                            setValue('proveedor_regularizacion_identificacion', selected?.ruc ?? '')
+                          }}
+                          className="w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                        >
+                          <option value="">-- Seleccionar proveedor --</option>
+                          {proveedoresCatalogo.map(p => (
+                            <option key={p.id} value={p.nombre}>{p.nombre}{p.ruc ? ` (${p.ruc})` : ''}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="flex flex-col gap-1">
+                          <input type="text" {...register('proveedor_regularizacion_nombre')} placeholder="Nombre del proveedor"
+                            className="w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400" />
+                          <input type="text" {...register('proveedor_regularizacion_identificacion')} placeholder="Cédula / RUC (opcional)"
+                            className="w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400" />
+                        </div>
+                      )}
+                      {errors.proveedor_regularizacion_nombre && (
+                        <p className="text-red-500 text-xs mt-1">{errors.proveedor_regularizacion_nombre.message}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
 
@@ -451,8 +574,8 @@ export default function NuevaNotaPedido() {
                       <p className="text-red-500 text-xs mt-1">{errors.items[index]?.cantidad?.message}</p>
                     )}
                   </div>
-                  {/* Spec: precio solo visible para compras, admin y asistente_compras */}
-                  {puedeVerPrecio && (
+                  {/* Spec CA-06/CA-13: precio visible si rol con permiso O regularización */}
+                  {(puedeVerPrecio || esRegularizacion) && (
                     <div className="col-span-5 sm:col-span-2">
                       <Label className="text-xs">P. Unit. USD</Label>
                       <Controller
@@ -471,8 +594,25 @@ export default function NuevaNotaPedido() {
                       />
                     </div>
                   )}
+                  {/* Spec CA-07: Fecha Requerida por ítem — todos los roles, todas las NPs */}
+                  <div className="col-span-9 sm:col-span-2">
+                    <Label className="text-xs">Fecha Requerida</Label>
+                    <Controller
+                      control={control}
+                      name={`items.${index}.fecha_requerida`}
+                      render={({ field }) => (
+                        <input
+                          type="date"
+                          value={field.value ?? ''}
+                          onChange={e => field.onChange(e.target.value)}
+                          className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        />
+                      )}
+                    />
+                  </div>
+
                   {/* Proveedor sugerido — campo opcional, visible para todos, en la misma fila */}
-                  <div className={`col-span-9 ${puedeVerPrecio ? 'sm:col-span-2' : 'sm:col-span-4'}`}>
+                  <div className={`col-span-9 ${puedeVerPrecio ? 'sm:col-span-2' : 'sm:col-span-2'}`}>
                     <Label className="text-xs">Proveedor</Label>
                     <Controller
                       control={control}
@@ -507,13 +647,13 @@ export default function NuevaNotaPedido() {
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => append({ codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0', proveedor_sugerido: '' })}
+                onClick={() => append({ codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0', proveedor_sugerido: '', fecha_requerida: '' })}
                 className="w-full"
               >
                 + Agregar ítem
               </Button>
 
-              <TotalEstimado control={control} puedeVer={puedeVerPrecio} />
+              <TotalEstimado control={control} puedeVer={puedeVerPrecio || esRegularizacion} />
             </CardContent>
           </Card>
 

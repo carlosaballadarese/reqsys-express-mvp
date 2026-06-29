@@ -24,9 +24,11 @@ export async function GET(
       return NextResponse.json({ error: 'NP no encontrada o no está disponible para edición' }, { status: 404 })
     }
 
+    // Spec CA-14: select ampliado — fecha_requerida y proveedor_sugerido incluidos
+    // precio_unitario devuelto sin masking (token actúa como prueba de identidad del creador)
     const { data: items } = await anonClient()
       .from('items_np')
-      .select('linea, codigo, descripcion, unidad, cantidad, precio_unitario')
+      .select('linea, codigo, descripcion, unidad, cantidad, precio_unitario, fecha_requerida, proveedor_sugerido, informacion_adicional')
       .eq('nota_pedido_id', np.id)
       .order('linea')
 
@@ -78,6 +80,8 @@ export async function POST(
     )
 
     // Actualizar encabezado de la NP y volver a pendiente
+    // Spec CA-14: campos de regularización actualizables desde el formulario público
+    const esRegularizacion = encabezado.es_regularizacion === true
     const { error: errorUpdate } = await anonClient()
       .from('notas_pedido')
       .update({
@@ -91,6 +95,10 @@ export async function POST(
         total_estimado: totalEstimado,
         estado: 'pendiente',
         motivo_devolucion: null,
+        es_regularizacion:                     esRegularizacion,
+        fecha_provision:                       esRegularizacion ? (encabezado.fecha_provision ?? null) : null,
+        proveedor_regularizacion_nombre:       esRegularizacion ? (encabezado.proveedor_regularizacion_nombre ?? null) : null,
+        proveedor_regularizacion_identificacion: esRegularizacion ? (encabezado.proveedor_regularizacion_identificacion ?? null) : null,
       })
       .eq('id', np.id)
 
@@ -109,20 +117,25 @@ export async function POST(
       return NextResponse.json({ error: 'Error al eliminar ítems anteriores' }, { status: 500 })
     }
 
+    // Spec CA-14: fecha_requerida y proveedor_sugerido persistidos desde formulario público
     const itemsConNP = items.map((item: {
       codigo: string
       descripcion: string
       unidad: string
       cantidad: number
       precio_unitario: number
+      fecha_requerida?: string
+      proveedor_sugerido?: string
     }, index: number) => ({
-      nota_pedido_id: np.id,
-      linea: index + 1,
-      codigo: item.codigo || null,
-      descripcion: item.descripcion,
-      unidad: item.unidad,
-      cantidad: item.cantidad,
-      precio_unitario: item.precio_unitario || 0,
+      nota_pedido_id:     np.id,
+      linea:              index + 1,
+      codigo:             item.codigo || null,
+      descripcion:        item.descripcion,
+      unidad:             item.unidad,
+      cantidad:           item.cantidad,
+      precio_unitario:    item.precio_unitario || 0,
+      fecha_requerida:    item.fecha_requerida || null,
+      proveedor_sugerido: item.proveedor_sugerido || null,
     }))
 
     const { error: errorInsert } = await adminClient().from('items_np').insert(itemsConNP)

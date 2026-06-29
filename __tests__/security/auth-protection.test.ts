@@ -1812,3 +1812,86 @@ describe('PUT /api/compras/ordenes/[id] — HU-003 enlace y justificación', () 
     expect(res.status).toBe(200)
   })
 })
+
+// ── Sección 34: HU-007 Regularización de NP y Fecha Requerida por ítem ───────
+
+describe('POST /api/compras/nps — HU-007 Regularización', () => {
+  const { POST } = require('@/app/api/compras/nps/route')
+
+  it('CA-12 RN-03: devuelve 400 si es_regularizacion=true pero falta fecha_provision', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+
+    const req = makeRequest('http://localhost/api/compras/nps', {
+      method: 'POST',
+      body: JSON.stringify({
+        encabezado: {
+          es_regularizacion: true,
+          fecha_provision: null,
+          proveedor_regularizacion_nombre: 'Proveedor S.A.',
+          solicitante_nombre: 'Juan', solicitante_email: 'juan@test.com',
+          area: 'Operaciones', prioridad: 'media', tipo_compra: 'producto',
+          centro_costo: 'costo', descripcion_general: 'Regularización de compra urgente',
+        },
+        items: [{ descripcion: 'Ítem', unidad: 'EA', cantidad: 1, precio_unitario: 100 }],
+      }),
+    })
+    const res = await POST(req)
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toMatch(/campos_regularizacion_requeridos/)
+  })
+
+  it('CA-12 RN-03: devuelve 400 si es_regularizacion=true pero falta proveedor_regularizacion_nombre', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+
+    const req = makeRequest('http://localhost/api/compras/nps', {
+      method: 'POST',
+      body: JSON.stringify({
+        encabezado: {
+          es_regularizacion: true,
+          fecha_provision: '2026-06-01',
+          proveedor_regularizacion_nombre: '',
+          solicitante_nombre: 'Juan', solicitante_email: 'juan@test.com',
+          area: 'Operaciones', prioridad: 'media', tipo_compra: 'producto',
+          centro_costo: 'costo', descripcion_general: 'Regularización de compra urgente',
+        },
+        items: [{ descripcion: 'Ítem', unidad: 'EA', cantidad: 1, precio_unitario: 100 }],
+      }),
+    })
+    const res = await POST(req)
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toMatch(/campos_regularizacion_requeridos/)
+  })
+
+  it('CA-13 precio real: puedeGuardarPrecioNP devuelve true para regularización independiente del rol', async () => {
+    const { puedeGuardarPrecioNP } = require('@/lib/np-precio')
+    // Rol sin privilegio + es regularización → puede guardar precio real
+    expect(puedeGuardarPrecioNP('solicitante', true)).toBe(true)
+    expect(puedeGuardarPrecioNP('bodega', true)).toBe(true)
+    // Rol sin privilegio + NO es regularización → NO puede guardar precio real
+    expect(puedeGuardarPrecioNP('solicitante', false)).toBe(false)
+    // Rol con privilegio siempre puede
+    expect(puedeGuardarPrecioNP('compras', false)).toBe(true)
+    expect(puedeGuardarPrecioNP('admin', true)).toBe(true)
+  })
+
+  it('CA-06 precio visible: puedeVerPrecioNP levanta restricción para creador de NP de regularización', async () => {
+    const { puedeVerPrecioNP } = require('@/lib/np-precio')
+    // Solicitante es el creador: ve precio solo en regularización
+    expect(puedeVerPrecioNP('solicitante', true,  'user-123', 'user-123')).toBe(true)
+    expect(puedeVerPrecioNP('solicitante', false, 'user-123', 'user-123')).toBe(false)
+    // Otro usuario (no creador): no ve precio aunque sea regularización
+    expect(puedeVerPrecioNP('solicitante', true,  'user-456', 'user-123')).toBe(false)
+    // Rol privilegiado siempre ve precio
+    expect(puedeVerPrecioNP('compras', false, null, 'user-123')).toBe(true)
+    expect(puedeVerPrecioNP('admin', false, null, 'user-123')).toBe(true)
+    expect(puedeVerPrecioNP('asistente_compras', true, 'user-999', 'user-123')).toBe(true)
+  })
+})

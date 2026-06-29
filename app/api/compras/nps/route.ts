@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { adminClient, anonClient } from '@/lib/supabase/clients'
 import { transporter } from '@/lib/mailer'
+import { puedeVerPrecioNP, puedeGuardarPrecioNP } from '@/lib/np-precio'
 
 
 async function generarNumeroNP(): Promise<string> {
@@ -17,13 +18,23 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
-    // Spec: precio visible solo para compras, admin y asistente_compras
     const { data: perfilCreador } = await adminClient()
       .from('perfiles').select('rol').eq('id', user.id).single()
-    const puedeVerPrecio = ['compras', 'admin', 'asistente_compras'].includes(perfilCreador?.rol ?? '')
+    const rol = perfilCreador?.rol ?? ''
 
     const body = await req.json()
     const { encabezado, items } = body
+
+    // Spec CA-01 / RN-03: validar campos obligatorios de regularización
+    const esRegularizacion = encabezado.es_regularizacion === true
+    if (esRegularizacion) {
+      if (!encabezado.fecha_provision || !encabezado.proveedor_regularizacion_nombre) {
+        return NextResponse.json(
+          { error: 'campos_regularizacion_requeridos: fecha_provision y proveedor son obligatorios' },
+          { status: 400 }
+        )
+      }
+    }
 
     // 1. Buscar coordinador del área
     const { data: coordinador, error: errorCoord } = await anonClient()
@@ -39,8 +50,11 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 2. Calcular total estimado (0 para roles sin permiso de ver precios)
-    const totalEstimado = puedeVerPrecio
+    // Spec CA-13: guardar precio real si es regularización, sin importar el rol
+    const guardarPrecio = puedeGuardarPrecioNP(rol, esRegularizacion)
+
+    // 2. Calcular total estimado
+    const totalEstimado = guardarPrecio
       ? items.reduce(
           (acc: number, item: { cantidad: number; precio_unitario: number }) =>
             acc + item.cantidad * (item.precio_unitario || 0),
@@ -63,6 +77,11 @@ export async function POST(req: NextRequest) {
         centro_costo:       encabezado.centro_costo,
         descripcion_general: encabezado.descripcion_general,
         total_estimado:     totalEstimado,
+        // Spec CA-05: campos de regularización
+        es_regularizacion:                     esRegularizacion,
+        fecha_provision:                       esRegularizacion ? (encabezado.fecha_provision ?? null) : null,
+        proveedor_regularizacion_nombre:       esRegularizacion ? (encabezado.proveedor_regularizacion_nombre ?? null) : null,
+        proveedor_regularizacion_identificacion: esRegularizacion ? (encabezado.proveedor_regularizacion_identificacion ?? null) : null,
       })
       .select()
       .single()
@@ -79,6 +98,7 @@ export async function POST(req: NextRequest) {
       cantidad: number
       precio_unitario: number
       proveedor_sugerido?: string
+      fecha_requerida?: string
     }, index: number) => ({
       nota_pedido_id:     np.id,
       linea:              index + 1,
@@ -86,9 +106,11 @@ export async function POST(req: NextRequest) {
       descripcion:        item.descripcion,
       unidad:             item.unidad,
       cantidad:           item.cantidad,
-      // Spec: precio solo se guarda para roles con permiso
-      precio_unitario:    puedeVerPrecio ? (item.precio_unitario || 0) : 0,
+      // Spec CA-13: precio real si es regularización o rol con permiso
+      precio_unitario:    guardarPrecio ? (item.precio_unitario || 0) : 0,
       proveedor_sugerido: item.proveedor_sugerido || null,
+      // Spec CA-05: fecha requerida por ítem (opcional)
+      fecha_requerida:    item.fecha_requerida || null,
     }))
 
     const { error: errorItems } = await anonClient().from('items_np').insert(itemsConNP)
@@ -98,6 +120,11 @@ export async function POST(req: NextRequest) {
     }
 
     // 5. Enviar email al coordinador
+    // Spec RN-07: incluir fila Regularización cuando aplica
+    const filaRegularizacion = esRegularizacion
+      ? `<tr><td style="padding:5px 0;color:#64748b;width:140px">Regularización</td><td style="font-weight:600;color:#b45309">Sí — Provisión: ${encabezado.fecha_provision}</td></tr>`
+      : ''
+
     const tablaItemsHtml = items.map((item: {
       codigo: string; descripcion: string; cantidad: number; unidad: string; precio_unitario: number
     }, i: number) => `
@@ -115,7 +142,7 @@ export async function POST(req: NextRequest) {
         from: 'One ARLIFT <one.arlift@arlift.com.ec>',
         to: coordinador.email,
         subject: `REQSYS Nueva NP ${numero} - ${encabezado.area}`,
-        text: `Nueva NP ${numero}\nSolicitante: ${encabezado.solicitante_nombre}\nArea: ${encabezado.area}\nTotal: $${totalEstimado.toFixed(2)}\n\nIngrese al sistema REQSYS para gestionar esta solicitud.`,
+        text: `Nueva NP ${numero}\nSolicitante: ${encabezado.solicitante_nombre}\nArea: ${encabezado.area}\nTotal: $${totalEstimado.toFixed(2)}${esRegularizacion ? '\nRegularización: Sí' : ''}\n\nIngrese al sistema REQSYS para gestionar esta solicitud.`,
         html: `
           <div style="font-family:sans-serif;max-width:640px;margin:0 auto;color:#1e293b">
             <div style="background:#1e40af;padding:20px 24px;border-radius:6px 6px 0 0">
@@ -130,6 +157,7 @@ export async function POST(req: NextRequest) {
                 <tr><td style="padding:5px 0;color:#64748b">Prioridad</td><td style="text-transform:capitalize">${encabezado.prioridad}</td></tr>
                 <tr><td style="padding:5px 0;color:#64748b">Tipo de Compra</td><td style="text-transform:capitalize">${encabezado.tipo_compra}</td></tr>
                 <tr><td style="padding:5px 0;color:#64748b">Centro de Costo</td><td style="text-transform:capitalize">${encabezado.centro_costo}</td></tr>
+                ${filaRegularizacion}
               </table>
               <div style="background:white;border:1px solid #e2e8f0;border-radius:4px;padding:12px;margin-bottom:16px">
                 <p style="margin:0 0 4px;color:#64748b;font-size:12px;text-transform:uppercase">Descripcion General</p>
@@ -193,8 +221,8 @@ export async function GET(req: NextRequest) {
 
     let emailFiltro:    string | null   = null
     let areasFiltro:    string[] | null = null
-    let asistenteId:    string | null   = null  // UUID del asistente_compras autenticado
-    let asistenteEmail: string | null   = null  // email del asistente para enriquecer origen
+    let asistenteId:    string | null   = null
+    let asistenteEmail: string | null   = null
     let rolActual:      string          = ''
 
     if (user) {
@@ -205,9 +233,6 @@ export async function GET(req: NextRequest) {
         .single()
 
       rolActual = perfil?.rol ?? ''
-
-      // Spec: precio visible solo para compras, admin y asistente_compras
-      // (evaluado más abajo con puedeVerPrecio)
 
       if (perfil?.rol === 'solicitante') {
         emailFiltro = perfil.email
@@ -221,32 +246,27 @@ export async function GET(req: NextRequest) {
         areasFiltro = coords?.map(c => c.area) ?? []
       }
 
-      // Spec: asistente_compras ve todas las NPs; origen se enriquece al final
       if (perfil?.rol === 'asistente_compras') {
         asistenteId    = user.id
         asistenteEmail = perfil.email
       }
     }
 
-    const puedeVerPrecio = ['compras', 'admin', 'asistente_compras'].includes(rolActual)
-
-    const SELECT = 'id, numero, solicitante_nombre, solicitante_email, area, prioridad, tipo_compra, centro_costo, estado, total_estimado, convertida, created_at, descripcion_general, asignado_a, asignado_nombre, asignado_email'
+    // Spec CA-06: SELECT incluye es_regularizacion y creado_por_id para masking por fila
+    const SELECT = 'id, numero, solicitante_nombre, solicitante_email, area, prioridad, tipo_compra, centro_costo, estado, total_estimado, convertida, created_at, descripcion_general, asignado_a, asignado_nombre, asignado_email, es_regularizacion, creado_por_id'
 
     let query = adminClient()
       .from('notas_pedido')
       .select(SELECT)
       .order('created_at', { ascending: false })
 
-    // Solicitante: OR(creado_por_id, solicitante_email) — retrocompatibilidad NPs sin creado_por_id
     if (emailFiltro) {
       query = query.or(`creado_por_id.eq.${user!.id},solicitante_email.eq.${emailFiltro}`)
     }
     if (areasFiltro !== null) {
       if (areasFiltro.length === 0) {
-        // Coordinador sin áreas asignadas — mostrar solo sus propias NPs
         query = query.eq('creado_por_id', user!.id)
       } else {
-        // Coordinador: NPs del área gestionada OR NPs que él mismo creó
         query = query.or(`area.in.(${areasFiltro.join(',')}),creado_por_id.eq.${user!.id}`)
       }
     }
@@ -258,12 +278,13 @@ export async function GET(req: NextRequest) {
     const { data, error } = await query
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    // Spec: enmascarar total_estimado para roles sin permiso de ver precios
-    let resultado: any[] = puedeVerPrecio
-      ? (data ?? [])
-      : (data ?? []).map((np: any) => ({ ...np, total_estimado: null }))
+    // Spec CA-06: masking por fila — puedeVerPrecioNP determina si total_estimado se expone
+    let resultado: any[] = (data ?? []).map((np: any) => {
+      const verPrecio = puedeVerPrecioNP(rolActual, np.es_regularizacion ?? false, np.creado_por_id, user?.id ?? null)
+      return verPrecio ? np : { ...np, total_estimado: null }
+    })
 
-    // Enriquecer con origen para diferenciación visual del asistente_compras
+    // Enriquecer con origen para asistente_compras
     if (asistenteId) {
       resultado = resultado.map((np: any) => ({
         ...np,

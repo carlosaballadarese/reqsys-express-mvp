@@ -34,6 +34,11 @@ type NP = {
   creado_por_id:          string | null
   completado_manualmente: boolean | null
   motivo_completado:      string | null
+  // Spec CA-05: campos de regularización
+  es_regularizacion:                     boolean
+  fecha_provision:                       string | null
+  proveedor_regularizacion_nombre:       string | null
+  proveedor_regularizacion_identificacion: string | null
 }
 
 type OCVinculada = {
@@ -76,6 +81,7 @@ type Item = {
   precio_unitario: number | null
   total: number
   proveedor_sugerido: string | null
+  fecha_requerida:    string | null
 }
 
 type ItemCobertura = {
@@ -837,11 +843,15 @@ export default function DetalleNPPage() {
   const [editEnc, setEditEnc]             = useState<{
     solicitante_nombre: string; solicitante_email: string; area: string
     prioridad: string; tipo_compra: string; centro_costo: string; descripcion_general: string
+    es_regularizacion: boolean; fecha_provision: string
+    proveedor_regularizacion_nombre: string; proveedor_regularizacion_identificacion: string
   } | null>(null)
   const [editItems, setEditItems]         = useState<{
     codigo: string; descripcion: string; unidad: string
-    cantidad: string; precio_unitario: string; proveedor_sugerido: string
+    cantidad: string; precio_unitario: string; proveedor_sugerido: string; fecha_requerida: string
   }[]>([])
+  const [editModoProveedor, setEditModoProveedor] = useState<'existente' | 'libre'>('libre')
+  const [editProveedoresCatalogo, setEditProveedoresCatalogo] = useState<{ id: string; nombre: string; ruc: string | null }[]>([])
   const [editAreas, setEditAreas]         = useState<string[]>([])
   const [editUnidades, setEditUnidades]   = useState<string[]>(['EA'])
   const [guardando, setGuardando]         = useState(false)
@@ -930,13 +940,18 @@ export default function DetalleNPPage() {
     if (!np) return
     setEditEnc({
       solicitante_nombre:  np.solicitante_nombre,
-      solicitante_email:   np.solicitante_email,
-      area:                np.area,
-      prioridad:           np.prioridad,
-      tipo_compra:         np.tipo_compra,
-      centro_costo:        np.centro_costo,
-      descripcion_general: np.descripcion_general,
+      solicitante_email:                   np.solicitante_email,
+      area:                                np.area,
+      prioridad:                           np.prioridad,
+      tipo_compra:                         np.tipo_compra,
+      centro_costo:                        np.centro_costo,
+      descripcion_general:                 np.descripcion_general,
+      es_regularizacion:                   np.es_regularizacion ?? false,
+      fecha_provision:                     np.fecha_provision ?? '',
+      proveedor_regularizacion_nombre:     np.proveedor_regularizacion_nombre ?? '',
+      proveedor_regularizacion_identificacion: np.proveedor_regularizacion_identificacion ?? '',
     })
+    setEditModoProveedor(np.proveedor_regularizacion_nombre ? 'libre' : 'existente')
     setEditItems(items.map(i => ({
       codigo:             i.codigo || '',
       descripcion:        i.descripcion,
@@ -944,7 +959,16 @@ export default function DetalleNPPage() {
       cantidad:           String(i.cantidad),
       precio_unitario:    String(i.precio_unitario ?? 0),
       proveedor_sugerido: i.proveedor_sugerido || '',
+      fecha_requerida:    i.fecha_requerida || '',
     })))
+    // Cargar catálogo de proveedores para el modo de regularización
+    try {
+      const resP = await fetch('/api/compras/proveedores?activo=true&limit=200')
+      if (resP.ok) {
+        const data = await resP.json()
+        setEditProveedoresCatalogo((data.proveedores ?? data ?? []).map((p: any) => ({ id: p.id, nombre: p.nombre, ruc: p.ruc ?? null })))
+      }
+    } catch {}
     if (editAreas.length === 0) {
       const [resA, resU] = await Promise.all([
         fetch('/api/compras/areas').then(r => r.json()).catch(() => []),
@@ -975,6 +999,7 @@ export default function DetalleNPPage() {
           cantidad:           Number(i.cantidad) || 0,
           precio_unitario:    Number(i.precio_unitario) || 0,
           proveedor_sugerido: i.proveedor_sugerido || null,
+          fecha_requerida:    i.fecha_requerida || null,
         })),
       }),
     })
@@ -1014,7 +1039,9 @@ export default function DetalleNPPage() {
 
   const mostrarAprobacion    = np?.estado === 'pendiente' && puedeAprobar
   const mostrarDevolucion    = np?.estado === 'aprobada' && ['compras', 'admin'].includes(rol)
-  const puedeVerPrecio       = ['compras', 'admin', 'asistente_compras'].includes(rol)
+  // Spec CA-06: precio visible para roles privilegiados O para el creador en NPs de regularización
+  const puedeVerPrecio       = ['compras', 'admin', 'asistente_compras'].includes(rol) ||
+    (np?.es_regularizacion === true && np.creado_por_id === userId)
   // Spec: puede editar el creador (creado_por_id) o compras/admin; NP debe estar rechazada o devuelta
   const puedeEditarRechazada = (np?.estado === 'rechazada' || np?.estado === 'devuelta') &&
     (np.creado_por_id === userId || ['compras', 'admin'].includes(rol))
@@ -1081,6 +1108,21 @@ export default function DetalleNPPage() {
               {puedeVerPrecio && <div><p className="text-xs text-slate-500">Total Estimado</p><p className="font-bold text-blue-700">{np.total_estimado != null ? usd(Number(np.total_estimado)) : '—'}</p></div>}
               <div><p className="text-xs text-slate-500">Fecha Solicitud</p><p className="font-medium">{new Date(np.created_at).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })}</p></div>
               <div><p className="text-xs text-slate-500">OC Generada</p><p className={`font-medium ${np.convertida ? 'text-blue-600' : 'text-slate-400'}`}>{np.convertida ? '✓ Sí' : 'No'}</p></div>
+              {/* Spec CA-05/CA-08: bloque regularización en detalle */}
+              <div className="col-span-2 sm:col-span-3">
+                <p className="text-xs text-slate-500">Regularización</p>
+                {np.es_regularizacion ? (
+                  <div className="mt-1 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold text-xs mb-2">REG</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div><p className="text-xs text-amber-600">Fecha de Provisión</p><p className="font-medium text-amber-900">{np.fecha_provision ? new Date(np.fecha_provision + 'T00:00:00').toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</p></div>
+                      <div><p className="text-xs text-amber-600">Proveedor</p><p className="font-medium text-amber-900">{np.proveedor_regularizacion_nombre || '—'}{np.proveedor_regularizacion_identificacion ? <span className="text-xs text-amber-600 ml-1">({np.proveedor_regularizacion_identificacion})</span> : null}</p></div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="font-medium text-slate-400">No</p>
+                )}
+              </div>
               {['compras', 'admin'].includes(rol) && (
                 <div>
                   <p className="text-xs text-slate-500">Asignada a</p>
@@ -1134,6 +1176,7 @@ export default function DetalleNPPage() {
                     <th className="text-left py-2 pr-3">Descripción</th>
                     <th className="text-center py-2 pr-3">Cantidad</th>
                     <th className="text-left py-2 pr-3">Proveedor Sugerido</th>
+                    <th className="text-left py-2 pr-3">Fecha Requerida</th>
                     {puedeVerPrecio && <th className="text-right py-2 pr-3">P. Unit.</th>}
                     {puedeVerPrecio && <th className="text-right py-2">Total</th>}
                   </tr>
@@ -1146,6 +1189,9 @@ export default function DetalleNPPage() {
                       <td className="py-2 pr-3">{item.descripcion}</td>
                       <td className="py-2 pr-3 text-center">{item.cantidad} {item.unidad}</td>
                       <td className="py-2 pr-3 text-xs text-slate-500">{item.proveedor_sugerido || '—'}</td>
+                      <td className="py-2 pr-3 text-xs text-slate-500">
+                        {item.fecha_requerida ? new Date(item.fecha_requerida + 'T00:00:00').toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                      </td>
                       {puedeVerPrecio && <td className="py-2 pr-3 text-right">{item.precio_unitario != null ? usd(Number(item.precio_unitario)) : '—'}</td>}
                       {puedeVerPrecio && <td className="py-2 text-right font-medium">{usd(item.total)}</td>}
                     </tr>
@@ -1363,11 +1409,57 @@ export default function DetalleNPPage() {
                 </div>
               </div>
 
+              {/* Spec CA-07: bloque Regularización en formulario de edición */}
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 mt-1">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" checked={editEnc.es_regularizacion}
+                    onChange={(e) => {
+                      const checked = e.target.checked
+                      setEditEnc(f => f && ({ ...f, es_regularizacion: checked, fecha_provision: checked ? f.fecha_provision : '', proveedor_regularizacion_nombre: checked ? f.proveedor_regularizacion_nombre : '', proveedor_regularizacion_identificacion: checked ? f.proveedor_regularizacion_identificacion : '' }))
+                    }}
+                    className="h-4 w-4 rounded border-amber-400 accent-amber-600" />
+                  <span className="font-medium text-amber-800 text-xs">Esta es una Regularización</span>
+                </label>
+                {editEnc.es_regularizacion && (
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs text-amber-800">Fecha de Provisión *</Label>
+                      <input type="date" value={editEnc.fecha_provision}
+                        onChange={e => setEditEnc(f => f && ({ ...f, fecha_provision: e.target.value }))}
+                        className="mt-1 w-full h-8 rounded-md border border-amber-300 bg-white px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400" />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-amber-800">Proveedor *</Label>
+                      <div className="flex gap-1 mt-1 mb-1">
+                        <button type="button" onClick={() => setEditModoProveedor('existente')} className={`text-xs px-2 py-0.5 rounded border ${editModoProveedor === 'existente' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-amber-700 border-amber-300'}`}>Seleccionar</button>
+                        <button type="button" onClick={() => setEditModoProveedor('libre')} className={`text-xs px-2 py-0.5 rounded border ${editModoProveedor === 'libre' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-amber-700 border-amber-300'}`}>Texto libre</button>
+                      </div>
+                      {editModoProveedor === 'existente' ? (
+                        <select value={editEnc.proveedor_regularizacion_nombre}
+                          onChange={(e) => {
+                            const sel = editProveedoresCatalogo.find(p => p.nombre === e.target.value)
+                            setEditEnc(f => f && ({ ...f, proveedor_regularizacion_nombre: e.target.value, proveedor_regularizacion_identificacion: sel?.ruc ?? '' }))
+                          }}
+                          className="w-full h-8 rounded-md border border-amber-300 bg-white px-2 text-sm">
+                          <option value="">-- Seleccionar --</option>
+                          {editProveedoresCatalogo.map(p => <option key={p.id} value={p.nombre}>{p.nombre}{p.ruc ? ` (${p.ruc})` : ''}</option>)}
+                        </select>
+                      ) : (
+                        <div className="flex flex-col gap-1">
+                          <input type="text" value={editEnc.proveedor_regularizacion_nombre} onChange={e => setEditEnc(f => f && ({ ...f, proveedor_regularizacion_nombre: e.target.value }))} placeholder="Nombre proveedor" className="w-full h-8 rounded-md border border-amber-300 bg-white px-2 text-sm" />
+                          <input type="text" value={editEnc.proveedor_regularizacion_identificacion} onChange={e => setEditEnc(f => f && ({ ...f, proveedor_regularizacion_identificacion: e.target.value }))} placeholder="Cédula / RUC (opcional)" className="w-full h-8 rounded-md border border-amber-300 bg-white px-2 text-sm" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Ítems editables */}
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <Label className="text-xs font-medium text-slate-700">Ítems del Requerimiento</Label>
-                  <button type="button" onClick={() => setEditItems(prev => [...prev, { codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0', proveedor_sugerido: '' }])}
+                  <button type="button" onClick={() => setEditItems(prev => [...prev, { codigo: '', descripcion: '', unidad: 'EA', cantidad: '1', precio_unitario: '0', proveedor_sugerido: '', fecha_requerida: '' }])}
                     className="text-xs text-blue-600 hover:underline font-medium">+ Agregar ítem</button>
                 </div>
                 <div className="space-y-2">
@@ -1407,8 +1499,13 @@ export default function DetalleNPPage() {
                             <Input type="number" step="0.01" min="0" value={item.precio_unitario} onChange={e => setEditItems(prev => prev.map((it, idx) => idx === i ? { ...it, precio_unitario: e.target.value } : it))} className="h-7 text-xs w-24 mt-0.5" />
                           </div>
                         )}
+                        {/* Spec CA-07: fecha requerida por ítem */}
+                        <div>
+                          <Label className="text-xs text-slate-500">Fecha Req.</Label>
+                          <input type="date" value={item.fecha_requerida} onChange={e => setEditItems(prev => prev.map((it, idx) => idx === i ? { ...it, fecha_requerida: e.target.value } : it))} className="mt-0.5 h-7 w-32 rounded-md border border-input bg-background px-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+                        </div>
                         {/* Proveedor sugerido — campo opcional, visible para todos */}
-                        <div className="w-40">
+                        <div className="w-36">
                           <Label className="text-xs text-slate-500">Proveedor</Label>
                           <Input value={item.proveedor_sugerido} onChange={e => setEditItems(prev => prev.map((it, idx) => idx === i ? { ...it, proveedor_sugerido: e.target.value } : it))} className="h-7 text-xs mt-0.5" placeholder="Sugerido (opcional)" />
                         </div>
