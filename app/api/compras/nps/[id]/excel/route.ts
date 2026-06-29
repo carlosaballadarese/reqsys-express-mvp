@@ -69,8 +69,7 @@ export async function GET(
     const [{ data: np, error: npError }, { data: items }, { data: config }] = await Promise.all([
       adminClient().from('notas_pedido').select('*').eq('id', id).single() as any,
       adminClient().from('items_np')
-        .select('linea, tipo, codigo, descripcion, unidad, cantidad, precio_unitario, total_estimado, informacion_adicional, proveedor_sugerido, fecha_requerida')
-        .eq('nota_pedido_id', id).order('linea'),
+        .select('*').eq('nota_pedido_id', id).order('linea'),
       adminClient().from('configuracion_empresa')
         .select('documento_numero_np, revision_np').eq('id', 1).single(),
     ])
