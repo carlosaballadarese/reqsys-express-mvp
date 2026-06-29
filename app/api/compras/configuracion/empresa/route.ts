@@ -34,10 +34,15 @@ export async function PUT(req: NextRequest) {
   try {
     const body = await req.json()
     const { razon_social, ruc, direccion, contacto, telefono, email,
-            documento_numero_oc, revision_oc } = body
+            documento_numero_oc, revision_oc,
+            documento_numero_np, revision_np } = body
 
     if (!razon_social?.trim())
       return NextResponse.json({ error: 'La razón social es requerida' }, { status: 400 })
+
+    // Spec CA-14: revision_np debe ser entero positivo si se proporciona
+    if (revision_np != null && (isNaN(Number(revision_np)) || Number(revision_np) < 1))
+      return NextResponse.json({ error: 'La revisión NP debe ser un número entero positivo' }, { status: 400 })
 
     const { error } = await adminClient()
       .from('configuracion_empresa')
@@ -50,6 +55,8 @@ export async function PUT(req: NextRequest) {
         email:               email               || null,
         documento_numero_oc: documento_numero_oc || null,
         revision_oc:         revision_oc != null ? Number(revision_oc) : null,
+        documento_numero_np: documento_numero_np || null,
+        revision_np:         revision_np != null ? Number(revision_np) : null,
         updated_at:          new Date().toISOString(),
       })
       .eq('id', 1)

@@ -39,6 +39,8 @@ type NP = {
   fecha_provision:                       string | null
   proveedor_regularizacion_nombre:       string | null
   proveedor_regularizacion_identificacion: string | null
+  // Spec CA-09/CA-13: condiciones mínimas para proveedores
+  condiciones_minimas: string | null
 }
 
 type OCVinculada = {
@@ -838,6 +840,11 @@ export default function DetalleNPPage() {
   const [reabriendo, setReabriendo]     = useState(false)
   const [errorReabrir, setErrorReabrir] = useState('')
 
+  // Spec CA-13: condiciones mínimas para proveedores
+  const [condicionesMinimas, setCondicionesMinimas]         = useState('')
+  const [guardandoCondiciones, setGuardandoCondiciones]     = useState(false)
+  const [msgCondiciones, setMsgCondiciones]                 = useState('')
+
   // Edición inline de NP rechazada
   const [modoEdicion, setModoEdicion]     = useState(false)
   const [editEnc, setEditEnc]             = useState<{
@@ -891,6 +898,7 @@ export default function DetalleNPPage() {
         setOcs(data.ocs ?? [])
         setCobertura(data.cobertura ?? null)
         setPuedeAprobar(data.puedeAprobar ?? false)
+        setCondicionesMinimas(data.np?.condiciones_minimas ?? '')
         setCargando(false)
       })
       .catch(() => { setError('Error de conexión'); setCargando(false) })
@@ -1045,6 +1053,10 @@ export default function DetalleNPPage() {
   // Spec: puede editar el creador (creado_por_id) o compras/admin; NP debe estar rechazada o devuelta
   const puedeEditarRechazada = (np?.estado === 'rechazada' || np?.estado === 'devuelta') &&
     (np.creado_por_id === userId || ['compras', 'admin'].includes(rol))
+  // Spec CA-12 / RN-01: acceso a exportación PDF/Excel
+  const puedeExportar = ['compras', 'admin'].includes(rol) ||
+    np.creado_por_id === userId ||
+    (rol === 'asistente_compras' && np.asignado_a === userId)
 
   if (cargando) return <div className="min-h-screen flex items-center justify-center text-slate-400">Cargando...</div>
   if (error || !np) return (
@@ -1083,6 +1095,21 @@ export default function DetalleNPPage() {
               >
                 🔓 Reabrir NP
               </button>
+            )}
+            {/* Spec CA-12: botones exportación PDF y Excel */}
+            {puedeExportar && (
+              <>
+                <a href={`/api/compras/nps/${id}/pdf`} download>
+                  <button className="text-xs px-3 py-1.5 rounded-lg border border-white/40 text-white hover:bg-white/10 transition-colors font-medium">
+                    ⬇ PDF
+                  </button>
+                </a>
+                <a href={`/api/compras/nps/${id}/excel`} download>
+                  <button className="text-xs px-3 py-1.5 rounded-lg border border-white/40 text-white hover:bg-white/10 transition-colors font-medium">
+                    ⬇ Excel
+                  </button>
+                </a>
+              </>
             )}
             <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium capitalize ${ESTADO_COLOR[np.estado] ?? ''}`}>
               {np.estado}
@@ -1271,6 +1298,53 @@ export default function DetalleNPPage() {
                   </tbody>
                 </table>
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Spec CA-09/CA-13: Condiciones mínimas para proveedores */}
+        {(['compras', 'admin'].includes(rol) || (np.condiciones_minimas && np.condiciones_minimas.trim())) && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base text-slate-700">Condiciones Mínimas para Proveedores</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {['compras', 'admin'].includes(rol) ? (
+                <div className="space-y-2">
+                  <Textarea
+                    value={condicionesMinimas}
+                    onChange={e => setCondicionesMinimas(e.target.value)}
+                    placeholder="Certificaciones (API, ASTM, ISO, CE, UL), fichas técnicas, muestras, garantías mínimas, normas SSO, etc."
+                    className="text-sm min-h-[80px]"
+                  />
+                  <div className="flex items-center gap-3">
+                    <Button
+                      onClick={async () => {
+                        setGuardandoCondiciones(true); setMsgCondiciones('')
+                        const res = await fetch(`/api/compras/nps/${id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ accion: 'actualizar_condiciones', condiciones_minimas: condicionesMinimas }),
+                        })
+                        const data = await res.json()
+                        setMsgCondiciones(data.success ? '✓ Guardado' : `Error: ${data.error}`)
+                        setGuardandoCondiciones(false)
+                      }}
+                      disabled={guardandoCondiciones}
+                      className="h-8 text-xs btn-primary"
+                    >
+                      {guardandoCondiciones ? 'Guardando...' : 'Guardar'}
+                    </Button>
+                    {msgCondiciones && (
+                      <span className={`text-xs ${msgCondiciones.startsWith('✓') ? 'text-green-600' : 'text-red-600'}`}>
+                        {msgCondiciones}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-700 whitespace-pre-wrap">{np.condiciones_minimas}</p>
+              )}
             </CardContent>
           </Card>
         )}

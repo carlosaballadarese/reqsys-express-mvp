@@ -17,12 +17,15 @@ type Empresa = {
   email:               string | null
   documento_numero_oc: string | null
   revision_oc:         string | null
+  documento_numero_np: string | null
+  revision_np:         string | null
 }
 
 export default function EmpresaPage() {
   const [form, setForm]         = useState<Empresa>({
     razon_social: '', ruc: '', direccion: '', contacto: '',
     telefono: '', email: '', documento_numero_oc: '', revision_oc: '',
+    documento_numero_np: '', revision_np: '',
   })
   const [guardando, setGuardando] = useState(false)
   const [msg, setMsg]             = useState('')
@@ -41,6 +44,8 @@ export default function EmpresaPage() {
           email:               data.email               ?? '',
           documento_numero_oc: data.documento_numero_oc ?? 'AL-L4-07-F01',
           revision_oc:         data.revision_oc != null  ? String(data.revision_oc) : '1',
+          documento_numero_np: data.documento_numero_np ?? 'AL-L4-07-F01',
+          revision_np:         data.revision_np != null  ? String(data.revision_np) : '1',
         })
         setCargando(false)
       })
@@ -154,6 +159,32 @@ export default function EmpresaPage() {
                   min={1}
                   value={form.revision_oc ?? ''}
                   onChange={e => setField('revision_oc', e.target.value)}
+                  className="mt-1 h-8 text-sm"
+                  placeholder="1"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t pt-4">
+            <p className="text-xs font-medium text-slate-500 mb-3 uppercase tracking-wide">Numeración de Documentos NP</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <Label className="text-xs">Código Formulario NP</Label>
+                <Input
+                  value={form.documento_numero_np ?? ''}
+                  onChange={e => setField('documento_numero_np', e.target.value)}
+                  className="mt-1 h-8 text-sm font-mono"
+                  placeholder="AL-L4-07-F01"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Revisión NP</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={form.revision_np ?? ''}
+                  onChange={e => setField('revision_np', e.target.value)}
                   className="mt-1 h-8 text-sm"
                   placeholder="1"
                 />

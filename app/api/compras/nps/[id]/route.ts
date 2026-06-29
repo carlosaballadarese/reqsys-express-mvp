@@ -246,16 +246,30 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params
-    const { accion, motivo } = await req.json()
-
-    if (!['aprobar', 'rechazar', 'devolver'].includes(accion)) {
-      return NextResponse.json({ error: 'Acción inválida' }, { status: 400 })
-    }
+    const body = await req.json()
+    const { accion, motivo, condiciones_minimas } = body
 
     // 1. Verificar permisos
     const supabase = await createSupabaseServerClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
+    // Spec CA-13: actualizar_condiciones — compras/admin en cualquier estado de NP
+    if (accion === 'actualizar_condiciones') {
+      const { data: perfil } = await adminClient().from('perfiles').select('rol').eq('id', user.id).single()
+      if (!perfil || !['admin', 'compras'].includes(perfil.rol))
+        return NextResponse.json({ error: 'Solo Compras o Admin pueden actualizar las condiciones' }, { status: 403 })
+      const { error: errUpd } = await adminClient()
+        .from('notas_pedido')
+        .update({ condiciones_minimas: condiciones_minimas ?? null })
+        .eq('id', id)
+      if (errUpd) return NextResponse.json({ error: errUpd.message }, { status: 500 })
+      return NextResponse.json({ success: true })
+    }
+
+    if (!['aprobar', 'rechazar', 'devolver'].includes(accion)) {
+      return NextResponse.json({ error: 'Acción inválida' }, { status: 400 })
+    }
 
     const { data: perfil } = await adminClient().from('perfiles').select('rol, nombre, email').eq('id', user.id).single()
     if (!perfil) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })

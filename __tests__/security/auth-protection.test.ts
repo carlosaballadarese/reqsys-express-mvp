@@ -1895,3 +1895,91 @@ describe('POST /api/compras/nps — HU-007 Regularización', () => {
     expect(puedeVerPrecioNP('asistente_compras', true, 'user-999', 'user-123')).toBe(true)
   })
 })
+
+// ── Sección 35: HU-008 — Exportación PDF y Excel de NPs (CA-15) ──────────────
+
+describe('GET /api/compras/nps/[id]/pdf — HU-008 CA-15', () => {
+  const { GET } = require('@/app/api/compras/nps/[id]/pdf/route')
+
+  it('CA-15 [1]: devuelve 401 sin sesión activa', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/nps/np-1/pdf'),
+      { params: Promise.resolve({ id: 'np-1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('CA-15 [3]: devuelve 403 para gerencia que no es creadora de la NP', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      // 1: perfil → gerencia
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'gerencia' }, error: null })
+      // 2: NP → creado_por_id diferente al user.id ('user-123'), asignado_a null
+      if (singleCalls === 2) return Promise.resolve({
+        data: { id: 'np-1', numero: 'NP-2026-0001', area: 'Operaciones',
+          creado_por_id: 'otro-user', asignado_a: null, es_regularizacion: false,
+          condiciones_minimas: null },
+        error: null,
+      })
+      return Promise.resolve({ data: null, error: null })
+    })
+    chain.then = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/nps/np-1/pdf'),
+      { params: Promise.resolve({ id: 'np-1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('CA-15 [4]: devuelve 200 para solicitante que es el creador de la NP', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      // 1: perfil → solicitante
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'solicitante' }, error: null })
+      // 2: NP → creado_por_id = 'user-123' (mismo que CON_SESION)
+      if (singleCalls === 2) return Promise.resolve({
+        data: { id: 'np-1', numero: 'NP-2026-0001', area: 'Operaciones',
+          clasificacion: null, prioridad: 'normal', tipo_compra: 'bienes', centro_costo: 'CC01',
+          descripcion_general: 'Test', created_at: '2026-06-01T00:00:00Z',
+          es_regularizacion: false, fecha_provision: null,
+          proveedor_regularizacion_nombre: null, proveedor_regularizacion_identificacion: null,
+          creado_por_id: 'user-123', solicitante_nombre: 'Juan Pérez', asignado_a: null,
+          aprobador_np_nombre: null, aprobador_np_area: null, condiciones_minimas: null },
+        error: null,
+      })
+      // 3: configuracion_empresa
+      return Promise.resolve({ data: { documento_numero_np: 'AL-L4-07-F01', revision_np: 1 }, error: null })
+    })
+    chain.then = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/nps/np-1/pdf'),
+      { params: Promise.resolve({ id: 'np-1' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toBe('application/pdf')
+  })
+})
+
+describe('GET /api/compras/nps/[id]/excel — HU-008 CA-15', () => {
+  const { GET } = require('@/app/api/compras/nps/[id]/excel/route')
+
+  it('CA-15 [2]: devuelve 401 sin sesión activa', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/nps/np-1/excel'),
+      { params: Promise.resolve({ id: 'np-1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+})
