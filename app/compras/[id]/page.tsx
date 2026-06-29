@@ -1055,8 +1055,8 @@ export default function DetalleNPPage() {
     (np.creado_por_id === userId || ['compras', 'admin'].includes(rol))
   // Spec CA-12 / RN-01: acceso a exportación PDF/Excel
   const puedeExportar = ['compras', 'admin'].includes(rol) ||
-    np.creado_por_id === userId ||
-    (rol === 'asistente_compras' && np.asignado_a === userId)
+    np?.creado_por_id === userId ||
+    (rol === 'asistente_compras' && np?.asignado_a === userId)
 
   if (cargando) return <div className="min-h-screen flex items-center justify-center text-slate-400">Cargando...</div>
   if (error || !np) return (
