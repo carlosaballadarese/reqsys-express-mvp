@@ -76,8 +76,9 @@ export async function GET(
       .from('perfiles').select('rol').eq('id', user.id).single()
     const rol = perfil?.rol ?? ''
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [{ data: np }, { data: items }, { data: config }] = await Promise.all([
-      adminClient().from('notas_pedido').select(NP_SELECT).eq('id', id).single(),
+      adminClient().from('notas_pedido').select(NP_SELECT).eq('id', id).single() as any,
       adminClient().from('items_np')
         .select('linea, tipo, codigo, descripcion, unidad, cantidad, precio_unitario, total_estimado, informacion_adicional, proveedor_sugerido, fecha_requerida')
         .eq('nota_pedido_id', id).order('linea'),
