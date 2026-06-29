@@ -116,9 +116,9 @@ export function NPDocumento({ np, items, mostrarPrecios, config, logoUrl }: {
   const iva         = totalSinIVA * 0.15
   const totalConIVA = totalSinIVA + iva
 
-  // Spec CA-05: checkboxes de regularización
-  const regNo = `${np.es_regularizacion ? '☐' : '☑'} NO`
-  const regSi = `${np.es_regularizacion ? '☑' : '☐'} SÍ`
+  // Helvetica no tiene glifos ☐/☑ — usar ASCII seguro
+  const regNo = `${np.es_regularizacion ? '[ ]' : '[X]'} NO`
+  const regSi = `${np.es_regularizacion ? '[X]' : '[ ]'} SÍ`
 
   return (
     <Document>
