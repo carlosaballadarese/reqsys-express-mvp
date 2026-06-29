@@ -31,7 +31,7 @@ const formSchema = z.object({
   descripcion_general: z.string().min(10, 'Mínimo 10 caracteres'),
   items: z.array(itemSchema).min(1, 'Agrega al menos un ítem'),
   // Spec CA-03 / CA-05: campos de regularización
-  es_regularizacion:                      z.boolean().default(false),
+  es_regularizacion:                      z.boolean(),
   fecha_provision:                        z.string().optional(),
   proveedor_regularizacion_nombre:        z.string().optional(),
   proveedor_regularizacion_identificacion: z.string().optional(),
