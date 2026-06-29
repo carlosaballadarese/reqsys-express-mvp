@@ -18,16 +18,6 @@ function tieneAccesoExportacion(
   return false
 }
 
-const NP_SELECT = [
-  'id, numero, area, clasificacion, prioridad, tipo_compra, centro_costo',
-  'descripcion_general, created_at',
-  'es_regularizacion, fecha_provision',
-  'proveedor_regularizacion_nombre, proveedor_regularizacion_identificacion',
-  'creado_por_id, solicitante_nombre, asignado_a',
-  'aprobador_np_nombre, aprobador_np_area',
-  'condiciones_minimas',
-].join(', ')
-
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -44,8 +34,8 @@ export async function GET(
     const rol = perfil?.rol ?? ''
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [{ data: np }, { data: items }, { data: config }] = await Promise.all([
-      adminClient().from('notas_pedido').select(NP_SELECT).eq('id', id).single() as any,
+    const [{ data: np, error: npError }, { data: items }, { data: config }] = await Promise.all([
+      adminClient().from('notas_pedido').select('*').eq('id', id).single() as any,
       adminClient().from('items_np')
         .select('linea, tipo, codigo, descripcion, unidad, cantidad, precio_unitario, total_estimado, informacion_adicional, proveedor_sugerido, fecha_requerida')
         .eq('nota_pedido_id', id).order('linea'),
@@ -53,7 +43,10 @@ export async function GET(
         .select('documento_numero_np, revision_np').eq('id', 1).single(),
     ])
 
-    if (!np) return NextResponse.json({ error: 'NP no encontrada' }, { status: 404 })
+    if (!np) {
+      console.error('NP PDF: NP no encontrada o error Supabase', { id, npError })
+      return NextResponse.json({ error: 'NP no encontrada' }, { status: 404 })
+    }
 
     // Spec CA-02 / RN-01
     if (!tieneAccesoExportacion(np, user.id, rol))

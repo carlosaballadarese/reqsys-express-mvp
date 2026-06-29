@@ -47,19 +47,8 @@ function tieneAccesoExportacion(
   return false
 }
 
-const NP_SELECT = [
-  'id, numero, area, clasificacion, prioridad, tipo_compra, centro_costo',
-  'descripcion_general, created_at',
-  'es_regularizacion, fecha_provision',
-  'proveedor_regularizacion_nombre, proveedor_regularizacion_identificacion',
-  'creado_por_id, solicitante_nombre, asignado_a',
-  'aprobador_np_nombre, aprobador_np_area',
-  'condiciones_minimas',
-].join(', ')
-
 // Columnas fijas A-K (11). H e I son precio; se dejan vacías cuando !mostrarPrecios
 const LAST_COL = 'K'
-const TOTAL_COLS = 11
 
 export async function GET(
   _req: NextRequest,
@@ -77,8 +66,8 @@ export async function GET(
     const rol = perfil?.rol ?? ''
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [{ data: np }, { data: items }, { data: config }] = await Promise.all([
-      adminClient().from('notas_pedido').select(NP_SELECT).eq('id', id).single() as any,
+    const [{ data: np, error: npError }, { data: items }, { data: config }] = await Promise.all([
+      adminClient().from('notas_pedido').select('*').eq('id', id).single() as any,
       adminClient().from('items_np')
         .select('linea, tipo, codigo, descripcion, unidad, cantidad, precio_unitario, total_estimado, informacion_adicional, proveedor_sugerido, fecha_requerida')
         .eq('nota_pedido_id', id).order('linea'),
@@ -86,7 +75,10 @@ export async function GET(
         .select('documento_numero_np, revision_np').eq('id', 1).single(),
     ])
 
-    if (!np) return NextResponse.json({ error: 'NP no encontrada' }, { status: 404 })
+    if (!np) {
+      console.error('NP Excel: NP no encontrada o error Supabase', { id, npError })
+      return NextResponse.json({ error: 'NP no encontrada' }, { status: 404 })
+    }
 
     if (!tieneAccesoExportacion(np, user.id, rol))
       return NextResponse.json({ error: 'Sin acceso' }, { status: 403 })
