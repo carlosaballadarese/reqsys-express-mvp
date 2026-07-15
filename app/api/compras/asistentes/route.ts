@@ -16,10 +16,12 @@ export async function GET(_req: NextRequest) {
   if (!perfil || !['compras', 'admin'].includes(perfil.rol))
     return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
 
+  // Spec: HU-010 CA-02, CA-03 — comprador puede ser asistente_compras o compras
+  // (incluido el propio Coordinador). admin queda excluido por no estar en la lista.
   const { data, error } = await adminClient()
     .from('perfiles')
     .select('id, nombre, email')
-    .eq('rol', 'asistente_compras')
+    .in('rol', ['asistente_compras', 'compras'])
     .eq('activo', true)
     .order('nombre')
 

@@ -61,6 +61,11 @@ const ESTADO_LABEL: Record<string, string> = {
   completada:       'Completada',
 }
 
+// Spec: HU-010 — espejo de ESTADOS_NP_ABIERTA_A_OC (lib/np-estado.ts). No se importa
+// directamente porque este archivo es 'use client' y ese módulo toca adminClient()
+// (service-role key), igual que el patrón ya usado en app/compras/[id]/page.tsx.
+const ESTADOS_NP_ABIERTA_A_OC = ['aprobada', 'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada']
+
 const PRIORIDAD_BADGE: Record<string, string> = {
   excepcional: 'bg-red-100 text-red-800',
   alta:        'bg-orange-100 text-orange-800',
@@ -358,7 +363,10 @@ export default function ComprasPage() {
                         {/* Botón Asignar para Compras */}
                         {esCompras && (
                           <td className="py-3">
-                            {np.estado === 'aprobada' && !np.convertida && (
+                            {/* Spec: HU-010 — antes solo 'aprobada'; una NP con comprador ya
+                                asignado deja ese Estado de inmediato (HU-009) y el botón
+                                desaparecía, bloqueando reasignar/quitar asignación. */}
+                            {ESTADOS_NP_ABIERTA_A_OC.includes(np.estado) && !np.convertida && (
                               <button
                                 onClick={() => abrirAsignar(np)}
                                 className="text-xs px-2 py-1 rounded border border-slate-300 text-slate-600 hover:bg-slate-100 transition-colors whitespace-nowrap"

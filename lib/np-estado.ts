@@ -117,7 +117,11 @@ export async function pausarSLAPorCierre(np_id: string): Promise<void> {
 }
 
 async function calcularEstadoDestino(np: NPResumen): Promise<Estado> {
-  if (!np.asignado_a) return 'aprobada'
+  // Spec: HU-010 RN-04 — sin comprador, se conserva el Estado actual (no se fuerza
+  // 'aprobada'). Retrocompatible: una NP nunca asignada ya tiene estado='aprobada'.
+  // El caso nuevo es una NP que venía de en_gestion/oc_directa/etc. y quedó sin
+  // comprador por un tomar_control (HU-010 CA-09) — no debe retroceder ni pausar el SLA.
+  if (!np.asignado_a) return np.estado as Estado
 
   const { data: itemsNp } = await adminClient()
     .from('items_np')

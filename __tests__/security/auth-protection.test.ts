@@ -42,6 +42,9 @@ const mockPausarSLAPorCierre = jest.fn((..._args: unknown[]) => Promise.resolve(
 jest.mock('@/lib/np-estado', () => ({
   actualizarEstadoNP:  (...args: unknown[]) => mockActualizarEstadoNP(...args),
   pausarSLAPorCierre:  (...args: unknown[]) => mockPausarSLAPorCierre(...args),
+  // Spec: HU-010 — valor real (no mockeado), varios endpoints lo usan como set de
+  // pertenencia en código de aplicación (no solo como argumento de query Supabase).
+  ESTADOS_NP_ABIERTA_A_OC: ['aprobada', 'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada'],
 }))
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -363,6 +366,18 @@ describe('GET /api/compras/asistentes', () => {
     const res = await GET(makeRequest('http://localhost/api/compras/asistentes'))
     expect(res.status).toBe(200)
   })
+
+  // Spec: HU-010 CA-02, CA-03 — el listado incluye asistente_compras y compras (admin excluido)
+  it('filtra por rol asistente_compras y compras (no solo asistente_compras)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'admin' }, error: null }))
+    chain.order  = jest.fn(() => Promise.resolve({ data: [], error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/compras/asistentes'))
+    expect(res.status).toBe(200)
+    expect(chain.in).toHaveBeenCalledWith('rol', ['asistente_compras', 'compras'])
+  })
 })
 
 // ── 12. Asignar NP — solo compras/admin ──────────────────────────────────────
@@ -395,6 +410,241 @@ describe('POST /api/compras/nps/[id]/asignar', () => {
       { params: Promise.resolve({ id: 'np-123' }) }
     )
     expect(res.status).toBe(403)
+  })
+
+  // Spec: HU-010 CA-04 — primera asignación invoca actualizarEstadoNP()
+  it('primera asignación (200) invoca actualizarEstadoNP()', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Compras', email: 'c@arlift.com' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({
+        data: { id: 'np-123', numero: 'NP-2026-0001', estado: 'aprobada', convertida: false, area: 'TI', asignado_a: null }, error: null,
+      })
+      return Promise.resolve({ data: { id: 'ast-1', nombre: 'Ana', email: 'ana@arlift.com' }, error: null })
+    })
+    chain.update = jest.fn(() => chain)
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-123/asignar', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'asignar', asistente_id: 'ast-1' }),
+      }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-123')
+  })
+
+  // Spec: HU-010 CA-07 — regresión del guard bloqueante: reasignar ya NO debe dar 400
+  // para una NP que HU-009 movió fuera de 'aprobada' (afectaba a producción real)
+  it('reasignar (200) una NP en en_gestion — antes bloqueado por el guard viejo', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Compras', email: 'c@arlift.com' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({
+        data: { id: 'np-123', numero: 'NP-2026-0001', estado: 'en_gestion', convertida: false, area: 'TI', asignado_a: 'ast-1' }, error: null,
+      })
+      return Promise.resolve({ data: { id: 'ast-2', nombre: 'Beto', email: 'beto@arlift.com' }, error: null })
+    })
+    chain.update = jest.fn(() => chain)
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-123/asignar', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'reasignar', asistente_id: 'ast-2' }),
+      }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(200)
+  })
+
+  // Spec: HU-010 CA-09 — tomar_control sobre NP en en_gestion ya NO debe dar 400
+  it('tomar_control (200) una NP en en_gestion — SLA y Estado quedan intactos (RN-04)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Compras', email: 'c@arlift.com' }, error: null })
+      return Promise.resolve({
+        data: { id: 'np-123', numero: 'NP-2026-0001', estado: 'en_gestion', convertida: false, area: 'TI', asignado_a: 'ast-1' }, error: null,
+      })
+    })
+    chain.update = jest.fn(() => chain)
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-123/asignar', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'tomar_control' }),
+      }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-123')
+  })
+
+  // Spec: HU-010 CA-01 — no se puede "asignar" (vs. reasignar) si ya tiene comprador
+  it('devuelve 400 al intentar "asignar" una NP que ya tiene comprador', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Compras', email: 'c@arlift.com' }, error: null })
+      return Promise.resolve({
+        data: { id: 'np-123', numero: 'NP-2026-0001', estado: 'en_gestion', convertida: false, area: 'TI', asignado_a: 'ast-1' }, error: null,
+      })
+    })
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-123/asignar', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'asignar', asistente_id: 'ast-2' }),
+      }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(400)
+  })
+
+  // Spec: HU-010 CA-09 — no se puede reasignar/tomar_control si no hay comprador
+  it('devuelve 400 al reasignar una NP sin comprador asignado', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Compras', email: 'c@arlift.com' }, error: null })
+      return Promise.resolve({
+        data: { id: 'np-123', numero: 'NP-2026-0001', estado: 'aprobada', convertida: false, area: 'TI', asignado_a: null }, error: null,
+      })
+    })
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-123/asignar', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'reasignar', asistente_id: 'ast-2' }),
+      }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(400)
+  })
+
+  // Spec: HU-010 CA-02, CA-03 — lookup de comprador amplía el filtro de rol
+  it('el lookup de comprador filtra por rol asistente_compras o compras (CA-03: compras se autoasigna)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Compras', email: 'c@arlift.com' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({
+        data: { id: 'np-123', numero: 'NP-2026-0001', estado: 'aprobada', convertida: false, area: 'TI', asignado_a: null }, error: null,
+      })
+      return Promise.resolve({ data: { id: 'user-123', nombre: 'Compras', email: 'c@arlift.com' }, error: null })
+    })
+    chain.update = jest.fn(() => chain)
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-123/asignar', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'asignar', asistente_id: 'user-123' }),
+      }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(chain.in).toHaveBeenCalledWith('rol', ['asistente_compras', 'compras'])
+  })
+
+  // Spec: HU-010 CA-04 — la Acción "Asignada" (orden 1) se marca automáticamente
+  // en todas las líneas de la NP al asignar (gap detectado en Fase 5 SDD)
+  it('marca automáticamente la Acción "Asignada" en items_np al asignar (CA-04)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Compras', email: 'c@arlift.com' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({
+        data: { id: 'np-123', numero: 'NP-2026-0001', estado: 'aprobada', convertida: false, area: 'TI', asignado_a: null, prioridad: 'media' }, error: null,
+      })
+      if (singleCalls === 3) return Promise.resolve({ data: { id: 'ast-1', nombre: 'Ana', email: 'ana@arlift.com' }, error: null })
+      return Promise.resolve({ data: { id: 'accion-asignada-uuid' }, error: null })
+    })
+    const updateCalls: any[] = []
+    chain.update = jest.fn((payload: any) => { updateCalls.push(payload); return chain })
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-123/asignar', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'asignar', asistente_id: 'ast-1' }),
+      }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(200)
+    const itemsUpdate = updateCalls.find((c: any) => c.accion_id === 'accion-asignada-uuid')
+    expect(itemsUpdate).toBeDefined()
+    expect(itemsUpdate.accion_marcada_por).toBe('ast-1')
+  })
+
+  // Spec: HU-010 CA-04 + RN-05 (HU-009) — Excepcional → oc_directa, no usa Acciones
+  it('NO marca Acción al asignar con Prioridad Excepcional (RN-05 de HU-009)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Compras', email: 'c@arlift.com' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({
+        data: { id: 'np-123', numero: 'NP-2026-0001', estado: 'aprobada', convertida: false, area: 'TI', asignado_a: null, prioridad: 'excepcional' }, error: null,
+      })
+      return Promise.resolve({ data: { id: 'ast-1', nombre: 'Ana', email: 'ana@arlift.com' }, error: null })
+    })
+    const updateCalls: any[] = []
+    chain.update = jest.fn((payload: any) => { updateCalls.push(payload); return chain })
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-123/asignar', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'asignar', asistente_id: 'ast-1' }),
+      }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(updateCalls.some((c: any) => 'accion_id' in c)).toBe(false)
+  })
+
+  // Spec: HU-010 CA-01 — asignar sobre una NP que quedó en en_gestion sin comprador
+  // (tras un tomar_control previo), no solo el caso "aprobada" nunca asignada
+  it('asignar (200) una NP en en_gestion sin comprador (post tomar_control), no reinicia sla_iniciado_en', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Compras', email: 'c@arlift.com' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({
+        data: { id: 'np-123', numero: 'NP-2026-0001', estado: 'en_gestion', convertida: false, area: 'TI', asignado_a: null, prioridad: 'media' }, error: null,
+      })
+      if (singleCalls === 3) return Promise.resolve({ data: { id: 'ast-2', nombre: 'Beto', email: 'beto@arlift.com' }, error: null })
+      return Promise.resolve({ data: { id: 'accion-asignada-uuid' }, error: null })
+    })
+    chain.update = jest.fn(() => chain)
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-123/asignar', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'asignar', asistente_id: 'ast-2' }),
+      }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-123')
   })
 })
 

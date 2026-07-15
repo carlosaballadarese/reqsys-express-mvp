@@ -89,6 +89,21 @@ describe('actualizarEstadoNP — CA-03 (sin comprador asignado)', () => {
     await actualizarEstadoNP('np-1')
     expect(updateSpy).not.toHaveBeenCalled()
   })
+
+  // Spec: HU-010 CA-09, RN-04 — tomar_control no debe retroceder el Estado ni pausar el SLA
+  it('permanece en en_gestion (no retrocede a aprobada) si queda sin comprador tras un tomar_control', async () => {
+    const updateSpy = jest.fn()
+    setupMock({ np: { ...npBase, estado: 'en_gestion', asignado_a: null }, updateSpy })
+    await actualizarEstadoNP('np-1')
+    expect(updateSpy).not.toHaveBeenCalled()
+  })
+
+  it('permanece en oc_directa (no retrocede a aprobada) si queda sin comprador tras un tomar_control', async () => {
+    const updateSpy = jest.fn()
+    setupMock({ np: { ...npBase, estado: 'oc_directa', asignado_a: null, prioridad: 'excepcional' }, updateSpy })
+    await actualizarEstadoNP('np-1')
+    expect(updateSpy).not.toHaveBeenCalled()
+  })
 })
 
 describe('actualizarEstadoNP — CA-08 (Prioridad Excepcional → oc_directa)', () => {

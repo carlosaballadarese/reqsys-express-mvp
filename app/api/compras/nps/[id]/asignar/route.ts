@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { adminClient } from '@/lib/supabase/clients'
 import { transporter } from '@/lib/mailer'
+import { actualizarEstadoNP, ESTADOS_NP_ABIERTA_A_OC } from '@/lib/np-estado'
 
 export async function POST(
   req: NextRequest,
@@ -35,26 +36,37 @@ export async function POST(
   // Verificar NP
   const { data: np, error: npErr } = await adminClient()
     .from('notas_pedido')
-    .select('id, numero, estado, convertida, area, solicitante_nombre')
+    .select('id, numero, estado, convertida, area, solicitante_nombre, asignado_a, prioridad')
     .eq('id', id)
     .single()
 
   if (npErr || !np) return NextResponse.json({ error: 'NP no encontrada' }, { status: 404 })
 
-  if (np.estado !== 'aprobada')
-    return NextResponse.json({ error: 'Solo se pueden asignar NPs aprobadas' }, { status: 400 })
+  // Spec: HU-010 — corrección del guard bloqueante (hallazgo Fase 1). El guard viejo
+  // (estado !== 'aprobada') bloqueaba reasignar/tomar_control apenas la NP salía de
+  // 'aprobada' por HU-009, que ocurre automáticamente en la primera asignación.
+  if (!ESTADOS_NP_ABIERTA_A_OC.includes(np.estado as typeof ESTADOS_NP_ABIERTA_A_OC[number]))
+    return NextResponse.json({ error: 'La NP no está en un Estado que permita gestionar su comprador' }, { status: 400 })
 
   if (np.convertida)
     return NextResponse.json({ error: 'La NP ya fue convertida a OC' }, { status: 400 })
 
+  // Spec: HU-010 CA-01, CA-09 — asignar requiere que no haya comprador; reasignar/
+  // tomar_control requieren que sí lo haya.
+  if (accion === 'asignar' && np.asignado_a)
+    return NextResponse.json({ error: 'La NP ya tiene comprador asignado, usa reasignar' }, { status: 400 })
+  if ((accion === 'reasignar' || accion === 'tomar_control') && !np.asignado_a)
+    return NextResponse.json({ error: 'La NP no tiene comprador asignado' }, { status: 400 })
+
   // Para asignar/reasignar: verificar que el asistente_id existe y tiene el rol correcto
+  // Spec: HU-010 CA-02, CA-03 — comprador puede ser asistente_compras o compras
   let asistente: { id: string; nombre: string; email: string } | null = null
   if (accion !== 'tomar_control') {
     const { data: ast } = await adminClient()
       .from('perfiles')
       .select('id, nombre, email')
       .eq('id', asistente_id)
-      .eq('rol', 'asistente_compras')
+      .in('rol', ['asistente_compras', 'compras'])
       .eq('activo', true)
       .single()
 
@@ -81,19 +93,52 @@ export async function POST(
     tomar_control: 'toma_control',
   }
 
-  const notasEvento: Record<string, string> = {
-    asignar:       `Asignada a ${asistente!.nombre} (${asistente!.email})`,
-    reasignar:     `Reasignada a ${asistente!.nombre} (${asistente!.email})`,
-    tomar_control: `Control tomado por ${perfil.nombre} (Compras)`,
-  }
+  // Corrección de bug preexistente (no relacionado a HU-010, detectado por el nuevo
+  // test de tomar_control): el objeto literal anterior evaluaba las 3 claves de forma
+  // eager, incluidas asignar/reasignar (que dereferencian asistente!.nombre) aunque
+  // asistente sea null en tomar_control — crasheaba con 500 en todo intento de
+  // "Quitar asignación", desde la creación de este endpoint.
+  const notaEvento = accion === 'tomar_control'
+    ? `Control tomado por ${perfil.nombre} (Compras)`
+    : accion === 'reasignar'
+      ? `Reasignada a ${asistente!.nombre} (${asistente!.email})`
+      : `Asignada a ${asistente!.nombre} (${asistente!.email})`
 
   await adminClient().from('historial_np').insert({
     np_id:        id,
     estado:       tipoEvento[accion!],
     actor_email:  perfil.email,
     actor_nombre: perfil.nombre,
-    notas:        notasEvento[accion!],
+    notas:        notaEvento,
   })
+
+  // Spec: HU-010 RN-01 — las 3 acciones invocan actualizarEstadoNP() al final.
+  // Primera asignación: transiciona a en_gestion/oc_directa y fija sla_iniciado_en.
+  // Reasignar/tomar_control: no-op para el Estado y el SLA (RN-04/CA-09 de HU-010).
+  await actualizarEstadoNP(id).catch(console.error)
+
+  // Spec: HU-010 CA-04 — al asignar (no en reasignar/tomar_control), la Acción
+  // "Asignada" (orden 1) se marca automáticamente en todas las líneas de la NP.
+  // No aplica si Prioridad=Excepcional (Estado destino oc_directa — RN-05 de HU-009,
+  // esa NP no usa Acciones). Idempotente: si ya estaba marcada, sobreescribe el mismo valor.
+  if (accion === 'asignar' && np.prioridad !== 'excepcional') {
+    const { data: accionAsignada } = await adminClient()
+      .from('acciones_gestion')
+      .select('id')
+      .eq('orden', 1)
+      .single()
+
+    if (accionAsignada) {
+      await adminClient()
+        .from('items_np')
+        .update({
+          accion_id:         accionAsignada.id,
+          accion_marcada_en: new Date().toISOString(),
+          accion_marcada_por: asistente!.id,
+        })
+        .eq('nota_pedido_id', id)
+    }
+  }
 
   // Email al asistente en asignar/reasignar
   if (accion !== 'tomar_control' && asistente) {
