@@ -49,6 +49,26 @@ type DashOCData = {
 
 // ─── Constantes de leyenda ────────────────────────────────────────────────────
 
+// Spec: HU-009 — notas_pedido.estado en la sección Cobertura ya no es solo aprobada/completada
+const ESTADO_COBERTURA_BADGE: Record<string, string> = {
+  aprobada:         'bg-green-100 text-green-700',
+  en_gestion:       'bg-cyan-100 text-cyan-700',
+  oc_directa:       'bg-orange-100 text-orange-700',
+  oc_generada:      'bg-indigo-100 text-indigo-700',
+  oc_en_aprobacion: 'bg-purple-100 text-purple-700',
+  oc_aprobada:      'bg-teal-100 text-teal-700',
+  completada:       'bg-teal-100 text-teal-700',
+}
+const ESTADO_COBERTURA_LABEL: Record<string, string> = {
+  aprobada:         'Aprobada',
+  en_gestion:       'En gestión',
+  oc_directa:       'OC directa',
+  oc_generada:      'OC generada',
+  oc_en_aprobacion: 'OC en aprobación',
+  oc_aprobada:      'OC aprobada',
+  completada:       'Completada',
+}
+
 const FILTROS_GASTO = [
   { key: 'activas',       label: 'Activas',       desc: 'En proceso, en aprobación y aprobadas — todo lo que no fue rechazado ni cancelado' },
   { key: 'aprobadas',     label: 'Aprobadas',     desc: 'Solo OCs con pago ya confirmado por el aprobador' },
@@ -512,11 +532,9 @@ export default function DashboardOcsPage() {
                               <td className="py-2 pr-3 text-xs text-slate-600 max-w-[120px] truncate">{np.solicitante_nombre}</td>
                               <td className="py-2 pr-3 text-center">
                                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                                  np.estado === 'completada'
-                                    ? 'bg-teal-100 text-teal-700'
-                                    : 'bg-green-100 text-green-700'
+                                  ESTADO_COBERTURA_BADGE[np.estado] ?? 'bg-green-100 text-green-700'
                                 }`}>
-                                  {np.estado}
+                                  {ESTADO_COBERTURA_LABEL[np.estado] ?? np.estado}
                                 </span>
                               </td>
                               <td className="py-2 pr-3 text-right text-xs font-mono">{np.total_solicitado}</td>

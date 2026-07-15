@@ -31,12 +31,34 @@ type NP = {
 type Asistente = { id: string; nombre: string; email: string }
 
 const ESTADO_BADGE: Record<string, string> = {
-  borrador:   'bg-slate-100 text-slate-500',
-  pendiente:  'bg-yellow-100 text-yellow-800',
-  aprobada:   'bg-green-100 text-green-800',
-  rechazada:  'bg-red-100 text-red-800',
-  devuelta:   'bg-amber-100 text-amber-800',
-  convertida: 'bg-blue-100 text-blue-800',
+  borrador:         'bg-slate-100 text-slate-500',
+  pendiente:        'bg-yellow-100 text-yellow-800',
+  aprobada:         'bg-green-100 text-green-800',
+  rechazada:        'bg-red-100 text-red-800',
+  devuelta:         'bg-amber-100 text-amber-800',
+  convertida:       'bg-blue-100 text-blue-800',
+  en_gestion:       'bg-cyan-100 text-cyan-800',
+  oc_directa:       'bg-orange-100 text-orange-800',
+  oc_generada:      'bg-indigo-100 text-indigo-800',
+  oc_en_aprobacion: 'bg-purple-100 text-purple-800',
+  oc_aprobada:      'bg-teal-100 text-teal-800',
+  completada:       'bg-teal-100 text-teal-800',
+}
+
+// Spec: HU-009 — notas_pedido.estado ya no es solo el conjunto original; se
+// muestran con etiqueta legible en vez del valor crudo (evita "en_gestion" literal).
+const ESTADO_LABEL: Record<string, string> = {
+  borrador:         'Borrador',
+  pendiente:        'En aprobación',
+  aprobada:         'Aprobada',
+  rechazada:        'Rechazada',
+  devuelta:         'Devuelta',
+  en_gestion:       'En gestión',
+  oc_directa:       'OC directa',
+  oc_generada:      'OC generada',
+  oc_en_aprobacion: 'OC en aprobación',
+  oc_aprobada:      'OC aprobada',
+  completada:       'Completada',
 }
 
 const PRIORIDAD_BADGE: Record<string, string> = {
@@ -46,7 +68,10 @@ const PRIORIDAD_BADGE: Record<string, string> = {
   baja:        'bg-slate-100 text-slate-600',
 }
 
-const ESTADOS = ['todos', 'borrador', 'pendiente', 'aprobada', 'rechazada', 'devuelta']
+const ESTADOS = [
+  'todos', 'borrador', 'pendiente', 'aprobada', 'rechazada', 'devuelta',
+  'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada',
+]
 
 export default function ComprasPage() {
   const [nps, setNps]           = useState<NP[]>([])
@@ -200,7 +225,7 @@ export default function ComprasPage() {
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm"
               >
                 {ESTADOS.map(e => (
-                  <option key={e} value={e}>{e === 'todos' ? 'Todos los estados' : e.charAt(0).toUpperCase() + e.slice(1)}</option>
+                  <option key={e} value={e}>{e === 'todos' ? 'Todos los estados' : (ESTADO_LABEL[e] ?? e)}</option>
                 ))}
               </select>
               <select
@@ -281,8 +306,8 @@ export default function ComprasPage() {
                         <td className="py-3 pr-4 text-slate-600 text-xs capitalize">{np.tipo_compra}</td>
                         {puedeVerPrecio && <td className="py-3 pr-4 text-right font-medium">{np.total_estimado != null ? `$${Number(np.total_estimado).toFixed(2)}` : '—'}</td>}
                         <td className="py-3 pr-4">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${ESTADO_BADGE[np.estado] ?? ''}`}>
-                            {np.estado}
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${ESTADO_BADGE[np.estado] ?? ''}`}>
+                            {ESTADO_LABEL[np.estado] ?? np.estado}
                           </span>
                         </td>
                         <td className="py-3 pr-4">

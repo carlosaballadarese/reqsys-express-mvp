@@ -8,7 +8,7 @@ export type NpCobertura = {
   id:                     string
   numero:                 string
   area:                   string
-  estado:                 'aprobada' | 'completada'
+  estado:                 string
   prioridad:              string
   solicitante_nombre:     string
   created_at:             string

@@ -22,11 +22,17 @@ export async function GET(req: NextRequest) {
     const areaParam = req.nextUrl.searchParams.get('area')
     const yearParam = req.nextUrl.searchParams.get('year')
 
-    // Spec CA1: NPs en estados aprobada y completada
+    // Spec CA1: NPs en estados aprobada y completada, más los Estados de gestión de
+    // HU-009 (en_gestion/oc_directa/oc_generada/oc_en_aprobacion/oc_aprobada) — una NP
+    // con comprador asignado deja 'aprobada' de inmediato pero sigue siendo parte del
+    // portafolio activo que este dashboard debe mostrar.
     let npQuery = adminClient()
       .from('notas_pedido')
       .select('id, numero, area, estado, prioridad, solicitante_nombre, created_at, completado_manualmente')
-      .in('estado', ['aprobada', 'completada'])
+      .in('estado', [
+        'aprobada', 'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada',
+        'completada',
+      ])
 
     // D2: asistente_compras ve solo las NPs que Compras le asignó
     if (perfil.rol === 'asistente_compras') {
@@ -101,7 +107,7 @@ export async function GET(req: NextRequest) {
         id:                    np.id,
         numero:                np.numero,
         area:                  np.area,
-        estado:                np.estado as 'aprobada' | 'completada',
+        estado:                np.estado as string,
         prioridad:             np.prioridad,
         solicitante_nombre:    np.solicitante_nombre,
         created_at:            np.created_at,
