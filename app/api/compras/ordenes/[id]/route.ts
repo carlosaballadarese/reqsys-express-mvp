@@ -3,6 +3,7 @@ import { registrarAuditoria } from '@/lib/auditoria'
 import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { verificarSobrecompra, autoCompletarNP, validarEnlaceYJustificacion } from '@/lib/np-cobertura'
+import { actualizarEstadoNP } from '@/lib/np-estado'
 
 
 export async function GET(
@@ -182,6 +183,9 @@ export async function PUT(
       const { data: np } = await adminClient()
         .from('notas_pedido').select('estado').eq('id', nota_pedido_id).single()
       if (np) await autoCompletarNP(nota_pedido_id, np.estado).catch(console.error)
+
+      // Spec: HU-009 CA-19 (Tarea 19) — recalcula el Estado de la NP tras editar la OC
+      await actualizarEstadoNP(nota_pedido_id).catch(console.error)
     }
 
     const { data: ocActual } = await adminClient()

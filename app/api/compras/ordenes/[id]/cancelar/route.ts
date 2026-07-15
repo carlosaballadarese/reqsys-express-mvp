@@ -3,6 +3,7 @@ import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { calcularCoberturaNP } from '@/lib/np-cobertura'
+import { actualizarEstadoNP } from '@/lib/np-estado'
 
 export async function POST(
   req: NextRequest,
@@ -146,6 +147,10 @@ export async function POST(
           np_revertida = true
         }
       }
+
+      // Spec: HU-009 CA-19, RN-02+RN-04 (Tarea 21) — recalcula el Estado de la NP
+      // (excluyendo ya la OC cancelada); no-op si la NP quedó en 'completada'.
+      await actualizarEstadoNP(oc.nota_pedido_id).catch(console.error)
     }
 
     // ── Auditoría (no crítica — no revierte) ─────────────────────────────────

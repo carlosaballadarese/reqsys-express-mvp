@@ -180,6 +180,8 @@ export default function NuevaNotaPedido() {
   const [estado, setEstado]           = useState<EstadoEnvio>('idle')
   const [numeroNP, setNumeroNP]       = useState('')
   const [errorMsg, setErrorMsg]       = useState('')
+  // Spec: HU-009 CA-01/CA-13 — distingue el mensaje de éxito según la acción realizada
+  const [accionRealizada, setAccionRealizada] = useState<'borrador' | 'enviar'>('enviar')
   const [areas, setAreas]             = useState<string[]>([])
   const [unidades, setUnidades]       = useState<string[]>(['EA'])
   const [puedeVerPrecio, setPuedeVerPrecio] = useState(false)
@@ -243,7 +245,8 @@ export default function NuevaNotaPedido() {
     setModalConfirmar(true)
   }
 
-  async function onSubmit(data: FormData) {
+  // Spec: HU-009 CA-13 — accion 'enviar' (default, comportamiento actual) o 'borrador'
+  async function onSubmit(data: FormData, accion: 'borrador' | 'enviar' = 'enviar') {
     setEstado('enviando')
     setErrorMsg('')
     const itemsPayload: ItemPayload[] = data.items.map((item) => ({
@@ -260,6 +263,7 @@ export default function NuevaNotaPedido() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          accion,
           encabezado: {
             ...data,
             es_regularizacion:                     data.es_regularizacion,
@@ -273,6 +277,7 @@ export default function NuevaNotaPedido() {
       const result = await res.json()
       if (result.success) {
         setNumeroNP(result.numero)
+        setAccionRealizada(accion)
         setEstado('exitoso')
         reset()
       } else {
@@ -285,17 +290,30 @@ export default function NuevaNotaPedido() {
     }
   }
 
+  // Spec: HU-009 CA-13 — "Guardar borrador" no requiere modal de confirmación
+  // (no envía email ni notifica a nadie), a diferencia de "Enviar a aprobación".
+  const handleGuardarBorrador = handleSubmit((data) => onSubmit(data, 'borrador'))
+
   if (estado === 'exitoso') {
+    const esBorrador = accionRealizada === 'borrador'
     return (
       <div className="flex items-center justify-center py-20 px-4">
         <Card className="w-full max-w-md text-center">
           <CardContent className="pt-8 pb-8 space-y-4">
-            <div className="text-5xl">✅</div>
-            <h2 className="text-xl font-semibold">Nota de Pedido enviada</h2>
+            <div className="text-5xl">{esBorrador ? '📝' : '✅'}</div>
+            <h2 className="text-xl font-semibold">
+              {esBorrador ? 'Nota de Pedido guardada como borrador' : 'Nota de Pedido enviada'}
+            </h2>
             <p className="text-slate-600">
-              Tu solicitud <strong>{numeroNP}</strong> fue registrada y enviada al coordinador del área para su aprobación.
+              {esBorrador ? (
+                <>Tu NP <strong>{numeroNP}</strong> quedó guardada. Puedes retomarla y enviarla a aprobación cuando esté lista, desde "Ver mis NPs".</>
+              ) : (
+                <>Tu solicitud <strong>{numeroNP}</strong> fue registrada y enviada al coordinador del área para su aprobación.</>
+              )}
             </p>
-            <p className="text-sm text-slate-400">Recibirás un email cuando sea aprobada o rechazada.</p>
+            {!esBorrador && (
+              <p className="text-sm text-slate-400">Recibirás un email cuando sea aprobada o rechazada.</p>
+            )}
             <div className="flex gap-3 justify-center pt-2">
               <Button onClick={() => setEstado('idle')}>Nueva NP</Button>
               <Link href="/compras">
@@ -386,8 +404,8 @@ export default function NuevaNotaPedido() {
                   >
                     <option value="baja">Baja (16-30d)</option>
                     <option value="media">Media (4-15d)</option>
-                    <option value="alta">Alta (1-3d)</option>
-                    <option value="excepcional">Excepcional</option>
+                    <option value="alta">Alta (2-3d)</option>
+                    <option value="excepcional">Excepcional (24h)</option>
                   </select>
                 </div>
                 <div>
@@ -664,14 +682,26 @@ export default function NuevaNotaPedido() {
           )}
 
           {/* Spec: envío solo mediante clic explícito, no por Enter */}
-          <Button
-            type="button"
-            disabled={estado === 'enviando'}
-            onClick={handleSubmit(handleValidarYAbrir)}
-            className="w-full h-12 text-base btn-primary"
-          >
-            {estado === 'enviando' ? 'Enviando...' : 'Enviar Nota de Pedido'}
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            {/* Spec: HU-009 CA-13 — Guardar borrador es opcional, para pausar y retomar más tarde */}
+            <Button
+              type="button"
+              variant="outline"
+              disabled={estado === 'enviando'}
+              onClick={handleGuardarBorrador}
+              className="sm:w-56 h-12 text-base"
+            >
+              {estado === 'enviando' ? 'Guardando...' : 'Guardar borrador'}
+            </Button>
+            <Button
+              type="button"
+              disabled={estado === 'enviando'}
+              onClick={handleSubmit(handleValidarYAbrir)}
+              className="flex-1 h-12 text-base btn-primary"
+            >
+              {estado === 'enviando' ? 'Enviando...' : 'Enviar Nota de Pedido'}
+            </Button>
+          </div>
         </form>
       </div>
 

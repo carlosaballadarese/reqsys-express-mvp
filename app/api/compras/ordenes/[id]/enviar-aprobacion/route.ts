@@ -3,6 +3,7 @@ import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { transporter } from '@/lib/mailer'
 import { registrarAuditoria } from '@/lib/auditoria'
+import { actualizarEstadoNP } from '@/lib/np-estado'
 
 const UMBRAL_COMPRAS = 2000
 
@@ -28,7 +29,7 @@ export async function POST(
 
     const { data: oc } = await adminClient()
       .from('registro_compras')
-      .select('id, numero_oc, estado_oc, valor_total, proveedor, area, creado_por_id')
+      .select('id, numero_oc, estado_oc, valor_total, proveedor, area, creado_por_id, nota_pedido_id')
       .eq('id', id)
       .single()
 
@@ -50,6 +51,11 @@ export async function POST(
       .from('registro_compras')
       .update({ estado_oc: nuevoEstado })
       .eq('id', id)
+
+    // Spec: HU-009 CA-19 (Tarea 22) — recalcula el Estado de la NP tras enviar la OC a aprobación
+    if (oc.nota_pedido_id) {
+      await actualizarEstadoNP(oc.nota_pedido_id).catch(console.error)
+    }
 
     // Notificar a todos los usuarios del rol aprobador
     try {

@@ -137,6 +137,7 @@ const ESTADO_COLOR: Record<string, string> = {
   reasignacion:  'bg-cyan-100 text-cyan-800',
   toma_control:  'bg-purple-100 text-purple-800',
   oc_cancelada:  'bg-red-100 text-red-700',
+  prioridad_reclasificada: 'bg-amber-100 text-amber-800',
 }
 
 const HISTORIAL_ICON: Record<string, string> = {
@@ -163,6 +164,13 @@ const HISTORIAL_LABEL: Record<string, string> = {
   reenviada:    'Reenviada',
   oc_cancelada: 'OC Cancelada',
 }
+
+// Spec: HU-009 — espejo de lib/np-estado.ts::ESTADOS_NP_ABIERTA_A_OC. Una NP con
+// comprador asignado deja 'aprobada' de inmediato pero sigue admitiendo más OCs
+// (selección parcial / multi-OC) mientras no esté completada/rechazada/devuelta.
+const ESTADOS_NP_ABIERTA_A_OC = ['aprobada', 'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada']
+// Espejo de app/api/compras/nps/[id]/completar/route.ts::ESTADOS_COMPLETABLES
+const ESTADOS_NP_COMPLETABLES = ['aprobada', 'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion']
 
 function usd(n: number) {
   return `$${Number(n).toFixed(2)}`
@@ -1350,7 +1358,7 @@ export default function DetalleNPPage() {
         )}
 
         {/* OCs vinculadas + acciones de gestión */}
-        {(ocs.length > 0 || np.estado === 'aprobada') && (
+        {(ocs.length > 0 || ESTADOS_NP_ABIERTA_A_OC.includes(np.estado)) && (
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1362,7 +1370,7 @@ export default function DetalleNPPage() {
                     </Button>
                   </a>
                   {/* Spec CA-12: condición sin np.convertida; CA-09: abre modal */}
-                  {np.estado === 'aprobada' &&
+                  {ESTADOS_NP_COMPLETABLES.includes(np.estado) &&
                     (['compras', 'admin'].includes(rol) || (rol === 'asistente_compras' && np.asignado_a === userId)) && (
                     <Button
                       onClick={() => { setErrorCompletar(''); setModalCompletar(true) }}
@@ -1774,7 +1782,7 @@ export default function DetalleNPPage() {
         )}
 
         {/* Formulario conversión — múltiples OCs desde la misma NP */}
-        {np.estado === 'aprobada' &&
+        {ESTADOS_NP_ABIERTA_A_OC.includes(np.estado) &&
           (['compras', 'admin'].includes(rol) || (rol === 'asistente_compras' && np.asignado_a === userId)) && (
           <FormularioOC np={np} itemsNP={items} cobertura={cobertura} onConvertida={(numeroOC) => { setUltimaOC(numeroOC); cargar() }} />
         )}

@@ -25,11 +25,13 @@ type NP = {
   asignado_email:   string | null
   origen?:          'propia' | 'asignada' | null
   es_regularizacion: boolean
+  creado_por_id?:   string | null
 }
 
 type Asistente = { id: string; nombre: string; email: string }
 
 const ESTADO_BADGE: Record<string, string> = {
+  borrador:   'bg-slate-100 text-slate-500',
   pendiente:  'bg-yellow-100 text-yellow-800',
   aprobada:   'bg-green-100 text-green-800',
   rechazada:  'bg-red-100 text-red-800',
@@ -44,7 +46,7 @@ const PRIORIDAD_BADGE: Record<string, string> = {
   baja:        'bg-slate-100 text-slate-600',
 }
 
-const ESTADOS = ['todos', 'pendiente', 'aprobada', 'rechazada', 'devuelta']
+const ESTADOS = ['todos', 'borrador', 'pendiente', 'aprobada', 'rechazada', 'devuelta']
 
 export default function ComprasPage() {
   const [nps, setNps]           = useState<NP[]>([])
@@ -55,6 +57,9 @@ export default function ComprasPage() {
   const [areas, setAreas]       = useState<string[]>([])
   const [rol, setRol]           = useState('')
   const [puedeCrearNP, setPuedeCrearNP] = useState(false)
+  // Spec: HU-009 CA-15 — necesario para mostrar "Enviar a aprobación" solo en los propios borradores
+  const [userId, setUserId]     = useState('')
+  const [enviandoId, setEnviandoId] = useState<string | null>(null)
 
   // Modal asignar
   const [modalAsignar, setModalAsignar]     = useState(false)
@@ -70,6 +75,7 @@ export default function ComprasPage() {
     const supabase = createSupabaseBrowserClient()
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return
+      setUserId(user.id)
       fetch('/api/auth/perfil')
         .then(r => r.json())
         .then(p => {
@@ -118,6 +124,16 @@ export default function ComprasPage() {
     setAsignando(false)
     if (!res.ok) { setErrorAsignar(data.error ?? 'Error'); return }
     setModalAsignar(false)
+    cargar()
+  }
+
+  // Spec: HU-009 CA-15
+  async function handleEnviarBorrador(np: NP) {
+    setEnviandoId(np.id)
+    const res = await fetch(`/api/compras/nps/${np.id}/enviar-aprobacion`, { method: 'POST' })
+    const data = await res.json()
+    setEnviandoId(null)
+    if (!res.ok) { alert(data.error ?? 'Error al enviar la NP'); return }
     cargar()
   }
 
@@ -228,6 +244,7 @@ export default function ComprasPage() {
                       {esCompras  && <th className="text-left py-3 pr-4">Asignada a</th>}
                       {esAsistente && <th className="text-left py-3 pr-4">Origen</th>}
                       <th className="text-left py-3">Fecha</th>
+                      <th className="text-left py-3"></th>
                       {esCompras && <th className="text-left py-3"></th>}
                     </tr>
                   </thead>
@@ -298,6 +315,19 @@ export default function ComprasPage() {
 
                         <td className="py-3 pr-4 text-slate-500 text-xs">
                           {new Date(np.created_at).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </td>
+
+                        {/* Spec: HU-009 CA-15 — Enviar a aprobación, solo visible para el creador del borrador */}
+                        <td className="py-3">
+                          {np.estado === 'borrador' && np.creado_por_id === userId && (
+                            <button
+                              onClick={() => handleEnviarBorrador(np)}
+                              disabled={enviandoId === np.id}
+                              className="text-xs px-2 py-1 rounded border border-blue-300 text-blue-700 hover:bg-blue-50 transition-colors whitespace-nowrap disabled:opacity-50"
+                            >
+                              {enviandoId === np.id ? 'Enviando...' : 'Enviar a aprobación'}
+                            </button>
+                          )}
                         </td>
 
                         {/* Botón Asignar para Compras */}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { actualizarEstadoNP } from '@/lib/np-estado'
 
 export async function POST(
   _req: NextRequest,
@@ -39,6 +40,10 @@ export async function POST(
       .from('notas_pedido')
       .update({ estado: 'aprobada', completado_manualmente: false, motivo_completado: null })
       .eq('id', id)
+
+    // Spec: HU-009 CA-19 (Tarea 23) — no asumir 'aprobada' a ciegas: recalcula el
+    // Estado real según OCs vivas ya vinculadas y reactiva el SLA si corresponde.
+    await actualizarEstadoNP(id).catch(console.error)
 
     // Spec: registrar en historial de la NP
     await adminClient().from('historial_np').insert({

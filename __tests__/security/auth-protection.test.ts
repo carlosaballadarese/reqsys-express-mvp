@@ -37,6 +37,13 @@ jest.mock('@/lib/auditoria', () => ({
   registrarAuditoria: jest.fn(),
 }))
 
+const mockActualizarEstadoNP = jest.fn((..._args: unknown[]) => Promise.resolve())
+const mockPausarSLAPorCierre = jest.fn((..._args: unknown[]) => Promise.resolve())
+jest.mock('@/lib/np-estado', () => ({
+  actualizarEstadoNP:  (...args: unknown[]) => mockActualizarEstadoNP(...args),
+  pausarSLAPorCierre:  (...args: unknown[]) => mockPausarSLAPorCierre(...args),
+}))
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const SIN_SESION  = { data: { user: null } }
@@ -1190,6 +1197,35 @@ describe('POST /api/compras/convertir/[id] — validación sobrecompra', () => {
     const res = await POST(req, { params: Promise.resolve({ id: 'np-sob-1' }) })
     expect(res.status).not.toBe(409)
   })
+
+  it('HU-009: permite generar una OC adicional cuando la NP ya está en en_gestion (no solo aprobada)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = setupConvertir(5, 0)
+    // setupConvertir deja np.estado='aprobada' por defecto; lo pisamos a 'en_gestion'
+    // para probar que el filtro .in(ESTADOS_NP_ABIERTA_A_OC) ya no exige 'aprobada' exacto
+    const npOriginal = { id: 'np-sob-1', numero: 'NP-2026-0010', area: 'Operaciones',
+      estado: 'en_gestion', tipo_compra: 'bienes', centro_costo: 'CC01',
+      descripcion_general: 'Test', created_at: '2026-01-01', convertida: true,
+      asignado_a: 'comprador-1', aprobador_np_nombre: null, aprobador_np_area: null }
+    let singleCalls = 0
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Carlos', email: 'c@a.com' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({ data: npOriginal, error: null })
+      if (singleCalls === 3) return Promise.resolve({ data: { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null }, error: null })
+      return Promise.resolve({ data: null, error: null })
+    })
+
+    const req = makeRequest('http://localhost/api/compras/convertir/np-sob-1', {
+      method: 'POST',
+      body: JSON.stringify({
+        proveedor_id: 'prov-uuid',
+        items: [{ item_np_id: 'item-np-1', descripcion: 'Producto', unidad: 'EA', cantidad: 5, precio_unitario: 10 }],
+      }),
+    })
+    const res = await POST(req, { params: Promise.resolve({ id: 'np-sob-1' }) })
+    expect(res.status).toBe(200)
+  })
 })
 
 // ── 26. Cancelación de OC ─────────────────────────────────────────────────────
@@ -1981,5 +2017,613 @@ describe('GET /api/compras/nps/[id]/excel — HU-008 CA-15', () => {
       { params: Promise.resolve({ id: 'np-1' }) }
     )
     expect(res.status).toBe(401)
+  })
+})
+
+// ── 36. Completar NP — estados ampliados por HU-009 ─────────────────────────
+
+describe('POST /api/compras/nps/[id]/completar — estados ampliados (HU-009 CA-04/RN-06)', () => {
+  const { POST } = require('@/app/api/compras/nps/[id]/completar/route')
+
+  it('permite completar una NP en estado en_gestion (antes solo se aceptaba aprobada)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({
+        data: { rol: 'compras', nombre: 'Compras', email: 'c@arlift.com' }, error: null,
+      })
+      return Promise.resolve({
+        data: { id: 'np-id', estado: 'en_gestion', numero: 'NP-2026-0002', asignado_a: 'user-123' }, error: null,
+      })
+    })
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-id/completar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo: 'Ítems ya no requeridos' }),
+      }),
+      { params: Promise.resolve({ id: 'np-id' }) }
+    )
+    expect(res.status).toBe(200)
+  })
+
+  it('rechaza completar una NP en estado oc_aprobada (ya resuelta naturalmente)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({
+        data: { rol: 'compras', nombre: 'Compras', email: 'c@arlift.com' }, error: null,
+      })
+      return Promise.resolve({
+        data: { id: 'np-id', estado: 'oc_aprobada', numero: 'NP-2026-0003', asignado_a: 'user-123' }, error: null,
+      })
+    })
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-id/completar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo: 'Ítems ya no requeridos' }),
+      }),
+      { params: Promise.resolve({ id: 'np-id' }) }
+    )
+    expect(res.status).toBe(400)
+  })
+})
+
+// ── 37. CRUD Feriados — HU-009 CA-10, CA-11 ─────────────────────────────────
+
+describe('GET /api/compras/feriados', () => {
+  const { GET } = require('@/app/api/compras/feriados/route')
+
+  it('devuelve 403 para roles distintos de admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'gerencia' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await GET()
+    expect(res.status).toBe(403)
+  })
+})
+
+describe('POST /api/compras/feriados', () => {
+  const { POST } = require('@/app/api/compras/feriados/route')
+
+  it('devuelve 400 si la fecha ya está registrada (CA-11)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.insert = jest.fn(() => chain)
+    chain.single = jest
+      .fn()
+      .mockResolvedValueOnce({ data: { rol: 'compras' }, error: null })
+      .mockResolvedValueOnce({ data: null, error: { code: '23505', message: 'duplicate key' } })
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/feriados', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fecha: '2026-08-10', descripcion: 'Duplicado' }),
+      })
+    )
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toBe('Ya existe un feriado registrado en esa fecha')
+  })
+})
+
+// ── 38. CRUD Acciones — HU-009 CA-17 ────────────────────────────────────────
+
+describe('GET /api/compras/acciones', () => {
+  const { GET } = require('@/app/api/compras/acciones/route')
+
+  it('devuelve 403 para roles distintos de admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'asistente_compras' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await GET()
+    expect(res.status).toBe(403)
+  })
+})
+
+describe('POST /api/compras/acciones', () => {
+  const { POST } = require('@/app/api/compras/acciones/route')
+
+  it('devuelve 400 si el orden ya está registrado (CA-17)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.insert = jest.fn(() => chain)
+    chain.single = jest
+      .fn()
+      .mockResolvedValueOnce({ data: { rol: 'admin' }, error: null })
+      .mockResolvedValueOnce({ data: null, error: { code: '23505', message: 'duplicate key' } })
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/acciones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orden: 1, descripcion: 'Duplicado' }),
+      })
+    )
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toBe('Ya existe una Acción con ese número de orden')
+  })
+})
+
+// ── 39. Borrador de NP — HU-009 CA-01, CA-13, CA-14 ─────────────────────────
+
+describe('POST /api/compras/nps — accion borrador/enviar (HU-009)', () => {
+  const { POST } = require('@/app/api/compras/nps/route')
+  const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
+  beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+
+  const encabezadoBase = {
+    es_regularizacion: false,
+    solicitante_nombre: 'Juan', solicitante_email: 'juan@test.com',
+    area: 'Operaciones', prioridad: 'media', tipo_compra: 'producto',
+    centro_costo: 'costo', descripcion_general: 'Descripción de prueba con más de 10 caracteres',
+  }
+  const itemsBase = [{ descripcion: 'Ítem', unidad: 'EA', cantidad: 1, precio_unitario: 100 }]
+
+  it('accion=borrador NO requiere coordinador y guarda con estado borrador', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'solicitante' }, error: null })
+      // insert().select().single() de la NP
+      return Promise.resolve({ data: { id: 'np-borrador-1' }, error: null })
+    })
+    chain.insert = jest.fn(() => chain)
+    mockFrom.mockReturnValue(chain)
+
+    const res = await POST(makeRequest('http://localhost/api/compras/nps', {
+      method: 'POST',
+      body: JSON.stringify({ accion: 'borrador', encabezado: encabezadoBase, items: itemsBase }),
+    }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.success).toBe(true)
+  })
+
+  it('accion=enviar (default) devuelve 400 si no hay coordinador para el área', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest
+      .fn()
+      .mockResolvedValueOnce({ data: { rol: 'solicitante' }, error: null }) // perfil
+      .mockResolvedValueOnce({ data: null, error: { message: 'not found' } }) // coordinador
+    mockFrom.mockReturnValue(chain)
+
+    const res = await POST(makeRequest('http://localhost/api/compras/nps', {
+      method: 'POST',
+      body: JSON.stringify({ encabezado: encabezadoBase, items: itemsBase }),
+    }))
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toBe('No se encontró coordinador para el área seleccionada')
+  })
+
+  it('devuelve 400 si falta Prioridad (CA-02)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+
+    const { prioridad: _prioridad, ...encabezadoSinPrioridad } = encabezadoBase
+    const res = await POST(makeRequest('http://localhost/api/compras/nps', {
+      method: 'POST',
+      body: JSON.stringify({ accion: 'borrador', encabezado: encabezadoSinPrioridad, items: itemsBase }),
+    }))
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('POST /api/compras/nps/[id]/enviar-aprobacion — HU-009 CA-14', () => {
+  const { POST } = require('@/app/api/compras/nps/[id]/enviar-aprobacion/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-1/enviar-aprobacion', { method: 'POST' }),
+      { params: Promise.resolve({ id: 'np-1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 si el usuario no es el creador de la NP', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({
+      data: { id: 'np-1', estado: 'borrador', numero: 'NP-2026-0010', creado_por_id: 'otro-user' },
+      error: null,
+    }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-1/enviar-aprobacion', { method: 'POST' }),
+      { params: Promise.resolve({ id: 'np-1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 400 si la NP no está en estado borrador', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({
+      data: { id: 'np-1', estado: 'pendiente', numero: 'NP-2026-0010', creado_por_id: 'user-123' },
+      error: null,
+    }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-1/enviar-aprobacion', { method: 'POST' }),
+      { params: Promise.resolve({ id: 'np-1' }) }
+    )
+    expect(res.status).toBe(400)
+  })
+})
+
+// ── 40. Reclasificar Prioridad + marcar Acciones — HU-009 CA-16, CA-05/06/07 ─
+
+describe('PATCH /api/compras/nps/[id]/prioridad — HU-009 CA-16', () => {
+  const { PATCH } = require('@/app/api/compras/nps/[id]/prioridad/route')
+
+  it('devuelve 403 para roles distintos de compras/admin', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'gerencia' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await PATCH(
+      makeRequest('http://localhost/api/compras/nps/np-1/prioridad', {
+        method: 'PATCH',
+        body: JSON.stringify({ prioridad: 'alta' }),
+      }),
+      { params: Promise.resolve({ id: 'np-1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 400 en estados prohibidos (rechazada/devuelta/oc_aprobada/completada)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({
+        data: { rol: 'compras', nombre: 'Compras', email: 'c@arlift.com' }, error: null,
+      })
+      return Promise.resolve({
+        data: { id: 'np-1', estado: 'completada', numero: 'NP-2026-0001', prioridad: 'media' }, error: null,
+      })
+    })
+    mockFrom.mockReturnValue(chain)
+    const res = await PATCH(
+      makeRequest('http://localhost/api/compras/nps/np-1/prioridad', {
+        method: 'PATCH',
+        body: JSON.stringify({ prioridad: 'alta' }),
+      }),
+      { params: Promise.resolve({ id: 'np-1' }) }
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('reclasifica correctamente en un estado permitido (en_gestion)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({
+        data: { rol: 'admin', nombre: 'Admin', email: 'a@arlift.com' }, error: null,
+      })
+      return Promise.resolve({
+        data: { id: 'np-1', estado: 'en_gestion', numero: 'NP-2026-0001', prioridad: 'media' }, error: null,
+      })
+    })
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.insert = jest.fn(() => chain)
+    mockFrom.mockReturnValue(chain)
+    const res = await PATCH(
+      makeRequest('http://localhost/api/compras/nps/np-1/prioridad', {
+        method: 'PATCH',
+        body: JSON.stringify({ prioridad: 'alta' }),
+      }),
+      { params: Promise.resolve({ id: 'np-1' }) }
+    )
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('PATCH /api/compras/nps/[id]/accion — HU-009 CA-05/06/07', () => {
+  const { PATCH } = require('@/app/api/compras/nps/[id]/accion/route')
+
+  it('devuelve 400 si la NP no está en estado en_gestion', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras' }, error: null })
+      return Promise.resolve({
+        data: { id: 'np-1', estado: 'oc_directa', asignado_a: 'user-123' }, error: null,
+      })
+    })
+    mockFrom.mockReturnValue(chain)
+    const res = await PATCH(
+      makeRequest('http://localhost/api/compras/nps/np-1/accion', {
+        method: 'PATCH',
+        body: JSON.stringify({ accion_id: 'accion-1' }),
+      }),
+      { params: Promise.resolve({ id: 'np-1' }) }
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 403 si el usuario no es el comprador asignado ni compras/admin', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'solicitante' }, error: null })
+      return Promise.resolve({
+        data: { id: 'np-1', estado: 'en_gestion', asignado_a: 'otro-user' }, error: null,
+      })
+    })
+    mockFrom.mockReturnValue(chain)
+    const res = await PATCH(
+      makeRequest('http://localhost/api/compras/nps/np-1/accion', {
+        method: 'PATCH',
+        body: JSON.stringify({ accion_id: 'accion-1' }),
+      }),
+      { params: Promise.resolve({ id: 'np-1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('el comprador asignado puede marcar una sola línea (item_np_id) sin afectar las demás', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'asistente_compras' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({
+        data: { id: 'np-1', estado: 'en_gestion', asignado_a: 'user-123' }, error: null,
+      })
+      return Promise.resolve({ data: { id: 'accion-1' }, error: null })
+    })
+    // Spec: como en L691, .update() devuelve el propio chain — permite encadenar
+    // múltiples .eq() antes de resolver vía chain.then()
+    chain.update = jest.fn(() => chain)
+    mockFrom.mockReturnValue(chain)
+    const res = await PATCH(
+      makeRequest('http://localhost/api/compras/nps/np-1/accion', {
+        method: 'PATCH',
+        body: JSON.stringify({ accion_id: 'accion-1', item_np_id: 'item-1' }),
+      }),
+      { params: Promise.resolve({ id: 'np-1' }) }
+    )
+    expect(res.status).toBe(200)
+  })
+
+  it('desmarcar (accion_id null) limpia accion_marcada_en y accion_marcada_por', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras' }, error: null })
+      return Promise.resolve({
+        data: { id: 'np-1', estado: 'en_gestion', asignado_a: 'otro-user' }, error: null,
+      })
+    })
+    let capturedUpdate: any = null
+    chain.update = jest.fn((payload: any) => {
+      capturedUpdate = payload
+      return chain
+    })
+    mockFrom.mockReturnValue(chain)
+    const res = await PATCH(
+      makeRequest('http://localhost/api/compras/nps/np-1/accion', {
+        method: 'PATCH',
+        body: JSON.stringify({ accion_id: null, item_np_id: 'item-1' }),
+      }),
+      { params: Promise.resolve({ id: 'np-1' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(capturedUpdate.accion_id).toBeNull()
+    expect(capturedUpdate.accion_marcada_en).toBeNull()
+    expect(capturedUpdate.accion_marcada_por).toBeNull()
+  })
+})
+
+// ── 41. Integración de actualizarEstadoNP() — HU-009 CA-19 (Grupo F) ───────
+
+describe('actualizarEstadoNP() se invoca en los 6 puntos de mutación de OC/NP', () => {
+  beforeEach(() => { mockActualizarEstadoNP.mockClear() })
+
+  it('Tarea 18: POST /api/compras/convertir/[id] la invoca con la NP origen', async () => {
+    const { POST } = require('@/app/api/compras/convertir/[id]/route')
+    mockAdminClient.mockReturnValue({ from: mockFrom, rpc: jest.fn(() => Promise.resolve({ data: 1, error: null })) })
+    mockGetUser.mockResolvedValue(CON_SESION)
+
+    const np = {
+      id: 'np-conv-1', numero: 'NP-2026-0002', area: 'Operaciones',
+      estado: 'aprobada', tipo_compra: 'bienes', centro_costo: 'CC01',
+      descripcion_general: 'Test', created_at: '2026-01-01T00:00:00Z',
+      convertida: false, asignado_a: null,
+    }
+    const insertMock = jest.fn(() => ({
+      select: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: { id: 'oc-new', numero_oc: 'OC-2026-0001' }, error: null })) })),
+    }))
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.insert = insertMock
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'C', email: 'c@a.com' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({ data: np, error: null })
+      if (singleCalls === 3) return Promise.resolve({ data: { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null }, error: null })
+      return Promise.resolve({ data: null, error: null })
+    })
+    mockFrom.mockReturnValue(chain)
+
+    await POST(
+      makeRequest('http://localhost/api/compras/convertir/np-conv-1', {
+        method: 'POST',
+        body: JSON.stringify({
+          proveedor_id: 'prov-uuid',
+          items: [{ item_np_id: 'np-item-1', descripcion: 'Item test', unidad: 'EA', cantidad: 1, precio_unitario: 100 }],
+        }),
+      }),
+      { params: Promise.resolve({ id: 'np-conv-1' }) }
+    )
+
+    mockAdminClient.mockReturnValue({ from: mockFrom })
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-conv-1')
+  })
+
+  it('Tarea 19: PUT /api/compras/ordenes/[id] la invoca con nota_pedido_id', async () => {
+    const { PUT } = require('@/app/api/compras/ordenes/[id]/route')
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.update = jest.fn(() => chain)
+    chain.insert = jest.fn(() => Promise.resolve({ data: {}, error: null }))
+    chain.delete = jest.fn(() => chain)
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({ data: { estado_oc: 'en_proceso', creado_por_id: 'user-123', nota_pedido_id: 'np-put-1' }, error: null })
+      if (singleCalls === 3) return Promise.resolve({ data: { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null }, error: null })
+      if (singleCalls === 4) return Promise.resolve({ data: { estado: 'en_gestion' }, error: null })
+      return Promise.resolve({ data: { numero_oc: 'OC-2026-0001' }, error: null })
+    })
+    mockFrom.mockReturnValue(chain)
+
+    await PUT(
+      makeRequest('http://localhost/api/compras/ordenes/oc-put-1', {
+        method: 'PUT',
+        body: JSON.stringify({
+          proveedor_id: 'prov-uuid',
+          items: [{ item_np_id: 'np-item-1', codigo: '', descripcion: 'Item', unidad: 'EA', cantidad: 1, precio_unitario: 100 }],
+        }),
+      }),
+      { params: Promise.resolve({ id: 'oc-put-1' }) }
+    )
+
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-put-1')
+  })
+
+  it('Tarea 20: POST /api/compras/ordenes/[id]/aprobar la invoca con nota_pedido_id', async () => {
+    const { POST } = require('@/app/api/compras/ordenes/[id]/aprobar/route')
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.single = jest
+      .fn()
+      .mockResolvedValueOnce({ data: { rol: 'compras', nombre: 'C', email: 'c@a.com' }, error: null })
+      .mockResolvedValueOnce({
+        data: {
+          id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'en_aprobacion_compras',
+          valor_total: 100, proveedor: 'ACME', creado_por_id: null, creado_por_nombre: null,
+          nota_pedido_id: 'np-aprob-1',
+        },
+        error: null,
+      })
+    mockFrom.mockReturnValue(chain)
+
+    await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/aprobar', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'aprobar' }),
+      }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-aprob-1')
+  })
+
+  it('Tarea 21: POST /api/compras/ordenes/[id]/cancelar la invoca con nota_pedido_id', async () => {
+    const { POST } = require('@/app/api/compras/ordenes/[id]/cancelar/route')
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.in     = jest.fn(() => chain)
+    chain.insert = jest.fn(() => Promise.resolve({ data: {}, error: null }))
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'C', email: 'c@a.com' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({ data: { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'en_proceso', nota_pedido_id: 'np-canc-1' }, error: null })
+      if (singleCalls === 3) return Promise.resolve({ data: { estado: 'en_gestion', numero: 'NP-2026-0001' }, error: null })
+      return Promise.resolve({ data: null, error: null })
+    })
+    mockFrom.mockReturnValue(chain)
+
+    await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/cancelar', {
+        method: 'POST',
+        body: JSON.stringify({ motivo: 'Proveedor incumplió' }),
+      }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-canc-1')
+  })
+
+  it('Tarea 22: POST /api/compras/ordenes/[id]/enviar-aprobacion la invoca con nota_pedido_id', async () => {
+    const { POST } = require('@/app/api/compras/ordenes/[id]/enviar-aprobacion/route')
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.single = jest
+      .fn()
+      .mockResolvedValueOnce({ data: { rol: 'compras', nombre: 'C', email: 'c@a.com' }, error: null })
+      .mockResolvedValueOnce({
+        data: {
+          id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'en_proceso',
+          valor_total: 100, proveedor: 'ACME', area: 'Operaciones', creado_por_id: 'user-123',
+          nota_pedido_id: 'np-env-1',
+        },
+        error: null,
+      })
+    mockFrom.mockReturnValue(chain)
+
+    await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/enviar-aprobacion', { method: 'POST' }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-env-1')
+  })
+
+  it('Tarea 23: POST /api/compras/nps/[id]/reabrir la invoca con el id de la NP', async () => {
+    const { POST } = require('@/app/api/compras/nps/[id]/reabrir/route')
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.single = jest
+      .fn()
+      .mockResolvedValueOnce({ data: { rol: 'compras', nombre: 'C', email: 'c@a.com' }, error: null })
+      .mockResolvedValueOnce({ data: { id: 'np-reab-1', estado: 'completada', numero: 'NP-2026-0001' }, error: null })
+    mockFrom.mockReturnValue(chain)
+
+    await POST(
+      makeRequest('http://localhost/api/compras/nps/np-reab-1/reabrir', { method: 'POST' }),
+      { params: Promise.resolve({ id: 'np-reab-1' }) }
+    )
+
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-reab-1')
   })
 })

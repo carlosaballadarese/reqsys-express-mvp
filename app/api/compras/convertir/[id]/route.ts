@@ -3,6 +3,7 @@ import { registrarAuditoria } from '@/lib/auditoria'
 import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { verificarSobrecompra, autoCompletarNP, validarEnlaceYJustificacion } from '@/lib/np-cobertura'
+import { actualizarEstadoNP, ESTADOS_NP_ABIERTA_A_OC } from '@/lib/np-estado'
 
 export async function POST(
   req: NextRequest,
@@ -25,15 +26,18 @@ export async function POST(
     const { id } = await params
     const body = await req.json()
 
+    // Spec: HU-009 — una NP con comprador asignado deja 'aprobada' de inmediato
+    // (actualizarEstadoNP), pero sigue abierta a más OCs (selección parcial / multi-OC)
+    // mientras esté en algún Estado de ESTADOS_NP_ABIERTA_A_OC.
     const { data: np, error } = await adminClient()
       .from('notas_pedido')
       .select('*')
       .eq('id', id)
-      .eq('estado', 'aprobada')
+      .in('estado', ESTADOS_NP_ABIERTA_A_OC)
       .single()
 
     if (error || !np)
-      return NextResponse.json({ error: 'NP no encontrada o no está en estado aprobada' }, { status: 400 })
+      return NextResponse.json({ error: 'NP no encontrada o no está en un Estado que permita generar una OC' }, { status: 400 })
 
     if (perfil.rol === 'asistente_compras' && np.asignado_a !== user.id)
       return NextResponse.json({ error: 'Solo puedes convertir NPs asignadas a ti' }, { status: 403 })
@@ -174,6 +178,9 @@ export async function POST(
 
     // Spec CA2: auto-completar NP si cobertura alcanza 100%
     await autoCompletarNP(np.id, np.estado).catch(console.error)
+
+    // Spec: HU-009 CA-19 (Tarea 18) — recalcula el Estado de la NP tras generar la OC
+    await actualizarEstadoNP(np.id).catch(console.error)
 
     if (!np.convertida) {
       await adminClient().from('notas_pedido').update({ convertida: true }).eq('id', np.id)

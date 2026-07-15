@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { pausarSLAPorCierre } from '@/lib/np-estado'
+
+// Spec: HU-009 CA-04/RN-06 — una NP puede quedar en cualquier estado del flujo
+// activo (no solo 'aprobada') y ya no requerir más acciones. oc_aprobada queda
+// fuera porque ahí la compra ya está resuelta de forma natural.
+const ESTADOS_COMPLETABLES = ['aprobada', 'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion']
 
 export async function POST(
   req: NextRequest,
@@ -41,8 +47,8 @@ export async function POST(
       .single()
 
     if (!np) return NextResponse.json({ error: 'NP no encontrada' }, { status: 404 })
-    if (np.estado !== 'aprobada')
-      return NextResponse.json({ error: 'Solo se pueden completar NPs en estado aprobada' }, { status: 400 })
+    if (!ESTADOS_COMPLETABLES.includes(np.estado))
+      return NextResponse.json({ error: 'Esta NP no puede completarse manualmente en su estado actual' }, { status: 400 })
 
     // Spec CA-10: asistente solo puede completar NPs asignadas a él
     if (perfil.rol === 'asistente_compras' && np.asignado_a !== user.id)
@@ -62,6 +68,9 @@ export async function POST(
       actor_nombre: perfil.nombre,
       notas:        `Marcada como completada manualmente. Motivo: ${motivo}`,
     })
+
+    // Spec: HU-009 CA-04/RN-02 — pausa el SLA al cerrar administrativamente
+    await pausarSLAPorCierre(id)
 
     return NextResponse.json({ success: true })
   } catch (err) {
