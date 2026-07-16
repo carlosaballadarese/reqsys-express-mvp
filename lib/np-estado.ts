@@ -30,7 +30,9 @@ const ORDEN_AVANCE_OC: Record<string, number> = {
   en_aprobacion_gerencia: 1,
   aprobada: 2,
 }
-const ESTADOS_OC_VIVOS = Object.keys(ORDEN_AVANCE_OC)
+// Spec: HU-011 RN-02 — exportada para que lib/np-vista.ts use el mismo criterio
+// de "OC viva" que actualizarEstadoNP(), evitando una segunda fuente de verdad.
+export const ESTADOS_OC_VIVOS = Object.keys(ORDEN_AVANCE_OC)
 
 // Spec: HU-009 RN-01 de HU-011 — Acción agregada de una NP = la de menor orden
 // entre sus líneas (criterio conservador, unificado con RN-04 de HU-009).

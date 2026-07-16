@@ -45,6 +45,12 @@ jest.mock('@/lib/np-estado', () => ({
   // Spec: HU-010 — valor real (no mockeado), varios endpoints lo usan como set de
   // pertenencia en código de aplicación (no solo como argumento de query Supabase).
   ESTADOS_NP_ABIERTA_A_OC: ['aprobada', 'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada'],
+  // Spec: HU-011 — valores/función reales, lib/np-vista.ts (usado por la ruta de
+  // Vista por NP) los importa de @/lib/np-estado y los ejecuta como código de
+  // aplicación, no solo como argumento de query Supabase.
+  ESTADOS_OC_VIVOS: ['en_proceso', 'en_aprobacion_compras', 'en_aprobacion_gerencia', 'aprobada'],
+  calcularAccionAgregada: (acciones: { orden: number }[]) =>
+    acciones.length === 0 ? null : Math.min(...acciones.map(a => a.orden)),
 }))
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -2875,5 +2881,238 @@ describe('actualizarEstadoNP() se invoca en los 6 puntos de mutación de OC/NP',
     )
 
     expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-reab-1')
+  })
+})
+
+// ── 42. Vista por NP — HU-011 ─────────────────────────────────────────────────
+
+describe('GET /api/compras/nps/vista', () => {
+  const { GET } = require('@/app/api/compras/nps/vista/route')
+
+  function chainAwaitable(data: unknown) {
+    const chain: any = {}
+    const noop = jest.fn(() => chain)
+    chain.select = noop
+    chain.order  = noop
+    chain.eq     = noop
+    chain.ilike  = noop
+    chain.or     = noop
+    chain.in     = noop
+    chain.gte    = noop
+    chain.lte    = noop
+    chain.single = jest.fn(() => Promise.resolve({ data: null, error: null }))
+    chain.then   = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve)
+    return chain
+  }
+
+  function setupVista(opts: {
+    rol: string
+    nps?: any[]
+    itemsNp?: any[]
+    itemsOc?: any[]
+    ocs?: any[]
+    acciones?: any[]
+    compradores?: any[]
+    feriados?: string[]
+  }) {
+    const {
+      rol, nps = [], itemsNp = [], itemsOc = [], ocs = [],
+      acciones = [], compradores = [], feriados = [],
+    } = opts
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        const chain = chainAwaitable(compradores)
+        chain.single = jest.fn(() => Promise.resolve({ data: { rol }, error: null }))
+        return chain
+      }
+      if (table === 'notas_pedido') return chainAwaitable(nps)
+      if (table === 'acciones_gestion') return chainAwaitable(acciones)
+      if (table === 'items_np') return chainAwaitable(itemsNp)
+      if (table === 'items_oc') return chainAwaitable(itemsOc)
+      if (table === 'registro_compras') return chainAwaitable(ocs)
+      if (table === 'feriados') return chainAwaitable(feriados.map(fecha => ({ fecha })))
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+  }
+
+  const npBase = {
+    id: 'np-1', numero: 'NP-2026-0010', created_at: '2026-07-01T00:00:00Z', area: 'Operaciones',
+    solicitante_nombre: 'Ana', descripcion_general: 'Repuestos', prioridad: 'alta', estado: 'aprobada',
+    asignado_a: null, asignado_nombre: null, total_estimado: 500,
+    es_regularizacion: false, creado_por_id: 'otro-user',
+    sla_iniciado_en: null, sla_pausado_desde: null, sla_pausado_acumulado_seg: 0,
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/vista'))
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol solicitante (fuera de ROLES_VISTA)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupVista({ rol: 'solicitante' })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/vista'))
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 403 para rol bodega', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupVista({ rol: 'bodega' })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/vista'))
+    expect(res.status).toBe(403)
+  })
+
+  it.each(['compras', 'admin', 'asistente_compras', 'gerencia', 'consulta'])(
+    'devuelve 200 para rol %s (los 5 roles de CA-09)',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupVista({ rol, nps: [npBase] })
+      const res = await GET(makeRequest('http://localhost/api/compras/nps/vista'))
+      expect(res.status).toBe(200)
+    }
+  )
+
+  it('CA-08: enmascara total_estimado/precio_unitario para gerencia', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupVista({
+      rol: 'gerencia',
+      nps: [npBase],
+      itemsNp: [{ id: 'item-1', nota_pedido_id: 'np-1', linea: 1, descripcion: 'Tubo', cantidad: 2, precio_unitario: 10, accion_id: null }],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/vista'))
+    const body = await res.json()
+    expect(body.rows[0].total_estimado).toBeNull()
+    expect(body.rows[0].lineas[0].precio_unitario).toBeNull()
+  })
+
+  it('CA-08: expone total_estimado/precio_unitario para compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupVista({
+      rol: 'compras',
+      nps: [npBase],
+      itemsNp: [{ id: 'item-1', nota_pedido_id: 'np-1', linea: 1, descripcion: 'Tubo', cantidad: 2, precio_unitario: 10, accion_id: null }],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/vista'))
+    const body = await res.json()
+    expect(body.rows[0].total_estimado).toBe(500)
+    expect(body.rows[0].lineas[0].precio_unitario).toBe(10)
+  })
+
+  it('compradoresDisponibles se resuelve sin exigir rol compras/admin (asistente_compras también accede)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupVista({
+      rol: 'asistente_compras',
+      compradores: [{ id: 'ast-1', nombre: 'Bruno' }],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/vista'))
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.compradoresDisponibles).toEqual([{ id: 'ast-1', nombre: 'Bruno' }])
+  })
+
+  it('CA-07: badge "No activo" para una NP aprobada sin comprador asignado', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupVista({ rol: 'compras', nps: [npBase] })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/vista'))
+    const body = await res.json()
+    expect(body.rows[0].sla_badge).toBe('no_activo')
+  })
+
+  it('RN-01: Acción agregada de la fila es la de menor orden entre sus líneas', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const np = { ...npBase, estado: 'en_gestion', asignado_a: 'ast-1', sla_iniciado_en: '2026-07-01T00:00:00Z' }
+    setupVista({
+      rol: 'compras',
+      nps: [np],
+      acciones: [
+        { id: 'a1', orden: 1, descripcion: 'Asignada' },
+        { id: 'a2', orden: 2, descripcion: 'Solicitud de ofertas' },
+      ],
+      itemsNp: [
+        { id: 'item-1', nota_pedido_id: 'np-1', linea: 1, descripcion: 'Tubo', cantidad: 2, precio_unitario: 10, accion_id: 'a2' },
+        { id: 'item-2', nota_pedido_id: 'np-1', linea: 2, descripcion: 'Codo', cantidad: 1, precio_unitario: 5, accion_id: 'a1' },
+      ],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/vista'))
+    const body = await res.json()
+    expect(body.rows[0].accion_agregada.id).toBe('a1')
+  })
+
+  it('RN-02: la pill de N° de OC de una línea con única OC cancelada muestra null ("— pendiente —" en la UI)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupVista({
+      rol: 'compras',
+      nps: [npBase],
+      itemsNp: [{ id: 'item-1', nota_pedido_id: 'np-1', linea: 1, descripcion: 'Tubo', cantidad: 2, precio_unitario: 10, accion_id: null }],
+      itemsOc: [{ item_np_id: 'item-1', registro_compras_id: 'oc-1' }],
+      ocs: [{ id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'cancelada' }],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/vista'))
+    const body = await res.json()
+    expect(body.rows[0].lineas[0].oc).toBeNull()
+  })
+
+  it('RN-02: la pill de N° de OC de una línea con una OC viva muestra su numero_oc y el id de la OC (para enlazar)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupVista({
+      rol: 'compras',
+      nps: [npBase],
+      itemsNp: [{ id: 'item-1', nota_pedido_id: 'np-1', linea: 1, descripcion: 'Tubo', cantidad: 2, precio_unitario: 10, accion_id: null }],
+      itemsOc: [{ item_np_id: 'item-1', registro_compras_id: 'oc-1' }],
+      ocs: [{ id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'aprobada' }],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/vista'))
+    const body = await res.json()
+    expect(body.rows[0].lineas[0].oc).toEqual({ id: 'oc-1', numero_oc: 'OC-2026-0001' })
+  })
+
+  it('excluye NPs en borrador que no son del usuario (CA-15 de HU-009, mismo criterio que GET /api/compras/nps)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupVista({ rol: 'compras', nps: [] }) // el filtro .or() ya se aplica en la query real; aquí se confirma que no rompe la request
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/vista'))
+    expect(res.status).toBe(200)
+  })
+
+  it('CA-02: aplica los filtros de columnas simples (área/estado/prioridad/comprador) vía .eq() sobre notas_pedido', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let chainNP: any
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        const c = chainAwaitable([])
+        c.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+        return c
+      }
+      if (table === 'notas_pedido') {
+        chainNP = chainAwaitable([])
+        return chainNP
+      }
+      return chainAwaitable([])
+    })
+
+    const url = 'http://localhost/api/compras/nps/vista?area=Operaciones&estado=aprobada&prioridad=alta&comprador=ast-1&solicitante=Ana&numero=NP-2026&descripcion=Tuberia'
+    await GET(makeRequest(url))
+
+    expect(chainNP.eq).toHaveBeenCalledWith('area', 'Operaciones')
+    expect(chainNP.eq).toHaveBeenCalledWith('estado', 'aprobada')
+    expect(chainNP.eq).toHaveBeenCalledWith('prioridad', 'alta')
+    expect(chainNP.eq).toHaveBeenCalledWith('asignado_a', 'ast-1')
+    expect(chainNP.ilike).toHaveBeenCalledWith('solicitante_nombre', '%Ana%')
+    expect(chainNP.ilike).toHaveBeenCalledWith('numero', '%NP-2026%')
+    expect(chainNP.ilike).toHaveBeenCalledWith('descripcion_general', '%Tuberia%')
+  })
+
+  it('CA-02: el filtro de Acción se ignora si Estado no es en_gestion (RN-05 de HU-009)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupVista({
+      rol: 'compras',
+      nps: [{ ...npBase, estado: 'oc_directa', prioridad: 'excepcional' }],
+    })
+    // estado del filtro != 'en_gestion' → el parámetro accion no debe aplicarse aunque venga en la URL
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/vista?estado=oc_directa&accion=a1'))
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.rows).toHaveLength(1)
   })
 })

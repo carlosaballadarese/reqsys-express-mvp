@@ -49,6 +49,9 @@ const NAV: NavGroup[] = [
       { label: 'Mis NPs',   href: '/compras',       exact: true },
       { label: 'Nueva NP',  href: '/compras/nueva',
         roles: ['solicitante','bodega','compras','admin','asistente_compras','coordinador','gerencia'] },
+      // Spec: HU-011 CA-09
+      { label: 'Vista por NP', href: '/compras/vista-np',
+        roles: ['compras','admin','asistente_compras','gerencia','consulta'] },
     ],
   },
   {
