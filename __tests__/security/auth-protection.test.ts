@@ -3020,6 +3020,27 @@ describe('GET /api/compras/nps/vista', () => {
     expect(body.rows[0].sla_badge).toBe('no_activo')
   })
 
+  it('HU-012 RN-02: sla_dias_signo es null cuando el badge es "No activo"', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupVista({ rol: 'compras', nps: [npBase] })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/vista'))
+    const body = await res.json()
+    expect(body.rows[0].sla_dias_signo).toBeNull()
+  })
+
+  it('HU-012 RN-02: sla_dias_signo es un número negativo cuando el badge es "Vencido"', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const np = {
+      ...npBase, estado: 'en_gestion', asignado_a: 'ast-1', prioridad: 'alta',
+      sla_iniciado_en: '2026-01-01T00:00:00Z', // muy en el pasado — garantiza vencido
+    }
+    setupVista({ rol: 'compras', nps: [np] })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/vista'))
+    const body = await res.json()
+    expect(body.rows[0].sla_badge).toBe('vencido')
+    expect(body.rows[0].sla_dias_signo).toBeLessThan(0)
+  })
+
   it('RN-01: Acción agregada de la fila es la de menor orden entre sus líneas', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     const np = { ...npBase, estado: 'en_gestion', asignado_a: 'ast-1', sla_iniciado_en: '2026-07-01T00:00:00Z' }
@@ -3114,5 +3135,87 @@ describe('GET /api/compras/nps/vista', () => {
     const body = await res.json()
     expect(res.status).toBe(200)
     expect(body.rows).toHaveLength(1)
+  })
+
+  // ── HU-012: exportación Excel — reutiliza chainAwaitable/setupVista/npBase ──
+
+  describe('GET /api/compras/nps/vista/excel', () => {
+    const { GET: GET_EXCEL } = require('@/app/api/compras/nps/vista/excel/route')
+
+    it('devuelve 401 sin sesión', async () => {
+      mockGetUser.mockResolvedValue(SIN_SESION)
+      const res = await GET_EXCEL(makeRequest('http://localhost/api/compras/nps/vista/excel'))
+      expect(res.status).toBe(401)
+    })
+
+    it('devuelve 403 para rol solicitante (fuera de ROLES_VISTA)', async () => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupVista({ rol: 'solicitante' })
+      const res = await GET_EXCEL(makeRequest('http://localhost/api/compras/nps/vista/excel'))
+      expect(res.status).toBe(403)
+    })
+
+    it('CA-05: devuelve 200 con Content-Type/Content-Disposition de xlsx para un rol autorizado', async () => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupVista({
+        rol: 'compras',
+        nps: [npBase],
+        itemsNp: [{ id: 'item-1', nota_pedido_id: 'np-1', linea: 1, descripcion: 'Tubo', cantidad: 2, precio_unitario: 10, accion_id: null }],
+      })
+      const res = await GET_EXCEL(makeRequest('http://localhost/api/compras/nps/vista/excel'))
+      expect(res.status).toBe(200)
+      expect(res.headers.get('Content-Type')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      expect(res.headers.get('Content-Disposition')).toMatch(/^attachment; filename="NP_Vista_por_NP_\d{8}_\d{4}\.xlsx"$/)
+    })
+
+    it('acepta los mismos query params de filtro que la vista JSON (reutiliza obtenerFilasVista)', async () => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      let chainNP: any
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'perfiles') {
+          const c = chainAwaitable([])
+          c.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+          return c
+        }
+        if (table === 'notas_pedido') { chainNP = chainAwaitable([]); return chainNP }
+        return chainAwaitable([])
+      })
+      const res = await GET_EXCEL(makeRequest('http://localhost/api/compras/nps/vista/excel?area=Operaciones'))
+      expect(res.status).toBe(200)
+      expect(chainNP.eq).toHaveBeenCalledWith('area', 'Operaciones')
+    })
+
+    it('CA-02/RN-01/RN-02/RN-03: las hojas NP y Líneas reciben los datos con el formato correcto', async () => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      const np = {
+        ...npBase, estado: 'en_gestion', asignado_a: 'ast-1', prioridad: 'alta',
+        sla_iniciado_en: '2026-01-01T00:00:00Z', // muy en el pasado — garantiza vencido
+      }
+      setupVista({
+        rol: 'gerencia', // sin permiso de precio — RN-01
+        nps: [np],
+        itemsNp: [{ id: 'item-1', nota_pedido_id: 'np-1', linea: 1, descripcion: 'Tubo', cantidad: 2, precio_unitario: 10, accion_id: null }],
+        itemsOc: [{ item_np_id: 'item-1', registro_compras_id: 'oc-1' }],
+        ocs: [{ id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'aprobada' }],
+      })
+
+      const res = await GET_EXCEL(makeRequest('http://localhost/api/compras/nps/vista/excel'))
+      expect(res.status).toBe(200)
+
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const ExcelJS = require('exceljs').default
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet('cualquiera') // mock: mismo singleton para toda hoja
+      const filasEscritas = ws.addRow.mock.calls.map((c: any[]) => c[0])
+
+      const filaNP = filasEscritas.find((r: any) => 'total' in r)
+      expect(filaNP.total).toBe('')             // RN-01: gerencia sin permiso de precio
+      expect(filaNP.sla).toBe('Vencido')
+      expect(filaNP.sla_dias).toMatch(/^-/)     // RN-02: signo negativo por estar vencido
+
+      const filaLinea = filasEscritas.find((r: any) => 'precio' in r)
+      expect(filaLinea.precio).toBe('')         // RN-01 también aplica en hoja Líneas
+      expect(filaLinea.oc).toBe('OC-2026-0001') // RN-03: texto plano, no el objeto {id, numero_oc}
+    })
   })
 })

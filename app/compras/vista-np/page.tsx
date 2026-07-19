@@ -105,6 +105,27 @@ function usd(n: number) {
   return `$${Number(n).toFixed(2)}`
 }
 
+type Filtros = {
+  area: string; estado: string; accion: string; prioridad: string; sla: string
+  comprador: string; solicitante: string; numero: string; descripcion: string
+}
+
+// Spec: HU-012 CA-03 — compartido entre la carga de la tabla y el botón de
+// exportación, para que el Excel refleje exactamente los mismos filtros activos.
+function construirQueryParams(filtros: Filtros): URLSearchParams {
+  const params = new URLSearchParams()
+  if (filtros.area !== 'todas') params.set('area', filtros.area)
+  if (filtros.estado !== 'todos') params.set('estado', filtros.estado)
+  if (filtros.accion !== 'todas' && filtros.estado === 'en_gestion') params.set('accion', filtros.accion)
+  if (filtros.prioridad !== 'todas') params.set('prioridad', filtros.prioridad)
+  if (filtros.sla !== 'todos') params.set('sla', filtros.sla)
+  if (filtros.comprador !== 'todos') params.set('comprador', filtros.comprador)
+  if (filtros.solicitante) params.set('solicitante', filtros.solicitante)
+  if (filtros.numero) params.set('numero', filtros.numero)
+  if (filtros.descripcion) params.set('descripcion', filtros.descripcion)
+  return params
+}
+
 // ─── Página ──────────────────────────────────────────────────────────────────
 
 export default function VistaPorNPPage() {
@@ -131,16 +152,7 @@ export default function VistaPorNPPage() {
 
   const cargar = useCallback(async () => {
     setCargando(true)
-    const params = new URLSearchParams()
-    if (filtros.area !== 'todas') params.set('area', filtros.area)
-    if (filtros.estado !== 'todos') params.set('estado', filtros.estado)
-    if (filtros.accion !== 'todas' && filtros.estado === 'en_gestion') params.set('accion', filtros.accion)
-    if (filtros.prioridad !== 'todas') params.set('prioridad', filtros.prioridad)
-    if (filtros.sla !== 'todos') params.set('sla', filtros.sla)
-    if (filtros.comprador !== 'todos') params.set('comprador', filtros.comprador)
-    if (filtros.solicitante) params.set('solicitante', filtros.solicitante)
-    if (filtros.numero) params.set('numero', filtros.numero)
-    if (filtros.descripcion) params.set('descripcion', filtros.descripcion)
+    const params = construirQueryParams(filtros)
 
     try {
       const res = await fetch(`/api/compras/nps/vista?${params.toString()}`)
@@ -189,9 +201,23 @@ export default function VistaPorNPPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="page-header">
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          <h1 className="text-white text-xl font-bold">Vista por NP</h1>
-          <p className="text-blue-300 text-xs mt-0.5">Estado, Prioridad, SLA y Acciones de gestión de todas las NPs</p>
+        <div className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-white text-xl font-bold">Vista por NP</h1>
+            <p className="text-blue-300 text-xs mt-0.5">Estado, Prioridad, SLA y Acciones de gestión de todas las NPs</p>
+          </div>
+          {/* Spec: HU-012 CA-01 — deshabilitado si no hay datos visibles */}
+          {rows.length > 0 ? (
+            <a href={`/api/compras/nps/vista/excel?${construirQueryParams(filtros).toString()}`} download>
+              <Button variant="outline" className="bg-transparent border-white/40 text-white hover:bg-white/10 text-sm">
+                ⬇ Exportar a Excel
+              </Button>
+            </a>
+          ) : (
+            <Button variant="outline" disabled className="bg-transparent border-white/20 text-white/40 text-sm cursor-not-allowed">
+              ⬇ Exportar a Excel
+            </Button>
+          )}
         </div>
       </div>
 

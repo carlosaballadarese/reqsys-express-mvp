@@ -32,6 +32,23 @@ export function clasificarBadgeSLA(params: {
   return 'no_activo'
 }
 
+const MS_POR_DIA = 24 * 60 * 60 * 1000
+
+// Spec: HU-012 RN-02 — número con signo (positivo = margen restante, negativo =
+// días de vencimiento), normalizado a días incluso para Prioridad Excepcional
+// (medida en horas: 24h de plazo = 1 día — ya expresado en ms por
+// calcularTranscurridoLote, no requiere caso especial aquí). null cuando el badge
+// es 'no_activo' o 'pausado': ahí no hay un "tiempo restante" con sentido.
+export function calcularSlaDiasSigno(
+  badge: SlaBadge,
+  transcurridoMs: number | null,
+  plazoMs: number | null
+): number | null {
+  if (badge !== 'a_tiempo' && badge !== 'vencido') return null
+  if (transcurridoMs === null || plazoMs === null) return null
+  return (plazoMs - transcurridoMs) / MS_POR_DIA
+}
+
 type AccionCatalogo = { id: string; orden: number; descripcion: string }
 
 // Spec: HU-011 RN-01 — Acción agregada de la fila = la de menor orden entre sus

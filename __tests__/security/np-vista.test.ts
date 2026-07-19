@@ -1,11 +1,44 @@
 // Spec: HU-011-v3.md — CA-03, CA-07, CA-08, RN-01, RN-02
+// Spec: HU-012-v3.md — RN-02 (calcularSlaDiasSigno)
 
 import {
   clasificarBadgeSLA,
   accionAgregadaDeFila,
   ocVivaDeLinea,
   aplicarMaskingPrecio,
+  calcularSlaDiasSigno,
 } from '@/lib/np-vista'
+
+const MS_POR_DIA = 24 * 60 * 60 * 1000
+
+describe('calcularSlaDiasSigno (HU-012 RN-02)', () => {
+  it('positivo cuando el badge es a_tiempo (margen restante)', () => {
+    expect(calcularSlaDiasSigno('a_tiempo', 1 * MS_POR_DIA, 3 * MS_POR_DIA)).toBe(2)
+  })
+
+  it('negativo cuando el badge es vencido (días de atraso)', () => {
+    expect(calcularSlaDiasSigno('vencido', 5 * MS_POR_DIA, 3 * MS_POR_DIA)).toBe(-2)
+  })
+
+  it('null cuando el badge es no_activo, aunque hipotéticamente hubiera valores', () => {
+    expect(calcularSlaDiasSigno('no_activo', 1 * MS_POR_DIA, 3 * MS_POR_DIA)).toBeNull()
+  })
+
+  it('null cuando el badge es pausado', () => {
+    expect(calcularSlaDiasSigno('pausado', 1 * MS_POR_DIA, 3 * MS_POR_DIA)).toBeNull()
+  })
+
+  it('normaliza a días una NP Excepcional (plazo de 24h = 1 día) sin caso especial', () => {
+    // Excepcional: 24h de plazo = 1 día en ms; 30h transcurridas = 1.25 días
+    const resultado = calcularSlaDiasSigno('vencido', 30 * 60 * 60 * 1000, 24 * 60 * 60 * 1000)
+    expect(resultado).toBeCloseTo(-0.25, 5)
+  })
+
+  it('null si transcurridoMs o plazoMs son null a pesar de un badge activo (caso defensivo)', () => {
+    expect(calcularSlaDiasSigno('a_tiempo', null, 3 * MS_POR_DIA)).toBeNull()
+    expect(calcularSlaDiasSigno('vencido', 1 * MS_POR_DIA, null)).toBeNull()
+  })
+})
 
 describe('clasificarBadgeSLA (HU-011 CA-07)', () => {
   it('"No activo" cuando sla_iniciado_en es null, sin importar el Estado', () => {
