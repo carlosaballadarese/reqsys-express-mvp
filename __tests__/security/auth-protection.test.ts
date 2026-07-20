@@ -3219,3 +3219,410 @@ describe('GET /api/compras/nps/vista', () => {
     })
   })
 })
+
+// ── 43. Líneas Pendientes de OC — HU-013 ─────────────────────────────────────
+
+describe('GET /api/compras/nps/lineas-pendientes', () => {
+  const { GET } = require('@/app/api/compras/nps/lineas-pendientes/route')
+
+  function chainAwaitable(data: unknown) {
+    const chain: any = {}
+    const noop = jest.fn(() => chain)
+    chain.select = noop
+    chain.order  = noop
+    chain.eq     = noop
+    chain.ilike  = noop
+    chain.or     = noop
+    chain.in     = noop
+    chain.gte    = noop
+    chain.lte    = noop
+    chain.single = jest.fn(() => Promise.resolve({ data: null, error: null }))
+    chain.then   = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve)
+    return chain
+  }
+
+  function setupLineas(opts: {
+    rol: string
+    nps?: any[]
+    itemsNp?: any[]
+    itemsOc?: any[]
+    ocs?: any[]
+    acciones?: any[]
+    compradores?: any[]
+    feriados?: string[]
+  }) {
+    const {
+      rol, nps = [], itemsNp = [], itemsOc = [], ocs = [],
+      acciones = [], compradores = [], feriados = [],
+    } = opts
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        const chain = chainAwaitable(compradores)
+        chain.single = jest.fn(() => Promise.resolve({ data: { rol }, error: null }))
+        return chain
+      }
+      if (table === 'notas_pedido') return chainAwaitable(nps)
+      if (table === 'acciones_gestion') return chainAwaitable(acciones)
+      if (table === 'items_np') return chainAwaitable(itemsNp)
+      if (table === 'items_oc') return chainAwaitable(itemsOc)
+      if (table === 'registro_compras') return chainAwaitable(ocs)
+      if (table === 'feriados') return chainAwaitable(feriados.map(fecha => ({ fecha })))
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+  }
+
+  const npBase = {
+    id: 'np-1', numero: 'NP-2026-0010', created_at: '2026-07-01T00:00:00Z', area: 'Operaciones',
+    solicitante_nombre: 'Ana', prioridad: 'alta', estado: 'aprobada',
+    asignado_a: null, asignado_nombre: null, total_estimado: 500,
+    es_regularizacion: false, creado_por_id: 'otro-user',
+    sla_iniciado_en: null, sla_pausado_desde: null, sla_pausado_acumulado_seg: 0,
+  }
+
+  const itemBase = {
+    id: 'item-1', nota_pedido_id: 'np-1', linea: 1, descripcion: 'Tubo de acero',
+    cantidad: 2, precio_unitario: 10, accion_id: null, proveedor_sugerido: 'Ferretería X',
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol solicitante', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({ rol: 'solicitante' })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 403 para rol gerencia (fuera de ROLES_LINEAS_PENDIENTES — a diferencia de HU-011, aquí gerencia no tiene acceso)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({ rol: 'gerencia' })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    expect(res.status).toBe(403)
+  })
+
+  it.each(['compras', 'admin', 'asistente_compras'])(
+    'devuelve 200 para rol %s (CA-06)',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupLineas({ rol, nps: [npBase], itemsNp: [itemBase] })
+      const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+      expect(res.status).toBe(200)
+    }
+  )
+
+  it('CA-01: excluye una línea que ya tiene una OC viva', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [npBase],
+      itemsNp: [itemBase],
+      itemsOc: [{ item_np_id: 'item-1', registro_compras_id: 'oc-1' }],
+      ocs: [{ id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'aprobada' }],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    const body = await res.json()
+    expect(body.rows).toHaveLength(0)
+  })
+
+  it('CA-01: incluye una línea cuya única OC fue cancelada (RN-02 de HU-011, mismo criterio ESTADOS_OC_VIVOS)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [npBase],
+      itemsNp: [itemBase],
+      itemsOc: [{ item_np_id: 'item-1', registro_compras_id: 'oc-1' }],
+      ocs: [{ id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'cancelada' }],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    const body = await res.json()
+    expect(body.rows).toHaveLength(1)
+  })
+
+  it('CA-01: una NP en Estado oc_directa aparece en la vista (regresión del hueco corregido en v2)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [{ ...npBase, estado: 'oc_directa', prioridad: 'excepcional' }],
+      itemsNp: [itemBase],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    const body = await res.json()
+    expect(body.rows).toHaveLength(1)
+    expect(body.rows[0].estado).toBe('oc_directa')
+  })
+
+  it('CA-03: la Acción de una línea es null ("—" en la UI) cuando el Estado de la NP es oc_directa', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [{ ...npBase, estado: 'oc_directa', prioridad: 'excepcional' }],
+      itemsNp: [{ ...itemBase, accion_id: 'a1' }], // aunque tenga accion_id seteado, no aplica
+      acciones: [{ id: 'a1', orden: 1, descripcion: 'Asignada' }],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    const body = await res.json()
+    expect(body.rows[0].accion).toBeNull()
+  })
+
+  it('CA-03: la Acción de una línea en en_gestion se resuelve contra el catálogo', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [{ ...npBase, estado: 'en_gestion', asignado_a: 'ast-1' }],
+      itemsNp: [{ ...itemBase, accion_id: 'a1' }],
+      acciones: [{ id: 'a1', orden: 1, descripcion: 'Asignada' }],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    const body = await res.json()
+    expect(body.rows[0].accion).toEqual({ id: 'a1', orden: 1, descripcion: 'Asignada' })
+  })
+
+  it('CA-02: filtro de Proveedor opera a nivel de línea (ilike sobre proveedor_sugerido, no sobre la NP)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [npBase],
+      itemsNp: [
+        { ...itemBase, id: 'item-1', proveedor_sugerido: 'Ferretería Central' },
+        { ...itemBase, id: 'item-2', linea: 2, proveedor_sugerido: 'Repuestos del Valle' },
+      ],
+    })
+    const url = 'http://localhost/api/compras/nps/lineas-pendientes?proveedor=' + encodeURIComponent('Ferretería')
+    const res = await GET(makeRequest(url))
+    const body = await res.json()
+    expect(body.rows).toHaveLength(1)
+    expect(body.rows[0].item_id).toBe('item-1')
+  })
+
+  it('CA-02: filtro de Material/Descripción opera sobre la descripción de la línea', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [npBase],
+      itemsNp: [
+        { ...itemBase, id: 'item-1', descripcion: 'Tubo de acero' },
+        { ...itemBase, id: 'item-2', linea: 2, descripcion: 'Codo galvanizado' },
+      ],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes?material=acero'))
+    const body = await res.json()
+    expect(body.rows).toHaveLength(1)
+    expect(body.rows[0].item_id).toBe('item-1')
+  })
+
+  it('CA-02: proveedoresDisponibles se calcula antes del filtro propio de proveedor (faceted search)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [npBase],
+      itemsNp: [
+        { ...itemBase, id: 'item-1', proveedor_sugerido: 'Ferretería Central' },
+        { ...itemBase, id: 'item-2', linea: 2, proveedor_sugerido: 'Repuestos del Valle' },
+      ],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes?proveedor=Ferretería'))
+    const body = await res.json()
+    expect(body.rows).toHaveLength(1) // el filtro sí acota las filas
+    expect(body.proveedoresDisponibles.sort()).toEqual(['Ferretería Central', 'Repuestos del Valle']) // pero la lista de opciones no se autoelimina
+  })
+
+  it('CA-01: la query base restringe notas_pedido a los 3 Estados con líneas potencialmente pendientes', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let chainNP: any
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        const c = chainAwaitable([])
+        c.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+        return c
+      }
+      if (table === 'notas_pedido') { chainNP = chainAwaitable([]); return chainNP }
+      return chainAwaitable([])
+    })
+    await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    expect(chainNP.in).toHaveBeenCalledWith('estado', ['aprobada', 'en_gestion', 'oc_directa'])
+  })
+
+  it('CA-02: aplica los filtros de columnas simples (área/estado/prioridad/comprador) vía .eq()', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let chainNP: any
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        const c = chainAwaitable([])
+        c.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+        return c
+      }
+      if (table === 'notas_pedido') { chainNP = chainAwaitable([]); return chainNP }
+      return chainAwaitable([])
+    })
+    const url = 'http://localhost/api/compras/nps/lineas-pendientes?area=Operaciones&estado=en_gestion&prioridad=alta&comprador=ast-1'
+    await GET(makeRequest(url))
+    expect(chainNP.eq).toHaveBeenCalledWith('area', 'Operaciones')
+    expect(chainNP.eq).toHaveBeenCalledWith('estado', 'en_gestion')
+    expect(chainNP.eq).toHaveBeenCalledWith('prioridad', 'alta')
+    expect(chainNP.eq).toHaveBeenCalledWith('asignado_a', 'ast-1')
+  })
+
+  it('CA-02: el filtro de Acción se ignora si el filtro de Estado no es en_gestion', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [{ ...npBase, estado: 'oc_directa', prioridad: 'excepcional' }],
+      itemsNp: [itemBase],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes?estado=oc_directa&accion=a1'))
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.rows).toHaveLength(1)
+  })
+
+  it('CA-02: el filtro de Acción sí se aplica cuando Estado=en_gestion', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [{ ...npBase, estado: 'en_gestion', asignado_a: 'ast-1' }],
+      itemsNp: [{ ...itemBase, accion_id: 'a1' }],
+      acciones: [{ id: 'a1', orden: 1, descripcion: 'Asignada' }],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes?estado=en_gestion&accion=id-inexistente'))
+    const body = await res.json()
+    expect(body.rows).toHaveLength(0)
+  })
+
+  it('CA-05: precio_unitario y total_estimado se muestran (no ocultos) para los 3 roles con acceso a esta vista', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({ rol: 'asistente_compras', nps: [npBase], itemsNp: [itemBase] })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    const body = await res.json()
+    // Nota: ROLES_LINEAS_PENDIENTES es idéntico a ROLES_CON_PRECIO (lib/np-precio.ts) —
+    // por diseño, dentro de esta vista el masking de CA-05 nunca oculta el dato en la
+    // práctica, aunque la lógica de condicionamiento por rol sigue aplicada (reutilizada).
+    expect(body.rows[0].precio_unitario).toBe(10)
+    expect(body.rows[0].total_estimado).toBe(500)
+  })
+})
+
+describe('PATCH /api/compras/nps/lineas-pendientes/[itemId]', () => {
+  const { PATCH } = require('@/app/api/compras/nps/lineas-pendientes/[itemId]/route')
+
+  function chainFor(data: unknown, singleData: unknown = null) {
+    const chain: any = {}
+    const noop = jest.fn(() => chain)
+    chain.select = noop
+    chain.eq     = noop
+    chain.in     = noop
+    chain.single = jest.fn(() => Promise.resolve({ data: singleData, error: null }))
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.then   = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve)
+    return chain
+  }
+
+  function setupPatch(opts: {
+    rol: string
+    item?: any | null
+    np?: any | null
+    itemsOc?: any[]
+    ocs?: any[]
+  }) {
+    const { rol, item = null, np = null, itemsOc = [], ocs = [] } = opts
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return chainFor([], { rol })
+      if (table === 'items_np') return chainFor([], item)
+      if (table === 'notas_pedido') return chainFor([], np)
+      if (table === 'items_oc') return chainFor(itemsOc)
+      if (table === 'registro_compras') return chainFor(ocs)
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+  }
+
+  const itemBase = { id: 'item-1', nota_pedido_id: 'np-1' }
+  const npBase = { id: 'np-1', estado: 'aprobada' }
+
+  function patchReq(itemId: string, body: any) {
+    return makeRequest(`http://localhost/api/compras/nps/lineas-pendientes/${itemId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    })
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await PATCH(patchReq('item-1', { proveedor_sugerido: 'X' }), { params: Promise.resolve({ itemId: 'item-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol fuera de ROLES_LINEAS_PENDIENTES (gerencia)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupPatch({ rol: 'gerencia' })
+    const res = await PATCH(patchReq('item-1', { proveedor_sugerido: 'X' }), { params: Promise.resolve({ itemId: 'item-1' }) })
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 404 si la línea no existe', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupPatch({ rol: 'compras', item: null })
+    const res = await PATCH(patchReq('item-x', { proveedor_sugerido: 'X' }), { params: Promise.resolve({ itemId: 'item-x' }) })
+    expect(res.status).toBe(404)
+  })
+
+  it('devuelve 409 si la NP ya salió del subconjunto de Estados con líneas pendientes', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupPatch({ rol: 'compras', item: itemBase, np: { id: 'np-1', estado: 'oc_generada' } })
+    const res = await PATCH(patchReq('item-1', { proveedor_sugerido: 'X' }), { params: Promise.resolve({ itemId: 'item-1' }) })
+    expect(res.status).toBe(409)
+  })
+
+  it('devuelve 409 si la línea ya tiene una OC viva (condición de carrera con HU-014)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupPatch({
+      rol: 'compras', item: itemBase, np: npBase,
+      itemsOc: [{ registro_compras_id: 'oc-1' }],
+      ocs: [{ estado_oc: 'aprobada' }],
+    })
+    const res = await PATCH(patchReq('item-1', { proveedor_sugerido: 'X' }), { params: Promise.resolve({ itemId: 'item-1' }) })
+    expect(res.status).toBe(409)
+  })
+
+  it('la línea con OC previa cancelada vuelve a ser editable (mismo criterio ESTADOS_OC_VIVOS del GET)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupPatch({
+      rol: 'asistente_compras', item: itemBase, np: npBase,
+      itemsOc: [{ registro_compras_id: 'oc-1' }],
+      ocs: [{ estado_oc: 'cancelada' }],
+    })
+    const res = await PATCH(patchReq('item-1', { proveedor_sugerido: 'Z' }), { params: Promise.resolve({ itemId: 'item-1' }) })
+    expect(res.status).toBe(200)
+  })
+
+  it('persiste el valor cuando la línea sigue pendiente (CA-04)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let updatePayload: any = null
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return chainFor([], { rol: 'compras' })
+      if (table === 'items_np') {
+        const c = chainFor([], itemBase)
+        c.update = jest.fn((payload: any) => {
+          updatePayload = payload
+          return { eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }
+        })
+        return c
+      }
+      if (table === 'notas_pedido') return chainFor([], npBase)
+      if (table === 'items_oc') return chainFor([])
+      if (table === 'registro_compras') return chainFor([])
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const res = await PATCH(
+      patchReq('item-1', { proveedor_sugerido: 'Ferretería Y' }),
+      { params: Promise.resolve({ itemId: 'item-1' }) }
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.item).toEqual({ id: 'item-1', proveedor_sugerido: 'Ferretería Y' })
+    expect(updatePayload).toEqual({ proveedor_sugerido: 'Ferretería Y' })
+  })
+})

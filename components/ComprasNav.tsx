@@ -59,6 +59,9 @@ const NAV: NavGroup[] = [
     roles: ['compras','admin','gerencia','consulta','asistente_compras'],
     children: [
       { label: 'Órdenes de Compra', href: '/compras/ordenes' },
+      // Spec: HU-013 CA-06
+      { label: 'Líneas Pendientes de OC', href: '/compras/lineas-pendientes',
+        roles: ['compras','admin','asistente_compras'] },
       { label: 'Proveedores',       href: '/compras/proveedores',
         roles: ['compras','admin','asistente_compras'] },
     ],

@@ -14,7 +14,7 @@ import {
 // Spec: HU-011 CA-09
 export const ROLES_VISTA = ['compras', 'admin', 'asistente_compras', 'gerencia', 'consulta']
 
-type AccionCatalogo = { id: string; orden: number; descripcion: string }
+export type AccionCatalogo = { id: string; orden: number; descripcion: string }
 
 export type FiltrosVista = {
   area?: string | null
@@ -60,6 +60,24 @@ export type ResultadoVista = {
   rows: FilaVistaNP[]
   compradoresDisponibles: { id: string; nombre: string }[]
   accionesCatalogo: AccionCatalogo[]
+}
+
+// Spec: HU-013 Tarea 1 — extracción pura de np-lineas-pendientes-query.ts para no
+// duplicar estas dos queries; obtenerFilasVista() la usa internamente sin cambio de
+// comportamiento (validado con los tests existentes sin modificar sus aserciones).
+export async function obtenerCatalogosVista(): Promise<{
+  compradoresDisponibles: { id: string; nombre: string }[]
+  accionesCatalogo: AccionCatalogo[]
+}> {
+  const [{ data: catalogoRaw }, { data: compradoresRaw }] = await Promise.all([
+    adminClient().from('acciones_gestion').select('id, orden, descripcion').order('orden'),
+    adminClient().from('perfiles').select('id, nombre')
+      .in('rol', ['asistente_compras', 'compras']).eq('activo', true).order('nombre'),
+  ])
+  return {
+    accionesCatalogo: catalogoRaw ?? [],
+    compradoresDisponibles: compradoresRaw ?? [],
+  }
 }
 
 // Spec: HU-012 — parseo de query params compartido entre GET /vista (JSON) y
@@ -108,15 +126,8 @@ export async function obtenerFilasVista(
   if (error) throw new Error(error.message)
 
   // Spec CA-01, CA-02 — se cargan siempre, aunque el resultado filtrado quede vacío
-  const [{ data: catalogoRaw }, { data: compradoresRaw }] = await Promise.all([
-    adminClient().from('acciones_gestion').select('id, orden, descripcion').order('orden'),
-    adminClient().from('perfiles').select('id, nombre')
-      .in('rol', ['asistente_compras', 'compras']).eq('activo', true).order('nombre'),
-  ])
-
-  const catalogoMap = new Map<string, AccionCatalogo>((catalogoRaw ?? []).map((a: AccionCatalogo) => [a.id, a]))
-  const accionesCatalogo: AccionCatalogo[] = catalogoRaw ?? []
-  const compradoresDisponibles = compradoresRaw ?? []
+  const { accionesCatalogo, compradoresDisponibles } = await obtenerCatalogosVista()
+  const catalogoMap = new Map<string, AccionCatalogo>(accionesCatalogo.map((a) => [a.id, a]))
 
   if (!npsBase || npsBase.length === 0) {
     return { rows: [], compradoresDisponibles, accionesCatalogo }
