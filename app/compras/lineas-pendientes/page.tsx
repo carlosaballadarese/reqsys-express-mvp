@@ -442,10 +442,22 @@ export default function LineasPendientesPage() {
 
         {/* Tabla */}
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between">
             <CardTitle className="text-sm text-slate-600">
               {cargando ? 'Cargando...' : `${rows.length} líneas pendientes`}
             </CardTitle>
+            {/* Spec: HU-015 CA-01/CA-03 — exporta respetando los filtros activos */}
+            <Button
+              variant="outline"
+              disabled={rows.length === 0}
+              onClick={() => {
+                const params = construirQueryParams(filtros)
+                window.location.href = `/api/compras/nps/lineas-pendientes/excel?${params.toString()}`
+              }}
+              className="h-8 text-xs"
+            >
+              ⬇ Exportar a Excel
+            </Button>
           </CardHeader>
           <CardContent>
             {cargando ? (

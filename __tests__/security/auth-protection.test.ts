@@ -3603,6 +3603,102 @@ describe('GET /api/compras/nps/lineas-pendientes', () => {
     expect(body.rows[0].precio_unitario).toBe(10)
     expect(body.rows[0].total_estimado).toBe(500)
   })
+
+  // ── HU-015: exportación Excel — reutiliza chainAwaitable/setupLineas/npBase/itemBase ──
+
+  describe('GET /api/compras/nps/lineas-pendientes/excel', () => {
+    const { GET: GET_EXCEL } = require('@/app/api/compras/nps/lineas-pendientes/excel/route')
+
+    it('devuelve 401 sin sesión', async () => {
+      mockGetUser.mockResolvedValue(SIN_SESION)
+      const res = await GET_EXCEL(makeRequest('http://localhost/api/compras/nps/lineas-pendientes/excel'))
+      expect(res.status).toBe(401)
+    })
+
+    it('devuelve 403 para rol gerencia (fuera de ROLES_LINEAS_PENDIENTES)', async () => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupLineas({ rol: 'gerencia' })
+      const res = await GET_EXCEL(makeRequest('http://localhost/api/compras/nps/lineas-pendientes/excel'))
+      expect(res.status).toBe(403)
+    })
+
+    it('CA-05: devuelve 200 con Content-Type/Content-Disposition de xlsx para un rol autorizado', async () => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupLineas({ rol: 'compras', nps: [npBase], itemsNp: [itemBase] })
+      const res = await GET_EXCEL(makeRequest('http://localhost/api/compras/nps/lineas-pendientes/excel'))
+      expect(res.status).toBe(200)
+      expect(res.headers.get('Content-Type')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      expect(res.headers.get('Content-Disposition')).toMatch(/^attachment; filename="NP_Lineas_Pendientes_\d{8}_\d{4}\.xlsx"$/)
+    })
+
+    it('acepta los mismos query params de filtro que la vista JSON (reutiliza obtenerLineasPendientes)', async () => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      let chainNP: any
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'perfiles') {
+          const c = chainAwaitable([])
+          c.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+          return c
+        }
+        if (table === 'notas_pedido') { chainNP = chainAwaitable([]); return chainNP }
+        return chainAwaitable([])
+      })
+      const res = await GET_EXCEL(makeRequest('http://localhost/api/compras/nps/lineas-pendientes/excel?area=Operaciones'))
+      expect(res.status).toBe(200)
+      expect(chainNP.eq).toHaveBeenCalledWith('area', 'Operaciones')
+    })
+
+    it('CA-02/RN-01: la hoja recibe precio/total con masking por rol y SLA en 2 columnas (etiqueta + días con signo)', async () => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      const npVencida = {
+        ...npBase, estado: 'en_gestion', asignado_a: 'ast-1', prioridad: 'alta',
+        sla_iniciado_en: '2026-01-01T00:00:00Z', // muy en el pasado — garantiza vencido
+        creado_por_id: 'otro-user',
+      }
+      setupLineas({
+        rol: 'asistente_compras',
+        nps: [npVencida],
+        itemsNp: [itemBase],
+      })
+
+      const res = await GET_EXCEL(makeRequest('http://localhost/api/compras/nps/lineas-pendientes/excel'))
+      expect(res.status).toBe(200)
+
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const ExcelJS = require('exceljs').default
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet('cualquiera') // mock: mismo singleton para toda hoja
+      const filasEscritas = ws.addRow.mock.calls.map((c: any[]) => c[0])
+
+      expect(filasEscritas).toHaveLength(1)
+      const fila = filasEscritas[0]
+      expect(fila.numero_np).toBe('NP-2026-0010')
+      expect(fila.precio).toBe(10)               // ROLES_LINEAS_PENDIENTES = ROLES_CON_PRECIO: nunca se oculta aquí
+      expect(fila.total).toBe(500)
+      expect(fila.sla).toBe('Vencido')
+      expect(fila.sla_dias).toMatch(/^-/)         // signo negativo por estar vencido
+      expect(fila.estado).toBe('En gestión')
+    })
+
+    it('CA-02: la Acción va vacía cuando la línea no tiene ninguna asignada (ej. Estado oc_directa)', async () => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupLineas({
+        rol: 'compras',
+        nps: [{ ...npBase, estado: 'oc_directa', prioridad: 'excepcional' }],
+        itemsNp: [itemBase],
+      })
+      const res = await GET_EXCEL(makeRequest('http://localhost/api/compras/nps/lineas-pendientes/excel'))
+      expect(res.status).toBe(200)
+
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const ExcelJS = require('exceljs').default
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet('cualquiera')
+      const filasEscritas = ws.addRow.mock.calls.map((c: any[]) => c[0])
+      expect(filasEscritas[0].accion).toBe('')
+      expect(filasEscritas[0].estado).toBe('OC directa')
+    })
+  })
 })
 
 describe('PATCH /api/compras/nps/lineas-pendientes/[itemId]', () => {
