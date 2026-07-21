@@ -1239,6 +1239,10 @@ describe('POST /api/compras/convertir/[id] — propagación de aprobador_np', ()
       if (singleCalls === 3) return Promise.resolve({ data: { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null }, error: null })
       return Promise.resolve({ data: null, error: null })
     })
+    // HU-014 CA-08: guard de pertenencia + validarEnlaceYJustificacion consultan items_np
+    // vía .then() (sin .single()) — mismo dato para ambas, cantidad coincide con la enviada
+    chain.then = (resolve: any) =>
+      Promise.resolve({ data: [{ id: 'np-item-1', cantidad: 1 }], error: null }).then(resolve)
     mockFrom.mockReturnValue(chain)
 
     const req = makeRequest('http://localhost/api/compras/convertir/np-conv-1', {
@@ -1397,18 +1401,21 @@ describe('POST /api/compras/convertir/[id] — validación sobrecompra', () => {
       if (singleCalls === 3) return Promise.resolve({ data: { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null }, error: null })
       return Promise.resolve({ data: null, error: null })
     })
-    // HU-003: thenCalls=1 es validarEnlaceYJustificacion; 2-4 son calcularCoberturaNP
+    // HU-014 CA-08: thenCalls=1 es el guard de pertenencia (nuevo); 2 es
+    // validarEnlaceYJustificacion; 3-5 son calcularCoberturaNP
     let thenCalls = 0
     chain.then = (resolve: any) => {
       thenCalls++
+      // HU-014 CA-08 — guard de pertenencia → items_np (id)
+      if (thenCalls === 1) return Promise.resolve({ data: [{ id: 'item-np-1' }], error: null }).then(resolve)
       // validarEnlaceYJustificacion → items_np (id, cantidad)
-      if (thenCalls === 1) return Promise.resolve({ data: [{ id: 'item-np-1', cantidad: cantidadNP }], error: null }).then(resolve)
+      if (thenCalls === 2) return Promise.resolve({ data: [{ id: 'item-np-1', cantidad: cantidadNP }], error: null }).then(resolve)
       // calcularCoberturaNP → items_np (completo)
-      if (thenCalls === 2) return Promise.resolve({ data: [{ id: 'item-np-1', linea: 1, descripcion: 'Producto', cantidad: cantidadNP }], error: null }).then(resolve)
+      if (thenCalls === 3) return Promise.resolve({ data: [{ id: 'item-np-1', linea: 1, descripcion: 'Producto', cantidad: cantidadNP }], error: null }).then(resolve)
       // calcularCoberturaNP → registro_compras OC IDs
-      if (thenCalls === 3) return Promise.resolve({ data: [{ id: 'oc-exist' }], error: null }).then(resolve)
+      if (thenCalls === 4) return Promise.resolve({ data: [{ id: 'oc-exist' }], error: null }).then(resolve)
       // calcularCoberturaNP → items_oc
-      if (thenCalls === 4) return Promise.resolve({ data: [{ item_np_id: 'item-np-1', cantidad: cantidadComprometida }], error: null }).then(resolve)
+      if (thenCalls === 5) return Promise.resolve({ data: [{ item_np_id: 'item-np-1', cantidad: cantidadComprometida }], error: null }).then(resolve)
       return Promise.resolve({ data: [], error: null }).then(resolve)
     }
     mockFrom.mockReturnValue(chain)
@@ -1824,6 +1831,84 @@ describe('POST /api/compras/convertir/[id] — HU-003 enlace y justificación', 
     expect(body.errores).toHaveLength(1)
     expect(body.errores[0].linea_oc).toBe(1)
     expect(body.errores[0].cantidad_np).toBe(5)
+  })
+})
+
+// ── 44. Defensa de backend — pertenencia de línea a la NP (HU-014 CA-08) ─────
+
+describe('POST /api/compras/convertir/[id] — HU-014 CA-08 defensa de backend', () => {
+  const { POST } = require('@/app/api/compras/convertir/[id]/route')
+
+  const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
+  beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+
+  const NP_APROBADA = {
+    id: 'np-hu014', numero: 'NP-2026-0030', area: 'Operaciones',
+    estado: 'aprobada', tipo_compra: 'bienes', centro_costo: 'CC01',
+    descripcion_general: 'Test HU-014', created_at: '2026-01-01T00:00:00Z',
+    convertida: false, asignado_a: null,
+    aprobador_np_nombre: null, aprobador_np_area: null,
+  }
+
+  function setupConvertir() {
+    const chain = mockChainVacio()
+    chain.in = jest.fn(() => chain)
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() =>
+      Promise.resolve({ data: { id: 'oc-new', numero_oc: 'OC-2026-0030' }, error: null })) })) }))
+    let singleCalls = 0
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Carlos', email: 'c@a.com' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({ data: NP_APROBADA, error: null })
+      if (singleCalls === 3) return Promise.resolve({ data: { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null }, error: null })
+      return Promise.resolve({ data: null, error: null })
+    })
+    mockFrom.mockReturnValue(chain)
+    return chain
+  }
+
+  it('devuelve 400 item_no_pertenece_a_np cuando el item_np_id pertenece a otra NP', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = setupConvertir()
+    // El guard consulta items_np filtrando por nota_pedido_id = np.id — simulamos que
+    // ese filtro no devuelve el item enviado (pertenece a otra NP)
+    chain.then = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+
+    const req = makeRequest('http://localhost/api/compras/convertir/np-hu014', {
+      method: 'POST',
+      body: JSON.stringify({
+        proveedor_id: 'prov-uuid',
+        items: [{ item_np_id: 'item-de-otra-np', descripcion: 'Producto', unidad: 'EA', cantidad: 1, precio_unitario: 10 }],
+      }),
+    })
+    const res = await POST(req, { params: Promise.resolve({ id: 'np-hu014' }) })
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toBe('item_no_pertenece_a_np')
+    expect(body.lineas).toContain(1)
+  })
+
+  it('no rechaza cuando todos los item_np_id pertenecen a la NP de la URL (flujo normal, HU-014 CA-01)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = setupConvertir()
+    // El guard y validarEnlaceYJustificacion consultan items_np — mismo dato, cantidad
+    // coincide con la enviada, no requiere justificación
+    chain.then = (resolve: any) =>
+      Promise.resolve({ data: [{ id: 'item-propio', cantidad: 1 }], error: null }).then(resolve)
+
+    const req = makeRequest('http://localhost/api/compras/convertir/np-hu014', {
+      method: 'POST',
+      body: JSON.stringify({
+        proveedor_id: 'prov-uuid',
+        items: [{ item_np_id: 'item-propio', descripcion: 'Producto', unidad: 'EA', cantidad: 1, precio_unitario: 10 }],
+      }),
+    })
+    const res = await POST(req, { params: Promise.resolve({ id: 'np-hu014' }) })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.success).toBe(true)
   })
 })
 
@@ -2732,6 +2817,10 @@ describe('actualizarEstadoNP() se invoca en los 6 puntos de mutación de OC/NP',
       if (singleCalls === 3) return Promise.resolve({ data: { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null }, error: null })
       return Promise.resolve({ data: null, error: null })
     })
+    // HU-014 CA-08: guard de pertenencia + validarEnlaceYJustificacion consultan items_np
+    // vía .then() (sin .single()) — mismo dato para ambas, cantidad coincide con la enviada
+    chain.then = (resolve: any) =>
+      Promise.resolve({ data: [{ id: 'np-item-1', cantidad: 1 }], error: null }).then(resolve)
     mockFrom.mockReturnValue(chain)
 
     await POST(
@@ -3281,7 +3370,8 @@ describe('GET /api/compras/nps/lineas-pendientes', () => {
   }
 
   const itemBase = {
-    id: 'item-1', nota_pedido_id: 'np-1', linea: 1, descripcion: 'Tubo de acero',
+    id: 'item-1', nota_pedido_id: 'np-1', linea: 1, codigo: 'AL-I0001', unidad: 'UND',
+    descripcion: 'Tubo de acero',
     cantidad: 2, precio_unitario: 10, accion_id: null, proveedor_sugerido: 'Ferretería X',
   }
 
@@ -3380,6 +3470,15 @@ describe('GET /api/compras/nps/lineas-pendientes', () => {
     const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
     const body = await res.json()
     expect(body.rows[0].accion).toEqual({ id: 'a1', orden: 1, descripcion: 'Asignada' })
+  })
+
+  it('HU-014 Tarea 2: la fila incluye codigo/unidad de items_np, necesarios para construir items[] de convertir/[id]', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({ rol: 'compras', nps: [npBase], itemsNp: [itemBase] })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    const body = await res.json()
+    expect(body.rows[0].codigo).toBe('AL-I0001')
+    expect(body.rows[0].unidad).toBe('UND')
   })
 
   it('CA-02: filtro de Proveedor opera a nivel de línea (ilike sobre proveedor_sugerido, no sobre la NP)', async () => {

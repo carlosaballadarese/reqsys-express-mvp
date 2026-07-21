@@ -65,6 +65,30 @@ export async function POST(
     if (sinEnlace.length > 0)
       return NextResponse.json({ error: 'item_sin_enlace_np', lineas: sinEnlace }, { status: 400 })
 
+    // Spec: HU-014 CA-08/RN-03 — defensa de backend, independiente del bloqueo de UX
+    // (HU-014 CA-02). validarEnlaceYJustificacion() más abajo ignora en silencio un
+    // item_np_id ajeno a esta NP (no lo rechaza); este guard cierra ese hueco explícitamente.
+    const itemNpIds = [...new Set(
+      items.map((i: { item_np_id?: string }) => i.item_np_id).filter(Boolean)
+    )] as string[]
+
+    if (itemNpIds.length > 0) {
+      const { data: itemsNpPropios } = await adminClient()
+        .from('items_np')
+        .select('id')
+        .in('id', itemNpIds)
+        .eq('nota_pedido_id', np.id)
+
+      const idsPropios = new Set((itemsNpPropios ?? []).map((i: { id: string }) => i.id))
+      const ajenos = items
+        .map((item: { item_np_id?: string }, idx: number) => ({ item, linea: idx + 1 }))
+        .filter(({ item }: { item: { item_np_id?: string } }) => item.item_np_id && !idsPropios.has(item.item_np_id))
+        .map(({ linea }: { linea: number }) => linea)
+
+      if (ajenos.length > 0)
+        return NextResponse.json({ error: 'item_no_pertenece_a_np', lineas: ajenos }, { status: 400 })
+    }
+
     // CA-03: justificación requerida cuando cantidad_oc ≠ cantidad_np
     const validacionEnlace = await validarEnlaceYJustificacion(items, id)
     if (!validacionEnlace.valido)

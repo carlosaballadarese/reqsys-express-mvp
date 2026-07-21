@@ -43,6 +43,8 @@ export type LineaPendiente = {
   asignado_a: string | null
   asignado_nombre: string | null
   linea: number
+  codigo: string | null
+  unidad: string
   descripcion: string
   cantidad: number
   proveedor_sugerido: string | null
@@ -106,10 +108,11 @@ export async function obtenerLineasPendientes(
 
   const npIds = npsBase.map((np: any) => np.id)
 
-  // Spec CA-03 — incluye proveedor_sugerido, no seleccionado por obtenerFilasVista() (HU-011)
+  // Spec CA-03 — incluye proveedor_sugerido, no seleccionado por obtenerFilasVista() (HU-011).
+  // codigo/unidad (HU-014): requeridos para construir items[] de POST /convertir/[id].
   const { data: itemsNpRaw } = await adminClient()
     .from('items_np')
-    .select('id, nota_pedido_id, linea, descripcion, cantidad, precio_unitario, accion_id, proveedor_sugerido')
+    .select('id, nota_pedido_id, linea, codigo, unidad, descripcion, cantidad, precio_unitario, accion_id, proveedor_sugerido')
     .in('nota_pedido_id', npIds)
     .order('linea')
 
@@ -200,6 +203,8 @@ export async function obtenerLineasPendientes(
       asignado_a:          np.asignado_a,
       asignado_nombre:     np.asignado_nombre,
       linea:               item.linea,
+      codigo:              item.codigo,
+      unidad:              item.unidad,
       descripcion:         item.descripcion,
       cantidad:            item.cantidad,
       proveedor_sugerido:  item.proveedor_sugerido,
