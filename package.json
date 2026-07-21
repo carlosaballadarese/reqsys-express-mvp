@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:local": "dotenvx run -f .env.local.dev -- next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
