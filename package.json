@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:local": "dotenvx run -f .env.local.dev -- next dev",
+    "pull:prod-data": "node scripts/pull-prod-data.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
