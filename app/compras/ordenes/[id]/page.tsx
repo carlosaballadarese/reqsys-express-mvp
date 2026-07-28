@@ -16,6 +16,9 @@ type OC = {
   numero_oc: string
   numero_np: string | null
   nota_pedido_id: string | null
+  // Spec: HU-016 — solo presente cuando nota_pedido_id es NULL (OC consolidada);
+  // lista real de NPs enlazadas vía items_oc.item_np_id (ver GET del endpoint).
+  nps_origen?: { id: string; numero: string }[]
   proveedor: string
   proveedor_id: string | null
   proveedor_ruc: string | null
@@ -321,7 +324,9 @@ export default function DetalleOCPage() {
       .then(r => r.json())
       .then(data => {
         if (data.error) { setErrorMsg(data.error); setCargando(false); return }
-        setOc(data.oc)
+        // Spec: HU-016 — nps_origen viaja como campo hermano de "oc" en la respuesta
+        // (GET /api/compras/ordenes/[id]), no anidado dentro de él.
+        setOc({ ...data.oc, nps_origen: data.nps_origen })
         setItems(data.items)
         setNuevoEstado(data.oc.estado_oc)
         setCargando(false)
@@ -567,12 +572,23 @@ export default function DetalleOCPage() {
           <div>
             <Link href="/compras/ordenes" className="text-blue-300 text-xs hover:text-white">← Órdenes de Compra</Link>
             <h1 className="text-xl font-bold mt-1">{oc.numero_oc}</h1>
-            {oc.numero_np && (
+            {oc.nota_pedido_id && oc.numero_np ? (
               <p className="text-blue-300 text-xs mt-0.5">
                 Originada de{' '}
                 <Link href={`/compras/${oc.nota_pedido_id}`} className="underline hover:text-white">{oc.numero_np}</Link>
               </p>
-            )}
+            ) : oc.nps_origen && oc.nps_origen.length > 0 ? (
+              // Spec: HU-016 Decisión 3 — OC consolidada (2+ NPs), sin una NP "principal"
+              <p className="text-blue-300 text-xs mt-0.5">
+                Originada de:{' '}
+                {oc.nps_origen.map((np, idx) => (
+                  <span key={np.id}>
+                    <Link href={`/compras/${np.id}`} className="underline hover:text-white">{np.numero}</Link>
+                    {idx < oc.nps_origen!.length - 1 ? ', ' : ''}
+                  </span>
+                ))}
+              </p>
+            ) : null}
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             {/* Spec: botones PDF y Excel solo para OCs aprobadas */}

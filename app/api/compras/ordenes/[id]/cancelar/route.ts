@@ -29,10 +29,11 @@ export async function POST(
     if (!motivo?.trim())
       return NextResponse.json({ error: 'El motivo de cancelación es requerido' }, { status: 400 })
 
-    // Leer OC con items vinculados a NP
+    // Leer OC (ya no se lee nota_pedido_id: HU-016 lo deja NULL en OCs consolidadas —
+    // las NPs involucradas se derivan de items_oc.item_np_id, sea 1 o varias)
     const { data: oc } = await adminClient()
       .from('registro_compras')
-      .select('id, numero_oc, estado_oc, nota_pedido_id')
+      .select('id, numero_oc, estado_oc')
       .eq('id', id)
       .single()
 
@@ -43,7 +44,7 @@ export async function POST(
 
     const estadoAnterior = oc.estado_oc
 
-    // ── PASO 1: cancelar la OC ────────────────────────────────────────────────
+    // ── PASO 1: cancelar la OC (acción crítica, siempre firme una vez ejecutada) ──
     const { error: errCancel } = await adminClient()
       .from('registro_compras')
       .update({ estado_oc: 'cancelada', motivo_cancelacion: motivo.trim() })
@@ -54,103 +55,101 @@ export async function POST(
       return NextResponse.json({ error: 'Error al cancelar la OC' }, { status: 500 })
     }
 
+    // Spec: HU-016 CA-12 — NPs involucradas = las que tienen items_oc.item_np_id en
+    // esta OC (reemplaza el antiguo oc.nota_pedido_id único).
+    const { data: itemsOC } = await adminClient()
+      .from('items_oc')
+      .select('item_np_id, cantidad, descripcion')
+      .eq('registro_compras_id', id)
+
+    const itemsVinculados = (itemsOC ?? []).filter(
+      (i: { item_np_id: string | null }) => i.item_np_id
+    )
+    const npIds = [...new Set(itemsVinculados.map(i => i.item_np_id as string))]
+
     let np_revertida = false
+    const npsConError: string[] = []
 
-    // ── PASO 2: impacto en NP (solo si hay nota_pedido_id) ───────────────────
-    if (oc.nota_pedido_id) {
-      // Obtener ítems de esta OC con trazabilidad a NP
-      const { data: itemsOC } = await adminClient()
-        .from('items_oc')
-        .select('item_np_id, cantidad, descripcion')
-        .eq('registro_compras_id', id)
+    if (npIds.length > 0) {
+      const { data: itemsNpRows } = await adminClient()
+        .from('items_np')
+        .select('id, nota_pedido_id')
+        .in('id', npIds)
 
-      const itemsVinculados = (itemsOC ?? []).filter(i => i.item_np_id)
+      const npIdPorItemNp: Record<string, string> = {}
+      for (const it of (itemsNpRows ?? [])) npIdPorItemNp[it.id] = it.nota_pedido_id
 
-      // Construir texto de impacto
-      const detalleUnidades = itemsVinculados.length > 0
-        ? itemsVinculados.map(i =>
-            `${i.descripcion.slice(0, 40)}: ${Number(i.cantidad)} un.`
-          ).join(' | ')
-        : 'Sin ítems vinculados a líneas de NP'
+      const npIdsReales = [...new Set(Object.values(npIdPorItemNp))]
 
-      const notasHistorial =
-        `OC ${oc.numero_oc} cancelada. Unidades liberadas: ${detalleUnidades}. ` +
-        `Motivo: ${motivo.trim()}`
+      // Spec: decisión del usuario (2026-07-27) — best-effort por NP. La cancelación de
+      // la OC (PASO 1) ya quedó firme; si el historial/reversión de UNA NP falla, se
+      // registra el error y se continúa con las demás, en vez de revertir la
+      // cancelación completa (que dejaría huérfano el historial ya insertado de otras
+      // NPs ya procesadas en este mismo loop — no hay forma de deshacerlo de forma
+      // atómica cuando N puede ser > 1). Mismo criterio "no bloqueante" que
+      // autoCompletarNP/actualizarEstadoNP en convertir/[id] y PUT ordenes/[id].
+      for (const npId of npIdsReales) {
+        try {
+          const itemsDeEstaNP = itemsVinculados.filter(i => npIdPorItemNp[i.item_np_id as string] === npId)
+          const detalleUnidades = itemsDeEstaNP.length > 0
+            ? itemsDeEstaNP.map(i => `${i.descripcion.slice(0, 40)}: ${Number(i.cantidad)} un.`).join(' | ')
+            : 'Sin ítems vinculados a líneas de NP'
 
-      // Obtener estado actual de la NP
-      const { data: np } = await adminClient()
-        .from('notas_pedido')
-        .select('estado, numero')
-        .eq('id', oc.nota_pedido_id)
-        .single()
+          const notasHistorial =
+            `OC ${oc.numero_oc} cancelada. Unidades liberadas: ${detalleUnidades}. ` +
+            `Motivo: ${motivo.trim()}`
 
-      // ── PASO 2a: registrar en historial_np ───────────────────────────────
-      const { error: errHist } = await adminClient()
-        .from('historial_np')
-        .insert({
-          np_id:        oc.nota_pedido_id,
-          estado:       'oc_cancelada',
-          actor_nombre: perfil.nombre,
-          actor_email:  perfil.email,
-          notas:        notasHistorial,
-        })
-
-      if (errHist) {
-        console.error('Error al insertar historial_np — revirtiendo cancelación:', errHist)
-        await adminClient()
-          .from('registro_compras')
-          .update({ estado_oc: estadoAnterior, motivo_cancelacion: null })
-          .eq('id', id)
-        return NextResponse.json({ error: 'Error al registrar historial de NP. Cancelación revertida.' }, { status: 500 })
-      }
-
-      // ── PASO 2b: revertir NP a 'aprobada' si estaba completada ──────────
-      if (np?.estado === 'completada') {
-        const cobertura = await calcularCoberturaNP(oc.nota_pedido_id)
-
-        if (!cobertura.np_cubierta) {
-          const { error: errRevert } = await adminClient()
+          const { data: np } = await adminClient()
             .from('notas_pedido')
-            .update({ estado: 'aprobada' })
-            .eq('id', oc.nota_pedido_id)
+            .select('estado, numero')
+            .eq('id', npId)
+            .single()
 
-          if (errRevert) {
-            console.error('Error al revertir NP — revirtiendo cancelación:', errRevert)
-            await adminClient()
-              .from('registro_compras')
-              .update({ estado_oc: estadoAnterior, motivo_cancelacion: null })
-              .eq('id', id)
-            return NextResponse.json({ error: 'Error al revertir NP. Cancelación revertida.' }, { status: 500 })
-          }
-
-          // Historial de reversión de NP
-          const { error: errHistRev } = await adminClient()
+          const { error: errHist } = await adminClient()
             .from('historial_np')
             .insert({
-              np_id:        oc.nota_pedido_id,
-              estado:       'reabierta',
+              np_id:        npId,
+              estado:       'oc_cancelada',
               actor_nombre: perfil.nombre,
               actor_email:  perfil.email,
-              notas: `NP revertida a Aprobada automáticamente. Cobertura: ${cobertura.porcentaje_global.toFixed(0)}% tras cancelación de ${oc.numero_oc}.`,
+              notas:        notasHistorial,
             })
+          if (errHist) throw errHist
 
-          if (errHistRev) {
-            console.error('Error al insertar historial de reversión — revirtiendo cancelación:', errHistRev)
-            await adminClient().from('notas_pedido').update({ estado: 'completada' }).eq('id', oc.nota_pedido_id)
-            await adminClient()
-              .from('registro_compras')
-              .update({ estado_oc: estadoAnterior, motivo_cancelacion: null })
-              .eq('id', id)
-            return NextResponse.json({ error: 'Error al registrar reversión de NP. Cancelación revertida.' }, { status: 500 })
+          // Revertir NP a 'aprobada' si estaba completada y la cobertura ya no alcanza 100%
+          if (np?.estado === 'completada') {
+            const cobertura = await calcularCoberturaNP(npId)
+
+            if (!cobertura.np_cubierta) {
+              const { error: errRevert } = await adminClient()
+                .from('notas_pedido')
+                .update({ estado: 'aprobada' })
+                .eq('id', npId)
+              if (errRevert) throw errRevert
+
+              const { error: errHistRev } = await adminClient()
+                .from('historial_np')
+                .insert({
+                  np_id:        npId,
+                  estado:       'reabierta',
+                  actor_nombre: perfil.nombre,
+                  actor_email:  perfil.email,
+                  notas: `NP revertida a Aprobada automáticamente. Cobertura: ${cobertura.porcentaje_global.toFixed(0)}% tras cancelación de ${oc.numero_oc}.`,
+                })
+              if (errHistRev) throw errHistRev
+
+              np_revertida = true
+            }
           }
 
-          np_revertida = true
+          // Spec: HU-009 CA-19, RN-02+RN-04 (Tarea 21) — recalcula el Estado de la NP
+          // (excluyendo ya la OC cancelada); no-op si la NP quedó en 'completada'.
+          await actualizarEstadoNP(npId).catch(console.error)
+        } catch (errNp) {
+          console.error(`Error al procesar impacto en NP ${npId} tras cancelar OC ${oc.numero_oc}:`, errNp)
+          npsConError.push(npId)
         }
       }
-
-      // Spec: HU-009 CA-19, RN-02+RN-04 (Tarea 21) — recalcula el Estado de la NP
-      // (excluyendo ya la OC cancelada); no-op si la NP quedó en 'completada'.
-      await actualizarEstadoNP(oc.nota_pedido_id).catch(console.error)
     }
 
     // ── Auditoría (no crítica — no revierte) ─────────────────────────────────
@@ -160,11 +159,13 @@ export async function POST(
         entidad:    'orden_compra',
         entidad_id: id,
         referencia: oc.numero_oc,
-        detalle:    { estado_anterior: estadoAnterior, motivo: motivo.trim(), np_revertida },
+        detalle:    { estado_anterior: estadoAnterior, motivo: motivo.trim(), np_revertida, nps_con_error: npsConError },
       })
     } catch (e) { console.error(e) }
 
-    return NextResponse.json({ success: true, np_revertida })
+    // Spec: la OC queda cancelada de todas formas (best-effort); nps_con_error permite
+    // a Compras/Admin saber si el impacto en alguna NP necesita revisión manual.
+    return NextResponse.json({ success: true, np_revertida, nps_con_error: npsConError })
   } catch (err) {
     console.error(err)
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })

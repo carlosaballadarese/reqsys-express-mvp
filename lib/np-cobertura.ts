@@ -89,6 +89,11 @@ export type ItemExcedido = {
 // Calcula la cobertura de cantidades NP→OC para cada ítem.
 // excluir_oc_id: en edición de OC, excluye sus ítems actuales del acumulado
 // para no contar doble antes del replace.
+//
+// Spec: HU-016 CA-10 — el acumulado comprometido se calcula por
+// items_oc.item_np_id → items_np.nota_pedido_id, NO por registro_compras.nota_pedido_id
+// (que queda NULL en OCs consolidadas, Decisión 1 de sdd-design.md). Una OC consolidada
+// aporta a la cobertura de cada NP solo por sus líneas que realmente enlazan a esa NP.
 export async function calcularCoberturaNP(
   np_id: string,
   excluir_oc_id?: string
@@ -103,30 +108,35 @@ export async function calcularCoberturaNP(
     return { por_item: [], np_cubierta: false, porcentaje_global: 0 }
   }
 
-  // OCs válidas para esta NP (excluye rechazadas y canceladas)
-  let ocQuery = adminClient()
-    .from('registro_compras')
-    .select('id')
-    .eq('nota_pedido_id', np_id)
-    .neq('estado_oc', 'rechazada')
-    .neq('estado_oc', 'cancelada')
+  const npItemIds = npItems.map((item: { id: string }) => item.id)
 
-  if (excluir_oc_id) {
-    ocQuery = ocQuery.neq('id', excluir_oc_id)
-  }
+  // Todas las líneas de OC (de cualquier OC, single-NP o consolidada) que enlazan
+  // a algún ítem de esta NP.
+  const { data: itemsOCTodos } = await adminClient()
+    .from('items_oc')
+    .select('item_np_id, cantidad, registro_compras_id')
+    .in('item_np_id', npItemIds)
 
-  const { data: ocsValidas } = await ocQuery
-  const ocIds = (ocsValidas ?? []).map((oc: { id: string }) => oc.id)
+  const ocIdsCandidatos = [...new Set(
+    (itemsOCTodos ?? []).map((it: { registro_compras_id: string }) => it.registro_compras_id)
+  )].filter(ocId => ocId !== excluir_oc_id)
 
+  // De esas OCs candidatas, cuáles siguen vigentes (excluye rechazadas y canceladas)
   const comprometidoMap: Record<string, number> = {}
-  if (ocIds.length > 0) {
-    const { data: itemsOC } = await adminClient()
-      .from('items_oc')
-      .select('item_np_id, cantidad')
-      .in('registro_compras_id', ocIds)
+  if (ocIdsCandidatos.length > 0) {
+    const { data: ocsValidas } = await adminClient()
+      .from('registro_compras')
+      .select('id')
+      .in('id', ocIdsCandidatos)
+      .neq('estado_oc', 'rechazada')
+      .neq('estado_oc', 'cancelada')
 
-    for (const it of (itemsOC ?? [])) {
+    const ocIdsValidos = new Set((ocsValidas ?? []).map((oc: { id: string }) => oc.id))
+
+    for (const it of (itemsOCTodos ?? [])) {
       if (!it.item_np_id) continue
+      if (it.registro_compras_id === excluir_oc_id) continue
+      if (!ocIdsValidos.has(it.registro_compras_id)) continue
       comprometidoMap[it.item_np_id] =
         (comprometidoMap[it.item_np_id] ?? 0) + Number(it.cantidad)
     }

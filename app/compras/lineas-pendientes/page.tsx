@@ -101,13 +101,16 @@ function construirQueryParams(filtros: Filtros): URLSearchParams {
 
 // ─── Modal Generar OC (HU-014) ────────────────────────────────────────────────
 
-// Spec: HU-014 CA-04/CA-07 — modal de confirmación con detalle de líneas y
-// prellenado de proveedor cuando todas las líneas comparten el mismo proveedor_sugerido.
+// Spec: HU-014 CA-04/CA-07, extendido por HU-016 CA-01/CA-03/CA-04 — modal de
+// confirmación con detalle de líneas (de 1 o varias NPs) y prellenado de proveedor
+// cuando todas las líneas comparten el mismo proveedor_sugerido.
 function ModalGenerarOC({ lineas, onClose, onGenerado }: {
   lineas: LineaPendiente[]
   onClose: () => void
   onGenerado: (numeroOc: string) => void
 }) {
+  const npIdsModal = new Set(lineas.map(l => l.np_id))
+  const esConsolidacion = npIdsModal.size > 1
   const [proveedorId, setProveedorId]         = useState('')
   const [proveedorTexto, setProveedorTexto]   = useState('')
   const [enviando, setEnviando]               = useState(false)
@@ -143,7 +146,12 @@ function ModalGenerarOC({ lineas, onClose, onGenerado }: {
     setEnviando(true)
     setError(null)
     try {
-      const res = await fetch(`/api/compras/convertir/${lineas[0].np_id}`, {
+      // Spec: HU-016 Decisión 4 — convertir/[id] sigue siendo el camino de 1 sola NP
+      // (id de NP en la URL); 2+ NPs distintas usan el endpoint nuevo de consolidación.
+      const url = esConsolidacion
+        ? '/api/compras/ordenes/consolidar'
+        : `/api/compras/convertir/${lineas[0].np_id}`
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -175,7 +183,9 @@ function ModalGenerarOC({ lineas, onClose, onGenerado }: {
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <CardHeader>
-          <CardTitle className="text-base">Generar Orden de Compra</CardTitle>
+          <CardTitle className="text-base">
+            {esConsolidacion ? `Consolidar ${npIdsModal.size} NPs en una Orden de Compra` : 'Generar Orden de Compra'}
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="overflow-x-auto">
@@ -239,20 +249,31 @@ export default function LineasPendientesPage() {
   const [modalAbierto, setModalAbierto] = useState(false)
   const [mensaje, setMensaje]       = useState<string | null>(null)
 
-  // Spec: HU-014 CA-01/CA-02 — la restricción de "una sola NP" ya es estructural en
-  // POST /api/compras/convertir/[id] (toma el id de NP de la URL); esto es solo UX.
+  // Spec: HU-014 CA-01 — 1 sola línea/NP genera OC directo (convertir/[id]); HU-016
+  // CA-01/CA-02 levanta la restricción de "una sola NP": 2+ NPs son elegibles para
+  // consolidar si comparten el mismo proveedor_sugerido no vacío, o si el proveedor
+  // sugerido está vacío en cualquiera de las líneas seleccionadas.
   const filasSeleccionadas = rows.filter(r => seleccion.has(r.item_id))
   const npIdsSeleccionados = new Set(filasSeleccionadas.map(r => r.np_id))
-  const mismaNp            = npIdsSeleccionados.size <= 1
+  const esConsolidacion    = npIdsSeleccionados.size > 1
 
-  // Spec: HU-014 decisión de diseño 3 — mismo criterio de HU-009 (botón "Completar NP"
-  // condicionado a asignado_a===userId para asistente_compras). Esta vista muestra TODAS
-  // las líneas pendientes sin filtrar por asignación (HU-013), así que sin este guard un
-  // asistente podría intentar generar OC sobre una NP ajena y solo enterarse por el 403.
-  const npAsignadaAOtro =
-    perfil?.rol === 'asistente_compras' &&
-    filasSeleccionadas.length > 0 &&
-    filasSeleccionadas[0].asignado_a !== perfil.id
+  const proveedoresSugeridosSeleccion = new Set(
+    filasSeleccionadas.map(r => (r.proveedor_sugerido ?? '').trim()).filter(v => v !== '')
+  )
+  const proveedoresEnConflicto = proveedoresSugeridosSeleccion.size > 1
+
+  // Spec: HU-014 decisión de diseño 3, extendida por HU-016 — mismo criterio de HU-009
+  // (botón "Completar NP" condicionado a asignado_a===userId para asistente_compras).
+  // Esta vista muestra TODAS las líneas pendientes sin filtrar por asignación (HU-013),
+  // así que sin este guard un asistente podría intentar generar/consolidar OC sobre una
+  // NP ajena y solo enterarse por el 403. Se evalúa por CADA NP seleccionada (antes de
+  // HU-016 alcanzaba con mirar la primera línea, porque solo se permitía 1 NP a la vez).
+  const npsAjenasSeleccion = perfil?.rol === 'asistente_compras'
+    ? [...npIdsSeleccionados].filter(npId =>
+        filasSeleccionadas.some(r => r.np_id === npId && r.asignado_a !== perfil.id)
+      )
+    : []
+  const npAsignadaAOtro = npsAjenasSeleccion.length > 0
 
   const [filtros, setFiltros] = useState<Filtros>({
     area: 'todas', estado: 'todos', accion: 'todas', prioridad: 'todas', sla: 'todos',
@@ -418,22 +439,27 @@ export default function LineasPendientesPage() {
           </Card>
         )}
 
-        {/* Barra de selección — Spec: HU-014 CA-01/CA-02 */}
+        {/* Barra de selección — Spec: HU-014 CA-01/CA-02, HU-016 CA-01/CA-02 */}
         {seleccion.size > 0 && (
           <Card className="border-[#c9a840] bg-amber-50/50">
             <CardContent className="py-3 flex items-center justify-between text-sm">
-              <span>{seleccion.size} línea(s) seleccionada(s)</span>
-              {!mismaNp ? (
+              <span>
+                {seleccion.size} línea(s) seleccionada(s)
+                {esConsolidacion ? ` — ${npIdsSeleccionados.size} NPs` : ''}
+              </span>
+              {proveedoresEnConflicto ? (
                 <span className="text-xs text-red-600 font-medium">
-                  Solo se pueden seleccionar líneas de una misma NP para generar una OC
+                  Proveedores sugeridos en conflicto ({[...proveedoresSugeridosSeleccion].join(', ')}) — no se pueden consolidar en una misma OC
                 </span>
               ) : npAsignadaAOtro ? (
                 <span className="text-xs text-red-600 font-medium">
-                  Esta NP está asignada a otro comprador — no puedes generar su OC
+                  {esConsolidacion
+                    ? 'Una o más NPs seleccionadas están asignadas a otro comprador'
+                    : 'Esta NP está asignada a otro comprador'} — no puedes generar su OC
                 </span>
               ) : (
                 <Button onClick={() => setModalAbierto(true)} className="h-8 btn-primary text-xs">
-                  Generar OC
+                  {esConsolidacion ? 'Consolidar en OC' : 'Generar OC'}
                 </Button>
               )}
             </CardContent>

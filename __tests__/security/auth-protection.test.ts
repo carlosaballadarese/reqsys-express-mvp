@@ -1402,7 +1402,10 @@ describe('POST /api/compras/convertir/[id] — validación sobrecompra', () => {
       return Promise.resolve({ data: null, error: null })
     })
     // HU-014 CA-08: thenCalls=1 es el guard de pertenencia (nuevo); 2 es
-    // validarEnlaceYJustificacion; 3-5 son calcularCoberturaNP
+    // validarEnlaceYJustificacion; 3-5 son calcularCoberturaNP.
+    // HU-016 CA-10: calcularCoberturaNP ahora consulta items_oc ANTES que
+    // registro_compras (items_oc.item_np_id → registro_compras.id), orden invertido
+    // respecto al código pre-HU-016.
     let thenCalls = 0
     chain.then = (resolve: any) => {
       thenCalls++
@@ -1412,10 +1415,10 @@ describe('POST /api/compras/convertir/[id] — validación sobrecompra', () => {
       if (thenCalls === 2) return Promise.resolve({ data: [{ id: 'item-np-1', cantidad: cantidadNP }], error: null }).then(resolve)
       // calcularCoberturaNP → items_np (completo)
       if (thenCalls === 3) return Promise.resolve({ data: [{ id: 'item-np-1', linea: 1, descripcion: 'Producto', cantidad: cantidadNP }], error: null }).then(resolve)
-      // calcularCoberturaNP → registro_compras OC IDs
-      if (thenCalls === 4) return Promise.resolve({ data: [{ id: 'oc-exist' }], error: null }).then(resolve)
-      // calcularCoberturaNP → items_oc
-      if (thenCalls === 5) return Promise.resolve({ data: [{ item_np_id: 'item-np-1', cantidad: cantidadComprometida }], error: null }).then(resolve)
+      // calcularCoberturaNP → items_oc (por item_np_id)
+      if (thenCalls === 4) return Promise.resolve({ data: [{ item_np_id: 'item-np-1', cantidad: cantidadComprometida, registro_compras_id: 'oc-exist' }], error: null }).then(resolve)
+      // calcularCoberturaNP → registro_compras (OCs vigentes entre las candidatas)
+      if (thenCalls === 5) return Promise.resolve({ data: [{ id: 'oc-exist' }], error: null }).then(resolve)
       return Promise.resolve({ data: [], error: null }).then(resolve)
     }
     mockFrom.mockReturnValue(chain)
@@ -1543,24 +1546,33 @@ describe('POST /api/compras/ordenes/[id]/cancelar', () => {
     expect(res.status).toBe(409)
   })
 
-  it('cancela OC exitosamente y registra historial NP', async () => {
+  it('cancela OC exitosamente y registra historial NP (HU-016: NPs derivadas de items_oc.item_np_id)', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
-    let singleCalls = 0
     const insertMock = jest.fn(() => Promise.resolve({ data: {}, error: null }))
-    const chain = mockChainVacio()
-    chain.in   = jest.fn(() => chain)
-    chain.insert = insertMock
-    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
-    chain.single = jest.fn(() => {
-      singleCalls++
-      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Carlos', email: 'c@a.com' }, error: null })
-      if (singleCalls === 2) return Promise.resolve({ data: { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'en_proceso', nota_pedido_id: 'np-1' }, error: null })
-      if (singleCalls === 3) return Promise.resolve({ data: { estado: 'aprobada', numero: 'NP-2026-0001' }, error: null }) // NP
-      return Promise.resolve({ data: null, error: null })
+    const updateMock = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+
+    function chainFor(data: unknown, singleData: unknown = null) {
+      const chain: any = {}
+      const noop = jest.fn(() => chain)
+      chain.select = noop
+      chain.eq     = noop
+      chain.in     = noop
+      chain.single = jest.fn(() => Promise.resolve({ data: singleData, error: null }))
+      chain.update = updateMock
+      chain.insert = insertMock
+      chain.then   = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve)
+      return chain
+    }
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')         return chainFor([], { rol: 'compras', nombre: 'Carlos', email: 'c@a.com' })
+      if (table === 'registro_compras') return chainFor([], { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'en_proceso' })
+      if (table === 'items_oc')         return chainFor([{ item_np_id: 'item-1', cantidad: 3, descripcion: 'Producto' }])
+      if (table === 'items_np')         return chainFor([{ id: 'item-1', nota_pedido_id: 'np-1' }])
+      if (table === 'notas_pedido')     return chainFor([], { estado: 'aprobada', numero: 'NP-2026-0001' })
+      if (table === 'historial_np')     return chainFor([])
+      throw new Error(`tabla no mockeada: ${table}`)
     })
-    // items_oc sin item_np_id (OC sin trazabilidad, simplifica el test)
-    chain.then = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
-    mockFrom.mockReturnValue(chain)
 
     const req = makeRequest('http://localhost/api/compras/ordenes/oc-1/cancelar', {
       method: 'POST',
@@ -1570,10 +1582,60 @@ describe('POST /api/compras/ordenes/[id]/cancelar', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.success).toBe(true)
-    expect(chain.update).toHaveBeenCalledWith(
+    expect(body.nps_con_error).toEqual([])
+    expect(updateMock).toHaveBeenCalledWith(
       expect.objectContaining({ estado_oc: 'cancelada', motivo_cancelacion: 'Proveedor no disponible' })
     )
-    expect(insertMock).toHaveBeenCalled()
+    expect(insertMock).toHaveBeenCalledWith(expect.objectContaining({ np_id: 'np-1', estado: 'oc_cancelada' }))
+  })
+
+  it('HU-016 CA-12: cancela OC consolidada — revierte cobertura/Estado de cada NP de forma independiente', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const historialCalls: any[] = []
+
+    function chainFor(data: unknown, singleData: unknown = null) {
+      const chain: any = {}
+      const noop = jest.fn(() => chain)
+      chain.select = noop
+      chain.eq     = noop
+      chain.in     = noop
+      chain.order  = noop
+      chain.neq    = noop
+      chain.single = jest.fn(() => Promise.resolve({ data: singleData, error: null }))
+      chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+      chain.insert = jest.fn((payload: any) => { historialCalls.push(payload); return Promise.resolve({ data: {}, error: null }) })
+      chain.then   = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve)
+      return chain
+    }
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')         return chainFor([], { rol: 'compras', nombre: 'Carlos', email: 'c@a.com' })
+      if (table === 'registro_compras') return chainFor([], { id: 'oc-multi', numero_oc: 'OC-2026-0300', estado_oc: 'en_proceso' })
+      if (table === 'items_oc')         return chainFor([
+        { item_np_id: 'item-a1', cantidad: 5, descripcion: 'A' },
+        { item_np_id: 'item-b1', cantidad: 2, descripcion: 'B' },
+      ])
+      if (table === 'items_np') return chainFor([
+        { id: 'item-a1', nota_pedido_id: 'np-a' },
+        { id: 'item-b1', nota_pedido_id: 'np-b' },
+      ])
+      if (table === 'notas_pedido') return chainFor([], { estado: 'aprobada', numero: 'NP-X' })
+      if (table === 'historial_np') return chainFor([])
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-multi/cancelar', {
+        method: 'POST',
+        body: JSON.stringify({ motivo: 'Proveedor incumplió' }),
+      }),
+      { params: Promise.resolve({ id: 'oc-multi' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-a')
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-b')
+    const npIdsConHistorial = historialCalls.filter(h => h.estado === 'oc_cancelada').map(h => h.np_id)
+    expect(npIdsConHistorial.sort()).toEqual(['np-a', 'np-b'])
   })
 })
 
@@ -2115,6 +2177,48 @@ describe('GET /api/compras/dashboard/cobertura — campo completado_manualmente 
   })
 })
 
+describe('GET /api/compras/dashboard/cobertura — HU-016 CA-10 (OC consolidada)', () => {
+  const { GET } = require('@/app/api/compras/dashboard/cobertura/route')
+
+  it('calcula porcentaje_global vía items_oc.item_np_id, no registro_compras.nota_pedido_id (NULL en OC consolidada)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+
+    const npsMock = [
+      { id: 'np-a', numero: 'NP-2026-0500', area: 'Operaciones', estado: 'aprobada',
+        prioridad: 'alta', solicitante_nombre: 'Ana', created_at: '2026-01-15T00:00:00Z' },
+    ]
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'compras' }, error: null }) }) }) }
+      }
+      if (table === 'notas_pedido') {
+        return { select: () => ({ in: () => Promise.resolve({ data: npsMock, error: null }) }) }
+      }
+      if (table === 'items_np') {
+        return { select: () => ({ in: () => Promise.resolve({ data: [{ id: 'item-a1', nota_pedido_id: 'np-a', cantidad: 5 }], error: null }) }) }
+      }
+      if (table === 'items_oc') {
+        // Línea de una OC CONSOLIDADA (registro_compras.nota_pedido_id sería NULL) que
+        // igual debe contar para la cobertura de NP-A vía item_np_id.
+        return { select: () => ({ in: () => Promise.resolve({ data: [{ item_np_id: 'item-a1', cantidad: 5, registro_compras_id: 'oc-multi' }], error: null }) }) }
+      }
+      if (table === 'registro_compras') {
+        return { select: () => ({ in: () => ({ neq: () => ({ neq: () => Promise.resolve({ data: [{ id: 'oc-multi' }], error: null }) }) }) }) }
+      }
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+
+    const req = makeRequest('http://localhost/api/compras/dashboard/cobertura')
+    const res = await GET(req)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.nps[0].total_comprometido).toBe(5)
+    expect(body.nps[0].porcentaje_global).toBe(100)
+    expect(body.nps[0].np_cubierta).toBe(true)
+  })
+})
+
 describe('PUT /api/compras/ordenes/[id] — HU-003 enlace y justificación', () => {
   const { PUT } = require('@/app/api/compras/ordenes/[id]/route')
 
@@ -2187,6 +2291,198 @@ describe('PUT /api/compras/ordenes/[id] — HU-003 enlace y justificación', () 
     // Sin nota_pedido_id no se valida item_np_id — debe pasar sin 400
     expect(res.status).not.toBe(400)
     expect(res.status).toBe(200)
+  })
+})
+
+describe('PUT /api/compras/ordenes/[id] — HU-016 CA-13/RN-04 (edición multi-NP)', () => {
+  const { PUT } = require('@/app/api/compras/ordenes/[id]/route')
+
+  function chainFor(data: unknown, singleData: unknown = null) {
+    const chain: any = {}
+    const noop = jest.fn(() => chain)
+    chain.select = noop
+    chain.eq     = noop
+    chain.in     = noop
+    chain.order  = noop
+    chain.neq    = noop
+    chain.delete = noop
+    chain.single = jest.fn(() => Promise.resolve({ data: singleData, error: null }))
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.insert = jest.fn(() => Promise.resolve({ data: null, error: null }))
+    chain.then   = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve)
+    return chain
+  }
+
+  function putReq(id: string, items: Record<string, unknown>[]) {
+    return makeRequest(`http://localhost/api/compras/ordenes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ proveedor_id: 'prov-uuid', items }),
+    })
+  }
+
+  it('agrega una NP nueva a una OC consolidada — recalcula ambas NPs (antes + después)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')         return chainFor([], { rol: 'compras' })
+      if (table === 'registro_compras') return chainFor([], { estado_oc: 'en_proceso', creado_por_id: 'user-123', nota_pedido_id: null, numero_oc: 'OC-EDIT-1' })
+      if (table === 'proveedores')      return chainFor([], { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null })
+      if (table === 'items_np') return chainFor([
+        { id: 'item-a1', nota_pedido_id: 'np-a', cantidad: 5, linea: 1, descripcion: 'A' },
+        { id: 'item-c1', nota_pedido_id: 'np-c', cantidad: 3, linea: 1, descripcion: 'C' },
+      ])
+      // items_oc "antes" de editar: solo NP-A tenía línea en esta OC
+      if (table === 'items_oc')     return chainFor([{ item_np_id: 'item-a1', cantidad: 0, registro_compras_id: 'oc-edit-1' }])
+      if (table === 'notas_pedido') return chainFor([{ id: 'np-a', estado: 'en_gestion' }, { id: 'np-c', estado: 'en_gestion' }])
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+
+    const res = await PUT(
+      putReq('oc-edit-1', [
+        { item_np_id: 'item-a1', descripcion: 'A', unidad: 'EA', cantidad: 5, precio_unitario: 1 },
+        { item_np_id: 'item-c1', descripcion: 'C', unidad: 'EA', cantidad: 3, precio_unitario: 1 },
+      ]),
+      { params: Promise.resolve({ id: 'oc-edit-1' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-a')
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-c')
+  })
+
+  it('RN-04: una NP que pierde todas sus líneas en la edición igual se recalcula', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')         return chainFor([], { rol: 'compras' })
+      if (table === 'registro_compras') return chainFor([], { estado_oc: 'en_proceso', creado_por_id: 'user-123', nota_pedido_id: null, numero_oc: 'OC-EDIT-2' })
+      if (table === 'proveedores')      return chainFor([], { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null })
+      if (table === 'items_np') return chainFor([
+        { id: 'item-a1', nota_pedido_id: 'np-a', cantidad: 5, linea: 1, descripcion: 'A' },
+        { id: 'item-b1', nota_pedido_id: 'np-b', cantidad: 2, linea: 1, descripcion: 'B' },
+      ])
+      // items_oc "antes": solo NP-B tenía línea; la edición la reemplaza por NP-A
+      if (table === 'items_oc')     return chainFor([{ item_np_id: 'item-b1', cantidad: 0, registro_compras_id: 'oc-edit-2' }])
+      if (table === 'notas_pedido') return chainFor([{ id: 'np-a', estado: 'en_gestion' }, { id: 'np-b', estado: 'en_gestion' }])
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+
+    const res = await PUT(
+      putReq('oc-edit-2', [{ item_np_id: 'item-a1', descripcion: 'A', unidad: 'EA', cantidad: 5, precio_unitario: 1 }]),
+      { params: Promise.resolve({ id: 'oc-edit-2' }) }
+    )
+    expect(res.status).toBe(200)
+    // NP-B ya no tiene ninguna línea en la OC editada — igual debe recalcularse (RN-04)
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-b')
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-a')
+  })
+
+  it('RN-04: NP ya completada que pierde su cobertura en la edición revierte a aprobada (mismo criterio que cancelar)', async () => {
+    // Spec: hallazgo de validación caja negra HTTP (2026-07-27) — autoCompletarNP es
+    // unidireccional y actualizarEstadoNP no toca NPs en 'completada' (estado terminal,
+    // HU-009); sin una reversión explícita, una NP completada que pierde todas sus
+    // líneas en una edición quedaba "congelada" en completada para siempre.
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const updateNpSpy = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    const insertHistorialSpy = jest.fn(() => Promise.resolve({ data: {}, error: null }))
+    let itemsOcCalls = 0
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')         return chainFor([], { rol: 'compras', nombre: 'Carlos', email: 'c@a.com' })
+      if (table === 'registro_compras') return chainFor([], { estado_oc: 'en_proceso', creado_por_id: 'user-123', nota_pedido_id: null, numero_oc: 'OC-EDIT-4' })
+      if (table === 'proveedores')      return chainFor([], { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null })
+      if (table === 'items_np') return chainFor([
+        { id: 'item-a1', nota_pedido_id: 'np-a', cantidad: 5, linea: 1, descripcion: 'A' },
+        { id: 'item-b1', nota_pedido_id: 'np-b', cantidad: 1, linea: 1, descripcion: 'B' },
+      ])
+      // items_oc: la 1ª consulta es el chequeo de sobrecompra de NP-A (validarYVerificarPorNP,
+      // irrelevante aquí); la 2ª es npsAfectadasPorEdicion ("antes" de borrar/insertar, ve
+      // la línea de NP-B); las siguientes (calcularCoberturaNP del loop de reversión, ya
+      // after el delete+insert real de la edición) la ven vacía — igual que en producción.
+      if (table === 'items_oc') {
+        itemsOcCalls++
+        return chainFor(itemsOcCalls === 2 ? [{ item_np_id: 'item-b1', cantidad: 1, registro_compras_id: 'oc-edit-4' }] : [])
+      }
+      if (table === 'notas_pedido') {
+        const c = chainFor([{ id: 'np-a', estado: 'en_gestion' }, { id: 'np-b', estado: 'completada' }])
+        c.update = updateNpSpy
+        return c
+      }
+      if (table === 'historial_np') { const c = chainFor([]); c.insert = insertHistorialSpy; return c }
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+
+    // La edición quita la línea de NP-B por completo (solo deja NP-A)
+    const res = await PUT(
+      putReq('oc-edit-4', [{ item_np_id: 'item-a1', descripcion: 'A', unidad: 'EA', cantidad: 5, precio_unitario: 1 }]),
+      { params: Promise.resolve({ id: 'oc-edit-4' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(updateNpSpy).toHaveBeenCalledWith({ estado: 'aprobada' })
+    expect(insertHistorialSpy).toHaveBeenCalledWith(expect.objectContaining({ np_id: 'np-b', estado: 'reabierta' }))
+  })
+
+  it('devuelve 409 sobrecompra agrupado por np_id al editar', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')         return chainFor([], { rol: 'compras' })
+      if (table === 'registro_compras') return chainFor([{ id: 'oc-other' }], { estado_oc: 'en_proceso', creado_por_id: 'user-123', nota_pedido_id: null, numero_oc: 'OC-EDIT-3' })
+      if (table === 'proveedores')      return chainFor([], { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null })
+      if (table === 'items_np')         return chainFor([{ id: 'item-a1', nota_pedido_id: 'np-a', cantidad: 5, linea: 1, descripcion: 'A' }])
+      // comprometido previo por OTRA OC (oc-other, no excluida por excluirOcId)
+      if (table === 'items_oc')         return chainFor([{ item_np_id: 'item-a1', cantidad: 4, registro_compras_id: 'oc-other' }])
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+
+    const res = await PUT(
+      putReq('oc-edit-3', [{
+        item_np_id: 'item-a1', descripcion: 'A', unidad: 'EA', cantidad: 3, precio_unitario: 1,
+        justificacion_cantidad: 'Entrega parcial',
+      }]),
+      { params: Promise.resolve({ id: 'oc-edit-3' }) }
+    )
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.error).toBe('sobrecompra')
+    expect(body.items_excedidos[0].np_id).toBe('np-a')
+  })
+})
+
+describe('GET /api/compras/ordenes/[id] — HU-016 nps_origen', () => {
+  const { GET } = require('@/app/api/compras/ordenes/[id]/route')
+
+  function chainFor(data: unknown, singleData: unknown = null) {
+    const chain: any = {}
+    const noop = jest.fn(() => chain)
+    chain.select = noop
+    chain.eq     = noop
+    chain.in     = noop
+    chain.order  = noop
+    chain.single = jest.fn(() => Promise.resolve({ data: singleData, error: null }))
+    chain.then   = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve)
+    return chain
+  }
+
+  it('OC consolidada (nota_pedido_id null) devuelve nps_origen con las NPs reales de sus líneas', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'registro_compras') return chainFor([], { id: 'oc-multi', numero_oc: 'OC-2026-0300', nota_pedido_id: null })
+      if (table === 'items_oc')         return chainFor([{ item_np_id: 'item-a1' }, { item_np_id: 'item-b1' }])
+      if (table === 'items_np')         return chainFor([{ nota_pedido_id: 'np-a' }, { nota_pedido_id: 'np-b' }])
+      if (table === 'notas_pedido')     return chainFor([{ id: 'np-a', numero: 'NP-2026-0100' }, { id: 'np-b', numero: 'NP-2026-0101' }])
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/ordenes/oc-multi'), { params: Promise.resolve({ id: 'oc-multi' }) })
+    const body = await res.json()
+    expect(body.nps_origen).toHaveLength(2)
+    expect(body.nps_origen.map((n: { numero: string }) => n.numero).sort()).toEqual(['NP-2026-0100', 'NP-2026-0101'])
+  })
+
+  it('OC single-NP (nota_pedido_id set) no incluye nps_origen — comportamiento sin cambios', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'registro_compras') return chainFor([], { id: 'oc-single', numero_oc: 'OC-2026-0301', nota_pedido_id: 'np-single' })
+      if (table === 'items_oc')         return chainFor([{ item_np_id: 'item-x' }])
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/ordenes/oc-single'), { params: Promise.resolve({ id: 'oc-single' }) })
+    const body = await res.json()
+    expect(body.nps_origen).toBeUndefined()
   })
 })
 
@@ -2841,20 +3137,44 @@ describe('actualizarEstadoNP() se invoca en los 6 puntos de mutación de OC/NP',
   it('Tarea 19: PUT /api/compras/ordenes/[id] la invoca con nota_pedido_id', async () => {
     const { PUT } = require('@/app/api/compras/ordenes/[id]/route')
     mockGetUser.mockResolvedValue(CON_SESION)
-    let singleCalls = 0
-    const chain = mockChainVacio()
-    chain.update = jest.fn(() => chain)
-    chain.insert = jest.fn(() => Promise.resolve({ data: {}, error: null }))
-    chain.delete = jest.fn(() => chain)
-    chain.single = jest.fn(() => {
-      singleCalls++
-      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras' }, error: null })
-      if (singleCalls === 2) return Promise.resolve({ data: { estado_oc: 'en_proceso', creado_por_id: 'user-123', nota_pedido_id: 'np-put-1' }, error: null })
-      if (singleCalls === 3) return Promise.resolve({ data: { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null }, error: null })
-      if (singleCalls === 4) return Promise.resolve({ data: { estado: 'en_gestion' }, error: null })
-      return Promise.resolve({ data: { numero_oc: 'OC-2026-0001' }, error: null })
+
+    // Spec: HU-016 — el PUT ahora agrupa por item_np_id (agruparItemsPorNP,
+    // validarYVerificarPorNP, npsAfectadasPorEdicion) en vez de depender solo de
+    // registro_compras.nota_pedido_id. Mock por tabla (no posicional) para no acoplarse
+    // al número/orden exacto de queries internas.
+    function chainFor(data: unknown, singleData: unknown = null) {
+      const chain: any = {}
+      const noop = jest.fn(() => chain)
+      chain.select = noop
+      chain.eq     = noop
+      chain.in     = noop
+      chain.order  = noop
+      chain.neq    = noop
+      chain.delete = noop
+      chain.single = jest.fn(() => Promise.resolve({ data: singleData, error: null }))
+      chain.update = jest.fn(() => chain)
+      chain.insert = jest.fn(() => Promise.resolve({ data: null, error: null }))
+      chain.then   = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve)
+      return chain
+    }
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return chainFor([], { rol: 'compras' })
+      if (table === 'registro_compras') {
+        // single() sirve tanto al fetch de ocEstado como al de ocActual (auditoría) —
+        // superset de campos, cada call site usa solo los que necesita.
+        return chainFor([], { estado_oc: 'en_proceso', creado_por_id: 'user-123', nota_pedido_id: 'np-put-1', numero_oc: 'OC-2026-0001' })
+      }
+      if (table === 'proveedores') return chainFor([], { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null })
+      if (table === 'items_np') {
+        // Superset de campos usado por agruparItemsPorNP / validarEnlaceYJustificacion /
+        // calcularCoberturaNP / npsAfectadasPorEdicion — todas leen el mismo ítem real.
+        return chainFor([{ id: 'np-item-1', nota_pedido_id: 'np-put-1', cantidad: 1, linea: 1, descripcion: 'Item' }])
+      }
+      if (table === 'items_oc') return chainFor([]) // sin comprometido previo, sin líneas "antes" de la edición
+      if (table === 'notas_pedido') return chainFor([{ id: 'np-put-1', estado: 'en_gestion' }])
+      throw new Error(`tabla no mockeada: ${table}`)
     })
-    mockFrom.mockReturnValue(chain)
 
     await PUT(
       makeRequest('http://localhost/api/compras/ordenes/oc-put-1', {
@@ -2899,22 +3219,32 @@ describe('actualizarEstadoNP() se invoca en los 6 puntos de mutación de OC/NP',
     expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-aprob-1')
   })
 
-  it('Tarea 21: POST /api/compras/ordenes/[id]/cancelar la invoca con nota_pedido_id', async () => {
+  it('Tarea 21: POST /api/compras/ordenes/[id]/cancelar la invoca por cada NP derivada de items_oc.item_np_id', async () => {
     const { POST } = require('@/app/api/compras/ordenes/[id]/cancelar/route')
     mockGetUser.mockResolvedValue(CON_SESION)
-    let singleCalls = 0
-    const chain = mockChainVacio()
-    chain.in     = jest.fn(() => chain)
-    chain.insert = jest.fn(() => Promise.resolve({ data: {}, error: null }))
-    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
-    chain.single = jest.fn(() => {
-      singleCalls++
-      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'C', email: 'c@a.com' }, error: null })
-      if (singleCalls === 2) return Promise.resolve({ data: { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'en_proceso', nota_pedido_id: 'np-canc-1' }, error: null })
-      if (singleCalls === 3) return Promise.resolve({ data: { estado: 'en_gestion', numero: 'NP-2026-0001' }, error: null })
-      return Promise.resolve({ data: null, error: null })
+
+    function chainFor(data: unknown, singleData: unknown = null) {
+      const chain: any = {}
+      const noop = jest.fn(() => chain)
+      chain.select = noop
+      chain.eq     = noop
+      chain.in     = noop
+      chain.single = jest.fn(() => Promise.resolve({ data: singleData, error: null }))
+      chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+      chain.insert = jest.fn(() => Promise.resolve({ data: {}, error: null }))
+      chain.then   = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve)
+      return chain
+    }
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')         return chainFor([], { rol: 'compras', nombre: 'C', email: 'c@a.com' })
+      if (table === 'registro_compras') return chainFor([], { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'en_proceso' })
+      if (table === 'items_oc')         return chainFor([{ item_np_id: 'item-canc-1', cantidad: 1, descripcion: 'Item' }])
+      if (table === 'items_np')         return chainFor([{ id: 'item-canc-1', nota_pedido_id: 'np-canc-1' }])
+      if (table === 'notas_pedido')     return chainFor([], { estado: 'en_gestion', numero: 'NP-2026-0001' })
+      if (table === 'historial_np')     return chainFor([])
+      throw new Error(`tabla no mockeada: ${table}`)
     })
-    mockFrom.mockReturnValue(chain)
 
     await POST(
       makeRequest('http://localhost/api/compras/ordenes/oc-1/cancelar', {
@@ -3819,5 +4149,186 @@ describe('PATCH /api/compras/nps/lineas-pendientes/[itemId]', () => {
     const body = await res.json()
     expect(body.item).toEqual({ id: 'item-1', proveedor_sugerido: 'Ferretería Y' })
     expect(updatePayload).toEqual({ proveedor_sugerido: 'Ferretería Y' })
+  })
+})
+
+// ── HU-016: Consolidación Multi-NP en la Generación de OC ────────────────────
+
+describe('POST /api/compras/ordenes/consolidar', () => {
+  const { POST } = require('@/app/api/compras/ordenes/consolidar/route')
+
+  const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
+  beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+
+  // Chain genérico: eq/in/order/neq son noop que devuelven el propio chain (permite
+  // cualquier combinación de encadenado); .then resuelve siempre a `data` (array).
+  function chainFor(data: unknown, singleData: unknown = null) {
+    const chain: any = {}
+    const noop = jest.fn(() => chain)
+    chain.select = noop
+    chain.eq     = noop
+    chain.in     = noop
+    chain.order  = noop
+    chain.neq    = noop
+    chain.single = jest.fn(() => Promise.resolve({ data: singleData, error: null }))
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.insert = jest.fn(() => Promise.resolve({ data: null, error: null }))
+    chain.then   = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve)
+    return chain
+  }
+
+  // NP-A y NP-B, cada una con 1 ítem — union de campos necesarios por agruparItemsPorNP
+  // (id, nota_pedido_id), validarEnlaceYJustificacion (id, cantidad) y
+  // calcularCoberturaNP (id, linea, descripcion, cantidad). Sin sesgo por np_id ya que
+  // el mock no filtra por argumento — la corrección per-NP real ya está cubierta por
+  // np-cobertura.test.ts y np-multi-oc.test.ts; aquí se valida el wiring end-to-end.
+  const itemsNpMock = [
+    { id: 'item-a1', nota_pedido_id: 'np-a', cantidad: 5, linea: 1, descripcion: 'Bomba' },
+    { id: 'item-b1', nota_pedido_id: 'np-b', cantidad: 2, linea: 1, descripcion: 'Válvula' },
+  ]
+
+  function setupBasico(opts: {
+    rol: string
+    npA?: Record<string, unknown>
+    npB?: Record<string, unknown>
+    itemsOc?: unknown[]
+    ocsValidas?: unknown[]
+    ocRow?: Record<string, unknown>
+  }) {
+    const {
+      rol,
+      npA = { id: 'np-a', numero: 'NP-2026-0100', asignado_a: 'user-123', estado: 'en_gestion', convertida: true },
+      npB = { id: 'np-b', numero: 'NP-2026-0101', asignado_a: 'user-123', estado: 'en_gestion', convertida: true },
+      itemsOc = [],
+      ocsValidas = [],
+      ocRow = { id: 'oc-new', numero_oc: 'OC-2026-0001' },
+    } = opts
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')        return chainFor([], { rol, nombre: 'Carlos', email: 'c@a.com' })
+      if (table === 'items_np')        return chainFor(itemsNpMock)
+      if (table === 'notas_pedido')    return chainFor([npA, npB])
+      if (table === 'items_oc')        return chainFor(itemsOc)
+      if (table === 'proveedores')     return chainFor([], { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null })
+      if (table === 'historial_np')    return chainFor([])
+      if (table === 'registro_compras') {
+        // .select('id').in(...).neq(...).neq(...) — sub-consulta de OCs vigentes (cobertura)
+        const rc = chainFor(ocsValidas)
+        rc.insert = jest.fn(() => ({ select: () => ({ single: () => Promise.resolve({ data: ocRow, error: null }) }) }))
+        return rc
+      }
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+  }
+
+  function reqConsolidar(items: Record<string, unknown>[], extra: Record<string, unknown> = {}) {
+    return makeRequest('http://localhost/api/compras/ordenes/consolidar', {
+      method: 'POST',
+      body: JSON.stringify({ proveedor_id: 'prov-uuid', items, ...extra }),
+    })
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(reqConsolidar([]))
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol no autorizado (solicitante)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupBasico({ rol: 'solicitante' })
+    const res = await POST(reqConsolidar([{ item_np_id: 'item-a1', descripcion: 'Bomba', unidad: 'EA', cantidad: 5, precio_unitario: 10 }]))
+    expect(res.status).toBe(403)
+  })
+
+  it('CA-01: devuelve 400 items_de_np_no_elegible si una NP referenciada no está abierta a OC', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupBasico({ rol: 'compras', npB: { id: 'np-b', numero: 'NP-2026-0101', asignado_a: 'user-123', estado: 'rechazada', convertida: false } })
+    const res = await POST(reqConsolidar([
+      { item_np_id: 'item-a1', descripcion: 'Bomba',   unidad: 'EA', cantidad: 5, precio_unitario: 10 },
+      { item_np_id: 'item-b1', descripcion: 'Válvula', unidad: 'EA', cantidad: 2, precio_unitario: 5 },
+    ]))
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toBe('items_de_np_no_elegible')
+    expect(body.np_ids).toContain('np-b')
+  })
+
+  it('devuelve 403 si asistente_compras intenta consolidar una NP que no tiene asignada', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupBasico({
+      rol: 'asistente_compras',
+      npB: { id: 'np-b', numero: 'NP-2026-0101', asignado_a: 'otro-comprador', estado: 'en_gestion', convertida: true },
+    })
+    const res = await POST(reqConsolidar([
+      { item_np_id: 'item-a1', descripcion: 'Bomba',   unidad: 'EA', cantidad: 5, precio_unitario: 10 },
+      { item_np_id: 'item-b1', descripcion: 'Válvula', unidad: 'EA', cantidad: 2, precio_unitario: 5 },
+    ]))
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body.np_ids).toContain('np-b')
+  })
+
+  it('CA-04/CA-08: devuelve 409 sobrecompra con items_excedidos agrupado por np_id', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupBasico({
+      rol: 'compras',
+      itemsOc: [{ item_np_id: 'item-a1', cantidad: 4, registro_compras_id: 'oc-existing' }],
+      ocsValidas: [{ id: 'oc-existing' }],
+    })
+    const res = await POST(reqConsolidar([
+      // NP-A: solicitado=5, ya comprometido=4, saldo=1 → pide 3 → excede en 2
+      { item_np_id: 'item-a1', descripcion: 'Bomba', unidad: 'EA', cantidad: 3, precio_unitario: 10, justificacion_cantidad: 'Entrega parcial' },
+      // NP-B: sin comprometido, pide 2 de 2 → sin exceso
+      { item_np_id: 'item-b1', descripcion: 'Válvula', unidad: 'EA', cantidad: 2, precio_unitario: 5 },
+    ]))
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.error).toBe('sobrecompra')
+    expect(body.items_excedidos).toHaveLength(1)
+    expect(body.items_excedidos[0].np_id).toBe('np-a')
+    expect(body.items_excedidos[0].items[0].exceso).toBe(2)
+  })
+
+  it('CA-04: crea UNA OC con nota_pedido_id null e ítems de 2 NPs distintas (200)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let insertPayloadOC: any = null
+    setupBasico({ rol: 'compras' })
+    const originalFrom = mockFrom.getMockImplementation()!
+    mockFrom.mockImplementation((table: string) => {
+      const chain = originalFrom(table)
+      if (table === 'registro_compras') {
+        chain.insert = jest.fn((payload: any) => {
+          insertPayloadOC = payload
+          return { select: () => ({ single: () => Promise.resolve({ data: { id: 'oc-new', numero_oc: 'OC-2026-0001' }, error: null }) }) }
+        })
+      }
+      return chain
+    })
+
+    const res = await POST(reqConsolidar([
+      { item_np_id: 'item-a1', descripcion: 'Bomba',   unidad: 'EA', cantidad: 5, precio_unitario: 10 },
+      { item_np_id: 'item-b1', descripcion: 'Válvula', unidad: 'EA', cantidad: 2, precio_unitario: 5 },
+    ]))
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.success).toBe(true)
+    expect(body.numero_oc).toBe('OC-2026-0001')
+    expect(insertPayloadOC.nota_pedido_id).toBeNull()
+    expect(insertPayloadOC.numero_np).toBe('NP-2026-0100, NP-2026-0101')
+  })
+
+  it('CA-04/RN-01: devuelve 400 item_sin_enlace_np si alguna línea no trae item_np_id', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupBasico({ rol: 'compras' })
+    const res = await POST(reqConsolidar([
+      { item_np_id: 'item-a1', descripcion: 'Bomba', unidad: 'EA', cantidad: 5, precio_unitario: 10 },
+      { item_np_id: null,      descripcion: 'Libre', unidad: 'EA', cantidad: 1, precio_unitario: 1 },
+    ]))
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toBe('item_sin_enlace_np')
   })
 })

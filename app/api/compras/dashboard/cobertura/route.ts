@@ -52,34 +52,66 @@ export async function GET(req: NextRequest) {
 
     const npIds = nps.map(np => np.id)
 
-    // Spec F1: bulk calculation — queries 2 y 3 en paralelo
-    const [{ data: itemsNP }, { data: ocsValidas }] = await Promise.all([
-      adminClient()
-        .from('items_np')
-        .select('id, nota_pedido_id, cantidad')
-        .in('nota_pedido_id', npIds),
-      adminClient()
-        .from('registro_compras')
-        .select('id, nota_pedido_id')
-        .in('nota_pedido_id', npIds)
-        .neq('estado_oc', 'rechazada')
-        .neq('estado_oc', 'cancelada'),
-    ])
+    // Query 2: ítems de estas NPs
+    const { data: itemsNP } = await adminClient()
+      .from('items_np')
+      .select('id, nota_pedido_id, cantidad')
+      .in('nota_pedido_id', npIds)
 
-    const ocIds = (ocsValidas ?? []).map((oc: { id: string }) => oc.id)
+    const npItemIds = (itemsNP ?? []).map((item: { id: string }) => item.id)
 
-    // Query 4: cantidades comprometidas en items_oc
+    // Spec: HU-016 CA-10 (mismo criterio que lib/np-cobertura.ts::calcularCoberturaNP,
+    // Decisión 6 de sdd-design.md — no se extrae función compartida, es cálculo bulk con
+    // forma de query distinta) — el acumulado comprometido se calcula por
+    // items_oc.item_np_id, NO por registro_compras.nota_pedido_id (NULL en OCs
+    // consolidadas). Query 3: líneas de OC (de cualquier OC) que enlazan a estos ítems.
+    //
+    // Hallazgo de validación con datos reales (2026-07-27): a escala real (100+ NPs,
+    // 300+ ítems) un solo .in('item_np_id', npItemIds) genera una URL que excede el
+    // límite de PostgREST/Kong ("URI too long"), Supabase devuelve { data: null, error }
+    // y el fetch original lo ignoraba en silencio (comprometido quedaba en 0 para TODAS
+    // las NPs). Se agrupa en lotes — el Query 2 (NPs, cardinalidad menor) no lo necesita.
+    const LOTE = 100
+    async function itemsOcEnLotes(itemNpIds: string[]) {
+      const filas: { item_np_id: string | null; cantidad: number; registro_compras_id: string }[] = []
+      for (let i = 0; i < itemNpIds.length; i += LOTE) {
+        const lote = itemNpIds.slice(i, i + LOTE)
+        const { data, error } = await adminClient()
+          .from('items_oc')
+          .select('item_np_id, cantidad, registro_compras_id')
+          .in('item_np_id', lote)
+        if (error) { console.error('dashboard/cobertura — error en lote items_oc:', error); continue }
+        filas.push(...(data ?? []))
+      }
+      return filas
+    }
+
     const comprometidoMap: Record<string, number> = {}
-    if (ocIds.length > 0) {
-      const { data: itemsOC } = await adminClient()
-        .from('items_oc')
-        .select('item_np_id, cantidad')
-        .in('registro_compras_id', ocIds)
+    if (npItemIds.length > 0) {
+      const itemsOCTodos = await itemsOcEnLotes(npItemIds)
 
-      for (const it of (itemsOC ?? [])) {
-        if (!it.item_np_id) continue
-        comprometidoMap[it.item_np_id] =
-          (comprometidoMap[it.item_np_id] ?? 0) + Number(it.cantidad)
+      const ocIdsCandidatos = [...new Set(
+        itemsOCTodos.map((it: { registro_compras_id: string }) => it.registro_compras_id)
+      )]
+
+      // Query 4: cuáles de esas OCs candidatas siguen vigentes
+      if (ocIdsCandidatos.length > 0) {
+        const { data: ocsValidas, error: errOcsValidas } = await adminClient()
+          .from('registro_compras')
+          .select('id')
+          .in('id', ocIdsCandidatos)
+          .neq('estado_oc', 'rechazada')
+          .neq('estado_oc', 'cancelada')
+        if (errOcsValidas) console.error('dashboard/cobertura — error al validar OCs:', errOcsValidas)
+
+        const ocIdsValidos = new Set((ocsValidas ?? []).map((oc: { id: string }) => oc.id))
+
+        for (const it of (itemsOCTodos ?? [])) {
+          if (!it.item_np_id) continue
+          if (!ocIdsValidos.has(it.registro_compras_id)) continue
+          comprometidoMap[it.item_np_id] =
+            (comprometidoMap[it.item_np_id] ?? 0) + Number(it.cantidad)
+        }
       }
     }
 
