@@ -8,10 +8,10 @@ const BORDER   = '#cbd5e1'
 const BG_HDR   = '#fef2f2'
 
 const styles = StyleSheet.create({
-  page:        { fontFamily: 'Helvetica', fontSize: 8, padding: 20, color: '#1e293b' },
+  page:        { fontFamily: 'Helvetica', fontSize: 8, padding: 20, paddingBottom: 26, color: '#1e293b' },
 
   headerRow:   {
-    flexDirection: 'row', alignItems: 'center', marginBottom: 4,
+    flexDirection: 'row', alignItems: 'center', marginBottom: 6,
     paddingBottom: 4,
     borderBottomWidth: 2, borderBottomColor: ROJO_OSC, borderBottomStyle: 'solid',
   },
@@ -19,10 +19,10 @@ const styles = StyleSheet.create({
   headerTitle: { flex: 1, textAlign: 'center', fontSize: 16, fontFamily: 'Helvetica-Bold', color: ROJO_OSC },
   headerNum:   { fontSize: 13, fontFamily: 'Helvetica-Bold', color: ROJO, textAlign: 'right', minWidth: 70 },
 
-  infoBar:     { flexDirection: 'row', backgroundColor: BG_HDR, padding: '3 6', marginBottom: 6, borderRadius: 2 },
-  infoCell:    { flex: 1, flexDirection: 'column' },
-  infoLabel:   { fontSize: 6, color: GRIS, textTransform: 'uppercase' },
-  infoVal:     { fontSize: 7, fontFamily: 'Helvetica-Bold' },
+  // Spec: SC-001 CA-02 — pie de página con código de documento + revisión.
+  // @react-pdf/renderer no repite footers entre páginas nativamente; como el
+  // documento siempre es de 1 página, se posiciona al final de esa página.
+  pageFooter:  { position: 'absolute', bottom: 10, right: 20, fontSize: 6, color: GRIS },
 
   sectionLabel: {
     backgroundColor: ROJO_OSC, color: 'white', fontSize: 7,
@@ -44,20 +44,27 @@ const styles = StyleSheet.create({
   tdCell:      { fontSize: 7, textAlign: 'center', paddingHorizontal: 2, paddingVertical: 3 },
   tdLeft:      { fontSize: 7, textAlign: 'left', paddingHorizontal: 3, paddingVertical: 3 },
 
+  // Spec: SC-001 CA-04 — el bloque de totales queda en 1 sola línea calculada
+  // + nota informativa fija, sin cálculo de IVA (RN-02).
   totalRow:    { flexDirection: 'row', justifyContent: 'flex-end', padding: '2 6', borderTopWidth: 1, borderTopColor: BORDER, borderTopStyle: 'solid' },
   totalLabel:  { fontSize: 7, fontFamily: 'Helvetica-Bold', marginRight: 12 },
   totalVal:    { fontSize: 7, fontFamily: 'Helvetica-Bold', width: 70, textAlign: 'right' },
+  notaIvaRow:  { padding: '3 6', borderTopWidth: 1, borderTopColor: BORDER, borderTopStyle: 'solid' },
+  notaIvaText: { fontSize: 6, color: GRIS, fontStyle: 'italic', textAlign: 'center' },
 
   condBox:     { borderWidth: 1, borderColor: BORDER, borderStyle: 'solid', marginTop: 6, marginBottom: 6 },
   condText:    { fontSize: 7, padding: '4 6', minHeight: 28 },
 
+  // Spec: SC-001 §2.2 — bloque de aprobaciones rediseñado: cada firmante es un
+  // encabezado de color + 5 filas Nombre/Área/Rol/Fecha/Firma en columna.
   aprobRow:      { flexDirection: 'row', borderWidth: 1, borderColor: BORDER, borderStyle: 'solid', marginTop: 6 },
-  aprobCell:     { flex: 1, borderRightWidth: 1, borderRightColor: BORDER, borderRightStyle: 'solid', padding: 5, minHeight: 55 },
-  aprobCellLast: { flex: 1, padding: 5, minHeight: 55 },
-  aprobHead:     { backgroundColor: ROJO, color: 'white', fontFamily: 'Helvetica-Bold', fontSize: 6, padding: '2 4', textAlign: 'center' },
-  aprobName:     { fontSize: 7, marginTop: 4 },
-  aprobCargo:    { fontSize: 6, color: GRIS, marginTop: 1 },
-  aprobFirma:    { fontSize: 6, color: GRIS, marginTop: 14 },
+  aprobCell:     { flex: 1, borderRightWidth: 1, borderRightColor: BORDER, borderRightStyle: 'solid', padding: 5, minHeight: 78 },
+  aprobCellLast: { flex: 1, padding: 5, minHeight: 78 },
+  aprobHead:     { backgroundColor: ROJO, color: 'white', fontFamily: 'Helvetica-Bold', fontSize: 6, padding: '2 4', textAlign: 'center', marginBottom: 4 },
+  filaFirmante:       { flexDirection: 'row', marginTop: 3 },
+  filaFirmanteLabel:  { fontSize: 6, color: GRIS, width: 34 },
+  filaFirmanteValor:  { fontSize: 7, flex: 1 },
+  filaFirma:          { flexDirection: 'row', marginTop: 10 },
 })
 
 // Spec CA-07: anchos de columna condicionales al permiso de precio
@@ -69,6 +76,18 @@ function fmtDate(s: string | null | undefined) {
   if (!s) return '—'
   try { return new Date(s).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }) }
   catch { return s }
+}
+
+// Spec: SC-001 — fila etiqueta:valor reutilizada en los bloques de aprobaciones.
+// No se comparte con oc-pdf.tsx (ver sdd-design.md, decisión 4: cada documento
+// PDF es autocontenido, sin módulo de estilos/componentes común entre ambos).
+function FilaFirmante({ label, value, esFirma }: { label: string; value: string; esFirma?: boolean }) {
+  return (
+    <View style={esFirma ? styles.filaFirma : styles.filaFirmante}>
+      <Text style={styles.filaFirmanteLabel}>{label}:</Text>
+      <Text style={styles.filaFirmanteValor}>{value}</Text>
+    </View>
+  )
 }
 
 export interface NPExportData {
@@ -88,6 +107,11 @@ export interface NPExportData {
   aprobador_np_nombre: string | null
   aprobador_np_area: string | null
   condiciones_minimas: string | null
+  // Spec: SC-001 CA-05/CA-05b — fecha del evento 'aprobada' más reciente en
+  // historial_np; null si la NP nunca fue aprobada (el campo Fecha queda en blanco).
+  fecha_aprobacion: string | null
+  // Spec: SC-001 §2.2 — rol real del solicitante, ya traducido con ROL_LABEL.
+  solicitante_rol: string | null
 }
 
 export interface ItemNPExport {
@@ -113,8 +137,6 @@ export function NPDocumento({ np, items, mostrarPrecios, config, logoUrl }: {
 }) {
   const COL = mostrarPrecios ? COL_CON_PRECIO : COL_SIN_PRECIO
   const totalSinIVA = items.reduce((acc, it) => acc + Number(it.total_estimado ?? 0), 0)
-  const iva         = totalSinIVA * 0.15
-  const totalConIVA = totalSinIVA + iva
 
   // Helvetica no tiene glifos ☐/☑ — usar ASCII seguro
   const regNo = `${np.es_regularizacion ? '[ ]' : '[X]'} NO`
@@ -131,22 +153,6 @@ export function NPDocumento({ np, items, mostrarPrecios, config, logoUrl }: {
             : <View style={styles.logo} />}
           <Text style={styles.headerTitle}>NOTA DE PEDIDO</Text>
           <Text style={styles.headerNum}>No. {np.numero}</Text>
-        </View>
-
-        {/* Spec CA-04: Info bar */}
-        <View style={styles.infoBar}>
-          {([
-            ['DOCUMENTO NÚMERO', config.documento_numero_np],
-            ['REVISIÓN',         String(config.revision_np)],
-            ['FECHA EMISIÓN',    fmtDate(np.created_at)],
-            ['AREA',             np.area],
-            ['CLASIFICACIÓN',    np.clasificacion ?? 'Formatos, L4'],
-          ] as [string, string][]).map(([lbl, val]) => (
-            <View key={lbl} style={styles.infoCell}>
-              <Text style={styles.infoLabel}>{lbl}</Text>
-              <Text style={styles.infoVal}>{val}</Text>
-            </View>
-          ))}
         </View>
 
         {/* Spec CA-05: Información General */}
@@ -194,6 +200,9 @@ export function NPDocumento({ np, items, mostrarPrecios, config, logoUrl }: {
           <Text style={styles.descText}>{np.descripcion_general ?? ''}</Text>
         </View>
 
+        {/* Spec CA-03: encabezado de sección antes de la tabla de ítems */}
+        <Text style={styles.sectionLabel}>ÍTEMS REQUERIDOS</Text>
+
         {/* Spec CA-07: Tabla de ítems */}
         <View style={{ borderWidth: 1, borderColor: BORDER, borderStyle: 'solid' }}>
           <View style={styles.tableHead}>
@@ -230,19 +239,18 @@ export function NPDocumento({ np, items, mostrarPrecios, config, logoUrl }: {
           ))}
         </View>
 
-        {/* Spec CA-08: Totales — solo si mostrarPrecios */}
+        {/* Spec CA-04: Totales — 1 sola línea calculada + nota informativa de IVA (RN-02) */}
         {mostrarPrecios && (
           <View style={{ borderWidth: 1, borderColor: BORDER, borderStyle: 'solid', borderTopWidth: 0 }}>
-            {([
-              ['VALOR TOTAL DEL REQUERIMIENTO (USD) — sin IVA:', usd(totalSinIVA)],
-              ['IVA 15%:', usd(iva)],
-              ['VALOR TOTAL CON IVA 15%:', usd(totalConIVA)],
-            ] as [string, string][]).map(([lbl, val]) => (
-              <View key={lbl} style={styles.totalRow}>
-                <Text style={styles.totalLabel}>{lbl}</Text>
-                <Text style={styles.totalVal}>{val}</Text>
-              </View>
-            ))}
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>VALOR TOTAL DEL REQUERIMIENTO (USD) — sin IVA:</Text>
+              <Text style={styles.totalVal}>{usd(totalSinIVA)}</Text>
+            </View>
+            <View style={styles.notaIvaRow}>
+              <Text style={styles.notaIvaText}>
+                EL VALOR DE IVA SERÁ INCLUIDO CONFORME SEA APLICABLE EN LA FACTURA DEL PROVEEDOR POSTERIOR A LA EMISIÓN DE LA ORDEN DE COMPRA
+              </Text>
+            </View>
           </View>
         )}
 
@@ -254,22 +262,30 @@ export function NPDocumento({ np, items, mostrarPrecios, config, logoUrl }: {
           <Text style={styles.condText}>{np.condiciones_minimas ?? ''}</Text>
         </View>
 
-        {/* Spec CA-10: Aprobaciones */}
+        {/* Spec CA-05/CA-05b: Aprobaciones — Nombre/Área/Rol/Fecha/Firma por bloque */}
         <Text style={styles.sectionLabel}>APROBACIONES</Text>
         <View style={styles.aprobRow}>
           <View style={styles.aprobCell}>
             <Text style={styles.aprobHead}>ELABORADO POR</Text>
-            <Text style={styles.aprobCargo}>{np.area}</Text>
-            <Text style={styles.aprobName}>{np.solicitante_nombre}</Text>
-            <Text style={styles.aprobFirma}>Firma / Fecha: _______________</Text>
+            <FilaFirmante label="Nombre" value={np.solicitante_nombre ?? ''} />
+            <FilaFirmante label="Área"   value={np.area ?? ''} />
+            <FilaFirmante label="Rol"    value={np.solicitante_rol ?? ''} />
+            <FilaFirmante label="Fecha"  value={fmtDate(np.created_at)} />
+            <FilaFirmante label="Firma"  value="" esFirma />
           </View>
           <View style={styles.aprobCellLast}>
             <Text style={styles.aprobHead}>APROBADO POR</Text>
-            <Text style={styles.aprobCargo}>{np.aprobador_np_area ?? ''}</Text>
-            <Text style={styles.aprobName}>{np.aprobador_np_nombre ?? ''}</Text>
-            <Text style={styles.aprobFirma}>Firma / Fecha: _______________</Text>
+            <FilaFirmante label="Nombre" value={np.aprobador_np_nombre ?? ''} />
+            <FilaFirmante label="Área"   value={np.aprobador_np_area ?? ''} />
+            <FilaFirmante label="Rol"    value="Coordinador de Área" />
+            <FilaFirmante label="Fecha"  value={np.fecha_aprobacion ? fmtDate(np.fecha_aprobacion) : ''} />
+            <FilaFirmante label="Firma"  value="" esFirma />
           </View>
         </View>
+
+        <Text style={styles.pageFooter} fixed>
+          {config.documento_numero_np}-R{config.revision_np}/  L4
+        </Text>
 
       </Page>
     </Document>

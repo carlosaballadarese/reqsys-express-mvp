@@ -55,6 +55,8 @@ export async function POST(
         estado_oc:           nuevoEstado,
         aprobado_por_nombre: accion === 'aprobar' ? perfil.nombre : null,
         aprobado_por_rol:    accion === 'aprobar' ? perfil.rol    : null,
+        // Spec: SC-001 CA-11 — fecha real de aprobación para el bloque "Aprobación de Compra"
+        aprobado_en:         accion === 'aprobar' ? new Date().toISOString() : null,
       })
       .eq('id', id)
 

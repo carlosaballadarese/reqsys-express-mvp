@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import ExcelJS from 'exceljs'
-import { resolverEtiquetaAprobador } from '@/lib/oc-utils'
+import { resolverEtiquetaAprobador, AREA_COMPRAS_FIJA } from '@/lib/oc-utils'
 
 function usd(n: number) { return `$${Number(n).toFixed(2)}` }
 function fmtDate(s: string | null) {
@@ -14,7 +14,6 @@ function fmtDate(s: string | null) {
 const TEAL   = '7f1d1d'   // rojo oscuro (antes teal)
 const TEAL2  = '991b1b'   // rojo medio (antes teal2)
 const DORADO = 'c9a840'
-const BG_HDR = 'fef2f2'   // fondo rosado suave
 
 function headerStyle(bg = TEAL): Partial<ExcelJS.Style> {
   return {
@@ -114,38 +113,6 @@ export async function GET(
     ws.getRow(row).height = 28
     row++
 
-    // ── Info bar ────────────────────────────────────────────────────────────
-    const infoData = [
-      ['DOCUMENTO NUMERO', empresa?.documento_numero_oc ?? 'AL-L4-07-F01'],
-      ['REVISIÓN', String(empresa?.revision_oc ?? 1)],
-      ['FECHA EMISIÓN', fmtDate(oc.fecha_oc ?? oc.created_at)],
-      ['PREPARADO POR', oc.creado_por_nombre ?? '—'],
-      ['APROBADO POR', oc.aprobado_por_nombre ?? '—'],
-      ['CLASIFICACIÓN', 'Formatos, L4'],
-    ]
-    // Labels row
-    const labelRow = ws.getRow(row)
-    const valRow   = ws.getRow(row + 1)
-    infoData.forEach(([lbl, val], i) => {
-      const cols = ['A', 'B', 'C', 'D', 'E', 'J']
-      const col = cols[i]
-      labelRow.getCell(col).value = lbl
-      labelRow.getCell(col).style = {
-        font:      { bold: true, size: 7, color: { argb: `FF${TEAL}` } },
-        fill:      { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${BG_HDR}` } },
-        alignment: { horizontal: 'left' },
-      }
-      valRow.getCell(col).value = val
-      valRow.getCell(col).style = {
-        font:      { size: 8 },
-        fill:      { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${BG_HDR}` } },
-        alignment: { horizontal: 'left' },
-      }
-    })
-    ws.getRow(row).height = 14
-    ws.getRow(row + 1).height = 14
-    row += 2
-
     // ── Sección: INFORMACIÓN GENERAL ────────────────────────────────────────
     ws.mergeCells(`A${row}:J${row}`)
     ws.getCell(`A${row}`).value = 'INFORMACIÓN GENERAL'
@@ -163,8 +130,9 @@ export async function GET(
     ws.getRow(row).height = 14
     row++
 
+    // Spec CA-09: primera fila relabelada a RAZÓN SOCIAL
     const provRows = [
-      ['', oc.proveedor],
+      ['RAZÓN SOCIAL:', oc.proveedor],
       ['RUC:', oc.proveedor_ruc],
       ['DIRECCIÓN:', oc.proveedor_direccion],
       ['CONTACTO:', oc.proveedor_contacto],
@@ -172,7 +140,7 @@ export async function GET(
       ['MAIL:', oc.proveedor_email],
     ]
     const empRows = [
-      ['', empresa?.razon_social],
+      ['RAZÓN SOCIAL:', empresa?.razon_social],
       ['RUC:', empresa?.ruc],
       ['DIRECCIÓN:', empresa?.direccion],
       ['CONTACTO:', empresa?.contacto],
@@ -234,25 +202,22 @@ export async function GET(
       row++
     })
 
-    // Totales
+    // Spec CA-04: Totales — 1 sola línea calculada + nota informativa de IVA (RN-02)
     const subtotal = Number(oc.valor_total) || 0
-    const iva      = subtotal * 0.15
-    const totalOC  = subtotal + iva
-    const totalRows = [
-      ['VALOR TOTAL DEL REQUERIMIENTO (USD) — sin IVA:', usd(subtotal)],
-      ['IVA 15%:', usd(iva)],
-      ['VALOR TOTAL CON IVA 15%:', usd(totalOC)],
-    ]
-    totalRows.forEach(([lbl, val]) => {
-      ws.mergeCells(`A${row}:H${row}`)
-      ws.getCell(`A${row}`).value = lbl
-      ws.getCell(`A${row}`).style = { font: { bold: true, size: 9 }, alignment: { horizontal: 'right' }, border: allBorder() }
-      ws.mergeCells(`I${row}:J${row}`)
-      ws.getCell(`I${row}`).value = val
-      ws.getCell(`I${row}`).style = { font: { bold: true, size: 9, color: { argb: `FF${TEAL2}` } }, alignment: { horizontal: 'right' }, border: allBorder() }
-      ws.getRow(row).height = 16
-      row++
-    })
+    ws.mergeCells(`A${row}:H${row}`)
+    ws.getCell(`A${row}`).value = 'VALOR TOTAL DEL REQUERIMIENTO (USD) — sin IVA:'
+    ws.getCell(`A${row}`).style = { font: { bold: true, size: 9 }, alignment: { horizontal: 'right' }, border: allBorder() }
+    ws.mergeCells(`I${row}:J${row}`)
+    ws.getCell(`I${row}`).value = usd(subtotal)
+    ws.getCell(`I${row}`).style = { font: { bold: true, size: 9, color: { argb: `FF${TEAL2}` } }, alignment: { horizontal: 'right' }, border: allBorder() }
+    ws.getRow(row).height = 16
+    row++
+
+    ws.mergeCells(`A${row}:J${row}`)
+    ws.getCell(`A${row}`).value = 'EL VALOR DE IVA SERÁ INCLUIDO CONFORME SEA APLICABLE EN LA FACTURA DEL PROVEEDOR POSTERIOR A LA EMISIÓN DE LA ORDEN DE COMPRA'
+    ws.getCell(`A${row}`).style = { font: { italic: true, size: 7, color: { argb: 'FF64748b' } }, alignment: { horizontal: 'center', wrapText: true }, border: allBorder() }
+    ws.getRow(row).height = 16
+    row++
 
     // ── Condiciones mínimas ──────────────────────────────────────────────────
     row++
@@ -276,13 +241,13 @@ export async function GET(
     ws.getRow(row).height = 14
     row++
 
-    // Cabeceras aprobaciones
-    const aprobadorEtiqueta  = resolverEtiquetaAprobador(oc.aprobado_por_rol ?? null)
-    const tituloAprobadorOC  = `APROBADO POR\n${aprobadorEtiqueta.titulo}`
+    // Spec CA-06/CA-07/CA-08/CA-10: 4 bloques, cada uno con Nombre/Área/Rol/Fecha/Firma
+    // (Coordinador del Área sin Fecha — RN-04; Recibido y Confirmado usa Razón Social/RUC)
+    const aprobadorEtiqueta = resolverEtiquetaAprobador(oc.aprobado_por_rol ?? null)
     const aprobCols = [
       ['A', 'B', 'ELABORADO POR'],
       ['C', 'D', 'APROBADO POR\nCOORDINADOR DEL ÁREA'],
-      ['E', 'G', tituloAprobadorOC],
+      ['E', 'G', 'APROBACIÓN DE COMPRA'],
       ['H', 'J', 'RECIBIDO Y CONFIRMADO (PROVEEDOR)'],
     ] as const
     aprobCols.forEach(([from, to, lbl]) => {
@@ -293,31 +258,53 @@ export async function GET(
     ws.getRow(row).height = 28
     row++
 
-    // Nombre y cargo
-    const coordAprobador = oc.aprobador_np_nombre && oc.aprobador_np_area
-      ? `${oc.aprobador_np_nombre} - ${oc.aprobador_np_area}`
-      : ''
-    const aprobVals = [
-      ['A', 'B', `${oc.creado_por_nombre ?? ''}\n${creadorCargo}`],
-      ['C', 'D', coordAprobador],
-      ['E', 'G', `${oc.aprobado_por_nombre ?? ''}\n${aprobadorEtiqueta.cargo}`],
-      ['H', 'J', ''],
-    ] as const
-    aprobVals.forEach(([from, to, val]) => {
-      ws.mergeCells(`${from}${row}:${to}${row}`)
-      ws.getCell(`${from}${row}`).value = val
-      ws.getCell(`${from}${row}`).style = { font: { size: 8 }, alignment: { wrapText: true, vertical: 'top' }, border: allBorder() }
-    })
-    ws.getRow(row).height = 28
-    row++
+    const filaFirmanteOC = (fila: readonly [string, string][]) => {
+      aprobCols.forEach(([from, to], i) => {
+        const [label, val] = fila[i]
+        ws.mergeCells(`${from}${row}:${to}${row}`)
+        ws.getCell(`${from}${row}`).value = label ? (val ? `${label}: ${val}` : `${label}:`) : ''
+        ws.getCell(`${from}${row}`).style = { font: { size: 8 }, alignment: { wrapText: true, vertical: 'top' }, border: allBorder() }
+      })
+      ws.getRow(row).height = 14
+      row++
+    }
+
+    filaFirmanteOC([
+      ['Nombre', oc.creado_por_nombre ?? ''],
+      ['Nombre', oc.aprobador_np_nombre ?? ''],
+      ['Nombre', oc.aprobado_por_nombre ?? ''],
+      ['Razón Social', oc.proveedor ?? ''],
+    ])
+    filaFirmanteOC([
+      ['Área', AREA_COMPRAS_FIJA],
+      ['Área', oc.aprobador_np_area ?? ''],
+      ['Área', AREA_COMPRAS_FIJA],
+      ['RUC', oc.proveedor_ruc ?? ''],
+    ])
+    filaFirmanteOC([
+      ['Rol', creadorCargo],
+      ['Rol', 'Coordinador de Área'],
+      ['Rol', aprobadorEtiqueta.cargo],
+      ['', ''],
+    ])
+    filaFirmanteOC([
+      ['Fecha', fmtDate(oc.created_at)],
+      ['', ''], // Spec RN-04: Coordinador del Área nunca muestra Fecha
+      ['Fecha', oc.aprobado_en ? fmtDate(oc.aprobado_en) : ''],
+      ['Fecha', ''],
+    ])
 
     // Firma
     aprobCols.forEach(([from, to]) => {
       ws.mergeCells(`${from}${row}:${to}${row}`)
-      ws.getCell(`${from}${row}`).value = 'Firma / Fecha: _______________'
+      ws.getCell(`${from}${row}`).value = 'Firma: _______________'
       ws.getCell(`${from}${row}`).style = { font: { size: 7, color: { argb: 'FF94a3b8' } }, alignment: { vertical: 'bottom' }, border: allBorder() }
     })
     ws.getRow(row).height = 30
+    row++
+
+    // Spec CA-02: pie de página con código de documento + revisión
+    ws.headerFooter.oddFooter = `&R${empresa?.documento_numero_oc ?? 'AL-L4-07-F01'}-R${empresa?.revision_oc ?? 1} / L4`
 
     // ── Generar buffer ───────────────────────────────────────────────────────
     const rawBuffer = await wb.xlsx.writeBuffer()

@@ -37,6 +37,16 @@ jest.mock('@/lib/auditoria', () => ({
   registrarAuditoria: jest.fn(),
 }))
 
+// Spec: SC-001 — mockeado para verificar que las rutas de exportación de NP
+// (PDF/Excel) invocan estas funciones con los argumentos correctos; la lógica
+// real ya está cubierta por __tests__/security/np-fechas-documento.test.ts.
+const mockObtenerFechaAprobacionNP = jest.fn((..._args: unknown[]) => Promise.resolve<string | null>(null))
+const mockObtenerRolSolicitante    = jest.fn((..._args: unknown[]) => Promise.resolve<string | null>(null))
+jest.mock('@/lib/np-fechas-documento', () => ({
+  obtenerFechaAprobacionNP: (...args: unknown[]) => mockObtenerFechaAprobacionNP(...args),
+  obtenerRolSolicitante:    (...args: unknown[]) => mockObtenerRolSolicitante(...args),
+}))
+
 const mockActualizarEstadoNP = jest.fn((..._args: unknown[]) => Promise.resolve())
 const mockPausarSLAPorCierre = jest.fn((..._args: unknown[]) => Promise.resolve())
 jest.mock('@/lib/np-estado', () => ({
@@ -1545,6 +1555,33 @@ describe('POST /api/compras/ordenes/[id]/aprobar — persistencia aprobado_por_r
       expect.objectContaining({ aprobado_por_rol: 'gerencia' })
     )
   })
+
+  // Spec: SC-001 CA-11 — aprobado_en se persiste solo al aprobar, no al rechazar.
+  it('persiste aprobado_en con fecha/hora real al aprobar (SC-001 CA-11)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = setupAprobOC('compras', 'en_aprobacion_compras')
+    const req = makeRequest('http://localhost/api/compras/ordenes/oc-1/aprobar', {
+      method: 'POST',
+      body: JSON.stringify({ accion: 'aprobar' }),
+    })
+    await POST(req, { params: Promise.resolve({ id: 'oc-1' }) })
+    const llamada = chain.update.mock.calls[0][0]
+    expect(llamada.aprobado_en).toEqual(expect.any(String))
+    expect(new Date(llamada.aprobado_en).toString()).not.toBe('Invalid Date')
+  })
+
+  it('deja aprobado_en en null al rechazar', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = setupAprobOC('compras', 'en_aprobacion_compras')
+    const req = makeRequest('http://localhost/api/compras/ordenes/oc-1/aprobar', {
+      method: 'POST',
+      body: JSON.stringify({ accion: 'rechazar', motivo: 'no cumple' }),
+    })
+    await POST(req, { params: Promise.resolve({ id: 'oc-1' }) })
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({ aprobado_en: null })
+    )
+  })
 })
 
 describe('resolverEtiquetaAprobador — mapeo rol → etiqueta y cargo', () => {
@@ -2967,6 +3004,145 @@ describe('GET /api/compras/nps/[id]/excel — HU-008 CA-15', () => {
       { params: Promise.resolve({ id: 'np-1' }) }
     )
     expect(res.status).toBe(401)
+  })
+})
+
+// ── SC-001 — nuevo formato de exportación PDF/Excel de NP y OC ──────────────
+
+function npDataCompleta() {
+  return {
+    id: 'np-1', numero: 'NP-2026-0001', area: 'Operaciones',
+    clasificacion: null, prioridad: 'normal', tipo_compra: 'bienes', centro_costo: 'CC01',
+    descripcion_general: 'Test', created_at: '2026-06-01T00:00:00Z',
+    es_regularizacion: false, fecha_provision: null,
+    proveedor_regularizacion_nombre: null, proveedor_regularizacion_identificacion: null,
+    creado_por_id: 'user-123', solicitante_email: 'sol@arlift.com', solicitante_nombre: 'Juan Pérez',
+    asignado_a: null, aprobador_np_nombre: null, aprobador_np_area: null, condiciones_minimas: null,
+  }
+}
+
+describe('GET /api/compras/nps/[id]/pdf — SC-001 CA-05/CA-05b (wiring)', () => {
+  const { GET } = require('@/app/api/compras/nps/[id]/pdf/route')
+
+  it('consulta fecha de aprobación (historial_np) y rol del solicitante, y responde 200', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockObtenerFechaAprobacionNP.mockResolvedValueOnce('2026-07-20T10:00:00Z')
+    mockObtenerRolSolicitante.mockResolvedValueOnce('Solicitante')
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'solicitante' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({ data: npDataCompleta(), error: null })
+      return Promise.resolve({ data: { documento_numero_np: 'AL-L4-07-F01', revision_np: 1 }, error: null })
+    })
+    chain.then = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/nps/np-1/pdf'),
+      { params: Promise.resolve({ id: 'np-1' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(mockObtenerFechaAprobacionNP).toHaveBeenCalledWith('np-1')
+    expect(mockObtenerRolSolicitante).toHaveBeenCalledWith({ creado_por_id: 'user-123', solicitante_email: 'sol@arlift.com' })
+  })
+})
+
+describe('GET /api/compras/nps/[id]/excel — SC-001 CA-02/CA-05/CA-05b', () => {
+  const { GET } = require('@/app/api/compras/nps/[id]/excel/route')
+
+  it('consulta fecha de aprobación y rol del solicitante, y escribe el pie de página (CA-02)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockObtenerFechaAprobacionNP.mockResolvedValueOnce(null) // CA-05b: NP nunca aprobada
+    mockObtenerRolSolicitante.mockResolvedValueOnce('Solicitante')
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'solicitante' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({ data: npDataCompleta(), error: null })
+      return Promise.resolve({ data: { documento_numero_np: 'AL-L4-07-03', revision_np: 3 }, error: null })
+    })
+    chain.then = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/nps/np-1/excel'),
+      { params: Promise.resolve({ id: 'np-1' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(mockObtenerFechaAprobacionNP).toHaveBeenCalledWith('np-1')
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const ExcelJS = require('exceljs').default
+    const ws = new ExcelJS.Workbook().addWorksheet('NP')
+    expect(ws.headerFooter.oddFooter).toBe('&RAL-L4-07-03-R3/  L4')
+  })
+})
+
+describe('GET /api/compras/ordenes/[id]/pdf — SC-001 (post-rediseño, sin cambio de contrato)', () => {
+  const { GET } = require('@/app/api/compras/ordenes/[id]/pdf/route')
+
+  it('responde 200 con una OC aprobada — aprobado_en llega vía select(*) sin tocar el route', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({
+      data: {
+        id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'aprobada', valor_total: 100,
+        proveedor: 'ACME', proveedor_ruc: '1792345678001', creado_por_id: null,
+        creado_por_nombre: 'Compras Test', created_at: '2026-07-01T00:00:00Z',
+        aprobado_por_nombre: 'Claudia Sánchez', aprobado_por_rol: 'compras',
+        aprobado_en: '2026-07-05T15:30:00Z', aprobador_np_nombre: null, aprobador_np_area: null,
+      },
+      error: null,
+    }))
+    chain.then = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/pdf'),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toBe('application/pdf')
+  })
+})
+
+describe('GET /api/compras/ordenes/[id]/excel — SC-001 CA-02/CA-08/CA-09', () => {
+  const { GET } = require('@/app/api/compras/ordenes/[id]/excel/route')
+
+  it('escribe el pie de página con documento/revisión de OC (CA-02) y el rótulo "APROBACIÓN DE COMPRA" (CA-08)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({
+      data: {
+        id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'aprobada', valor_total: 100,
+        proveedor: 'ACME', proveedor_ruc: '1792345678001', creado_por_id: null,
+        creado_por_nombre: 'Compras Test', created_at: '2026-07-01T00:00:00Z',
+        aprobado_por_nombre: 'Claudia Sánchez', aprobado_por_rol: 'compras',
+        aprobado_en: '2026-07-05T15:30:00Z', aprobador_np_nombre: null, aprobador_np_area: null,
+        documento_numero_oc: 'AL-L4-07-04', revision_oc: 2,
+        razon_social: 'ARLIFT ENGINEERING & SERVICES S.A.',
+      },
+      error: null,
+    }))
+    chain.then = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/excel'),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(res.status).toBe(200)
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const ExcelJS = require('exceljs').default
+    const ws = new ExcelJS.Workbook().addWorksheet('OC')
+    expect(ws.headerFooter.oddFooter).toBe('&RAL-L4-07-04-R2 / L4')
+
+    const valoresEscritos = ws.getCell.mock.results.map((r: any) => r.value.value)
+    expect(valoresEscritos).toContain('APROBACIÓN DE COMPRA')
   })
 })
 

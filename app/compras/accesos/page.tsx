@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ROL_LABEL } from '@/lib/roles'
 
 type Usuario = {
   id: string
@@ -29,17 +30,6 @@ const ROL_BADGE: Record<string, string> = {
   gerencia:          'bg-purple-100 text-purple-700',
   consulta:          'bg-teal-100 text-teal-700',
   admin:             'bg-red-100 text-red-700',
-}
-
-const ROL_LABEL: Record<string, string> = {
-  solicitante:       'Solicitante',
-  bodega:            'Bodega',
-  coordinador:       'Coordinador',
-  asistente_compras: 'Asistente Compras',
-  compras:           'Compras',
-  gerencia:          'Gerencia',
-  consulta:          'Consulta',
-  admin:             'Administrador',
 }
 
 export default function AccesosPage() {

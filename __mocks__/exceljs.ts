@@ -12,6 +12,10 @@ const mockSheet = {
   getCell:   jest.fn(() => ({ value: null, style: {} })),
   addRow:    jest.fn(),
   mergeCells: jest.fn(),
+  // Spec: SC-001 — el código real usa sheet.headerFooter.oddFooter para el pie
+  // de página; nunca se había ejercitado (mismo patrón del hallazgo de HU-012
+  // sobre new ExcelJS.Workbook()).
+  headerFooter: { oddHeader: '', oddFooter: '' },
 }
 
 const mockWorkbook = {

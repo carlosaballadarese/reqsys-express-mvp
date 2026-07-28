@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { NPDocumento } from '@/lib/np-pdf'
 import { puedeVerPrecioNP } from '@/lib/np-precio'
+import { obtenerFechaAprobacionNP, obtenerRolSolicitante } from '@/lib/np-fechas-documento'
 import React from 'react'
 
 // Spec RN-01: acceso de exportación = creador + compras + admin + asistente asignado
@@ -54,12 +55,18 @@ export async function GET(
     // Spec RN-02: precio visible según puedeVerPrecioNP
     const mostrarPrecios = puedeVerPrecioNP(rol, np.es_regularizacion ?? false, np.creado_por_id, user.id)
 
+    // Spec: SC-001 CA-05/CA-05b — fecha de aprobación (historial_np) y rol real del solicitante
+    const [fecha_aprobacion, solicitante_rol] = await Promise.all([
+      obtenerFechaAprobacionNP(id),
+      obtenerRolSolicitante({ creado_por_id: np.creado_por_id ?? null, solicitante_email: np.solicitante_email }),
+    ])
+
     const appUrl  = process.env.NEXT_PUBLIC_APP_URL ?? 'https://reqsys-express.vercel.app'
     const logoUrl = `${appUrl}/logo_arlift.png`
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const element = React.createElement(NPDocumento, {
-      np, items: items ?? [], mostrarPrecios,
+      np: { ...np, fecha_aprobacion, solicitante_rol }, items: items ?? [], mostrarPrecios,
       config: {
         documento_numero_np: config?.documento_numero_np ?? 'AL-L4-07-F01',
         revision_np:         config?.revision_np         ?? 1,

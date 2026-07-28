@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { puedeVerPrecioNP } from '@/lib/np-precio'
+import { obtenerFechaAprobacionNP, obtenerRolSolicitante } from '@/lib/np-fechas-documento'
 import ExcelJS from 'exceljs'
 
 function usd(n: number | null | undefined) { return `$${Number(n ?? 0).toFixed(2)}` }
@@ -13,7 +14,6 @@ function fmtDate(s: string | null | undefined) {
 
 const ROJO    = '7f1d1d'
 const ROJO2   = '991b1b'
-const BG_HDR  = 'fef2f2'
 
 function headerStyle(bg = ROJO): Partial<ExcelJS.Style> {
   return {
@@ -84,6 +84,12 @@ export async function GET(
 
     const mostrarPrecios = puedeVerPrecioNP(rol, np.es_regularizacion ?? false, np.creado_por_id, user.id)
 
+    // Spec: SC-001 CA-05/CA-05b — fecha de aprobación (historial_np) y rol real del solicitante
+    const [fecha_aprobacion, solicitante_rol] = await Promise.all([
+      obtenerFechaAprobacionNP(id),
+      obtenerRolSolicitante({ creado_por_id: np.creado_por_id ?? null, solicitante_email: np.solicitante_email }),
+    ])
+
     const wb = new ExcelJS.Workbook()
     const ws = wb.addWorksheet('NP')
 
@@ -131,39 +137,6 @@ export async function GET(
     }
     ws.getRow(row).height = 28
     row++
-
-    // Spec CA-04: Info bar
-    const infoData = [
-      ['DOCUMENTO NÚMERO', config?.documento_numero_np ?? 'AL-L4-07-F01'],
-      ['REVISIÓN',         String(config?.revision_np ?? 1)],
-      ['FECHA EMISIÓN',    fmtDate(np.created_at)],
-      ['AREA',             np.area],
-      ['CLASIFICACIÓN',    np.clasificacion ?? 'Formatos, L4'],
-    ]
-    const infoCols = ['A', 'C', 'E', 'G', 'J']
-    const infoValCols = ['B', 'D', 'F', 'H', 'K']
-    infoData.forEach(([lbl, val], i) => {
-      const lc = ws.getRow(row)
-      const vc = ws.getRow(row + 1)
-      lc.getCell(infoCols[i]).value = lbl
-      lc.getCell(infoCols[i]).style = {
-        font: { bold: true, size: 7, color: { argb: `FF${ROJO}` } },
-        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${BG_HDR}` } },
-        alignment: { horizontal: 'left' },
-      }
-      vc.getCell(infoCols[i]).value = val
-      vc.getCell(infoCols[i]).style = {
-        font: { size: 8 },
-        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${BG_HDR}` } },
-        alignment: { horizontal: 'left' },
-        border: allBorder(),
-      }
-      // Merge valor con la siguiente col
-      try { ws.mergeCells(`${infoCols[i]}${row + 1}:${infoValCols[i]}${row + 1}`) } catch { /* overlap */ }
-    })
-    ws.getRow(row).height = 12
-    ws.getRow(row + 1).height = 14
-    row += 2
 
     // Spec CA-05: INFORMACIÓN GENERAL
     ws.mergeCells(`A${row}:${LAST_COL}${row}`)
@@ -261,26 +234,25 @@ export async function GET(
       row++
     })
 
-    // Spec CA-08: Totales — solo si mostrarPrecios
+    // Spec CA-04: Totales — 1 sola línea calculada + nota informativa de IVA (RN-02),
+    // solo si mostrarPrecios
     if (mostrarPrecios) {
       const totalSinIVA = (items ?? []).reduce((acc: number, it: any) => acc + Number(it.total_estimado ?? 0), 0)
-      const iva         = totalSinIVA * 0.15
-      const totalConIVA = totalSinIVA + iva
-      const totalRows: [string, string][] = [
-        ['VALOR TOTAL DEL REQUERIMIENTO (USD) — sin IVA:', usd(totalSinIVA)],
-        ['IVA 15%:', usd(iva)],
-        ['VALOR TOTAL CON IVA 15%:', usd(totalConIVA)],
-      ]
-      totalRows.forEach(([lbl, val]) => {
-        ws.mergeCells(`A${row}:I${row}`)
-        ws.getCell(`A${row}`).value = lbl
-        ws.getCell(`A${row}`).style = { font: { bold: true, size: 9 }, alignment: { horizontal: 'right' }, border: allBorder() }
-        ws.mergeCells(`J${row}:${LAST_COL}${row}`)
-        ws.getCell(`J${row}`).value = val
-        ws.getCell(`J${row}`).style = { font: { bold: true, size: 9, color: { argb: `FF${ROJO2}` } }, alignment: { horizontal: 'right' }, border: allBorder() }
-        ws.getRow(row).height = 16
-        row++
-      })
+
+      ws.mergeCells(`A${row}:I${row}`)
+      ws.getCell(`A${row}`).value = 'VALOR TOTAL DEL REQUERIMIENTO (USD) — sin IVA:'
+      ws.getCell(`A${row}`).style = { font: { bold: true, size: 9 }, alignment: { horizontal: 'right' }, border: allBorder() }
+      ws.mergeCells(`J${row}:${LAST_COL}${row}`)
+      ws.getCell(`J${row}`).value = usd(totalSinIVA)
+      ws.getCell(`J${row}`).style = { font: { bold: true, size: 9, color: { argb: `FF${ROJO2}` } }, alignment: { horizontal: 'right' }, border: allBorder() }
+      ws.getRow(row).height = 16
+      row++
+
+      ws.mergeCells(`A${row}:${LAST_COL}${row}`)
+      ws.getCell(`A${row}`).value = 'EL VALOR DE IVA SERÁ INCLUIDO CONFORME SEA APLICABLE EN LA FACTURA DEL PROVEEDOR POSTERIOR A LA EMISIÓN DE LA ORDEN DE COMPRA'
+      ws.getCell(`A${row}`).style = { font: { italic: true, size: 7, color: { argb: 'FF64748b' } }, alignment: { horizontal: 'center', wrapText: true }, border: allBorder() }
+      ws.getRow(row).height = 16
+      row++
     }
 
     // Spec CA-09: Condiciones mínimas
@@ -314,45 +286,40 @@ export async function GET(
     ws.getRow(row).height = 14
     row++
 
-    // Área y nombre
-    ws.mergeCells(`A${row}:B${row}`)
-    ws.getCell(`A${row}`).value = 'Área:'
-    ws.getCell(`A${row}`).style = cellStyle(true)
-    ws.mergeCells(`C${row}:E${row}`)
-    ws.getCell(`C${row}`).value = np.area
-    ws.getCell(`C${row}`).style = cellStyle()
-    ws.mergeCells(`F${row}:G${row}`)
-    ws.getCell(`F${row}`).value = 'Área:'
-    ws.getCell(`F${row}`).style = cellStyle(true)
-    ws.mergeCells(`H${row}:${LAST_COL}${row}`)
-    ws.getCell(`H${row}`).value = np.aprobador_np_area ?? ''
-    ws.getCell(`H${row}`).style = cellStyle()
-    ws.getRow(row).height = 14
-    row++
+    // Spec: SC-001 CA-05/CA-05b — Nombre/Área/Rol/Fecha/Firma por bloque
+    const filaFirmante = (label: string, valIzq: string, valDer: string) => {
+      ws.mergeCells(`A${row}:B${row}`)
+      ws.getCell(`A${row}`).value = `${label}:`
+      ws.getCell(`A${row}`).style = cellStyle(true)
+      ws.mergeCells(`C${row}:E${row}`)
+      ws.getCell(`C${row}`).value = valIzq
+      ws.getCell(`C${row}`).style = cellStyle()
+      ws.mergeCells(`F${row}:G${row}`)
+      ws.getCell(`F${row}`).value = `${label}:`
+      ws.getCell(`F${row}`).style = cellStyle(true)
+      ws.mergeCells(`H${row}:${LAST_COL}${row}`)
+      ws.getCell(`H${row}`).value = valDer
+      ws.getCell(`H${row}`).style = cellStyle()
+      ws.getRow(row).height = 14
+      row++
+    }
 
-    ws.mergeCells(`A${row}:B${row}`)
-    ws.getCell(`A${row}`).value = 'Nombre:'
-    ws.getCell(`A${row}`).style = cellStyle(true)
-    ws.mergeCells(`C${row}:E${row}`)
-    ws.getCell(`C${row}`).value = np.solicitante_nombre
-    ws.getCell(`C${row}`).style = cellStyle()
-    ws.mergeCells(`F${row}:G${row}`)
-    ws.getCell(`F${row}`).value = 'Nombre:'
-    ws.getCell(`F${row}`).style = cellStyle(true)
-    ws.mergeCells(`H${row}:${LAST_COL}${row}`)
-    ws.getCell(`H${row}`).value = np.aprobador_np_nombre ?? ''
-    ws.getCell(`H${row}`).style = cellStyle()
-    ws.getRow(row).height = 14
-    row++
+    filaFirmante('Nombre', np.solicitante_nombre ?? '', np.aprobador_np_nombre ?? '')
+    filaFirmante('Área',   np.area ?? '',                np.aprobador_np_area ?? '')
+    filaFirmante('Rol',    solicitante_rol ?? '',         'Coordinador de Área')
+    filaFirmante('Fecha',  fmtDate(np.created_at),        fecha_aprobacion ? fmtDate(fecha_aprobacion) : '')
 
     // Firma
     ws.mergeCells(`A${row}:E${row}`)
-    ws.getCell(`A${row}`).value = 'Firma / Fecha: _______________'
+    ws.getCell(`A${row}`).value = 'Firma: _______________'
     ws.getCell(`A${row}`).style = { font: { size: 7, color: { argb: 'FF94a3b8' } }, alignment: { vertical: 'bottom' }, border: allBorder() }
     ws.mergeCells(`F${row}:${LAST_COL}${row}`)
-    ws.getCell(`F${row}`).value = 'Firma / Fecha: _______________'
+    ws.getCell(`F${row}`).value = 'Firma: _______________'
     ws.getCell(`F${row}`).style = { font: { size: 7, color: { argb: 'FF94a3b8' } }, alignment: { vertical: 'bottom' }, border: allBorder() }
     ws.getRow(row).height = 30
+
+    // Spec CA-02: pie de página con código de documento + revisión
+    ws.headerFooter.oddFooter = `&R${config?.documento_numero_np ?? 'AL-L4-07-F01'}-R${config?.revision_np ?? 1}/  L4`
 
     // Spec CA-11: nombre de archivo
     const area   = (np.area ?? 'NP').toUpperCase().replace(/[^A-Z0-9]/g, '-')

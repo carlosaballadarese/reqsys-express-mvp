@@ -1,21 +1,19 @@
 import React from 'react'
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
-import { resolverEtiquetaAprobador } from '@/lib/oc-utils'
+import { resolverEtiquetaAprobador, AREA_COMPRAS_FIJA } from '@/lib/oc-utils'
 
 // ── Paleta roja corporativa ────────────────────────────────────────────────────
 const ROJO_OSC = '#7f1d1d'   // rojo oscuro — encabezados principales
 const ROJO     = '#991b1b'   // rojo medio — encabezados secundarios
-const DORADO   = '#c9a840'   // dorado ARLIFT
 const GRIS     = '#64748b'
 const BORDER   = '#cbd5e1'
-const BG_HDR   = '#fef2f2'   // fondo muy suave rosado para info bar
 
 const styles = StyleSheet.create({
-  page:        { fontFamily: 'Helvetica', fontSize: 8, padding: 20, color: '#1e293b' },
+  page:        { fontFamily: 'Helvetica', fontSize: 8, padding: 20, paddingBottom: 26, color: '#1e293b' },
 
   // Header
   headerRow:   {
-    flexDirection: 'row', alignItems: 'center', marginBottom: 4,
+    flexDirection: 'row', alignItems: 'center', marginBottom: 6,
     paddingBottom: 4,
     borderBottomWidth: 2, borderBottomColor: ROJO_OSC, borderBottomStyle: 'solid',
   },
@@ -23,11 +21,8 @@ const styles = StyleSheet.create({
   headerTitle: { flex: 1, textAlign: 'center', fontSize: 16, fontFamily: 'Helvetica-Bold', color: ROJO_OSC },
   headerNum:   { fontSize: 13, fontFamily: 'Helvetica-Bold', color: ROJO, textAlign: 'right', minWidth: 70 },
 
-  // Info bar
-  infoBar:     { flexDirection: 'row', backgroundColor: BG_HDR, padding: '3 6', marginBottom: 6, borderRadius: 2 },
-  infoCell:    { flex: 1, flexDirection: 'column' },
-  infoLabel:   { fontSize: 6, color: GRIS, textTransform: 'uppercase' },
-  infoVal:     { fontSize: 7, fontFamily: 'Helvetica-Bold' },
+  // Spec: SC-001 CA-02 — pie de página con código de documento + revisión.
+  pageFooter:  { position: 'absolute', bottom: 10, right: 20, fontSize: 6, color: GRIS },
 
   // Sección
   sectionLabel: {
@@ -57,24 +52,30 @@ const styles = StyleSheet.create({
   tdCell:      { fontSize: 7, textAlign: 'center', paddingHorizontal: 2, paddingVertical: 3 },
   tdLeft:      { fontSize: 7, textAlign: 'left', paddingHorizontal: 3, paddingVertical: 3 },
 
-  // Totales
-  totalRow:   { flexDirection: 'row', justifyContent: 'flex-end', padding: '2 6', borderTopWidth: 1, borderTopColor: BORDER, borderTopStyle: 'solid' },
-  totalLabel: { fontSize: 7, fontFamily: 'Helvetica-Bold', marginRight: 12 },
-  totalVal:   { fontSize: 7, fontFamily: 'Helvetica-Bold', width: 70, textAlign: 'right' },
+  // Spec: SC-001 CA-04 — 1 sola línea calculada + nota informativa, sin IVA (RN-02)
+  totalRow:    { flexDirection: 'row', justifyContent: 'flex-end', padding: '2 6', borderTopWidth: 1, borderTopColor: BORDER, borderTopStyle: 'solid' },
+  totalLabel:  { fontSize: 7, fontFamily: 'Helvetica-Bold', marginRight: 12 },
+  totalVal:    { fontSize: 7, fontFamily: 'Helvetica-Bold', width: 70, textAlign: 'right' },
+  notaIvaRow:  { padding: '3 6', borderTopWidth: 1, borderTopColor: BORDER, borderTopStyle: 'solid' },
+  notaIvaText: { fontSize: 6, color: GRIS, fontStyle: 'italic', textAlign: 'center' },
 
   // Condiciones
   condBox:  { borderWidth: 1, borderColor: BORDER, borderStyle: 'solid', marginTop: 6, marginBottom: 6 },
   condHint: { fontSize: 6, color: GRIS, fontStyle: 'italic', padding: '3 5' },
   condText: { fontSize: 7, padding: '2 5 6', minHeight: 28 },
 
-  // Aprobaciones
+  // Spec: SC-001 §2.2 — bloque de aprobaciones rediseñado: cada firmante es un
+  // encabezado de color + filas Nombre/Área/Rol/Fecha/Firma (o Razón Social/RUC
+  // en el caso del proveedor) en columna.
   aprobRow:      { flexDirection: 'row', borderWidth: 1, borderColor: BORDER, borderStyle: 'solid', marginTop: 6 },
-  aprobCell:     { flex: 1, borderRightWidth: 1, borderRightColor: BORDER, borderRightStyle: 'solid', padding: 5, minHeight: 55 },
-  aprobCellLast: { flex: 1, padding: 5, minHeight: 55 },
-  aprobHead:     { backgroundColor: ROJO, color: 'white', fontFamily: 'Helvetica-Bold', fontSize: 6, padding: '2 4', textAlign: 'center' },
-  aprobName:     { fontSize: 7, marginTop: 4 },
-  aprobCargo:    { fontSize: 6, color: GRIS, marginTop: 1 },
-  aprobFirma:    { fontSize: 6, color: GRIS, marginTop: 14 },
+  aprobCell:     { flex: 1, borderRightWidth: 1, borderRightColor: BORDER, borderRightStyle: 'solid', padding: 5, minHeight: 78 },
+  aprobCellLast: { flex: 1, padding: 5, minHeight: 78 },
+  aprobHead:     { backgroundColor: ROJO, color: 'white', fontFamily: 'Helvetica-Bold', fontSize: 6, padding: '2 4', textAlign: 'center', marginBottom: 4 },
+  filaFirmante:       { flexDirection: 'row', marginTop: 3 },
+  // Spec CA-10: ancho mayor que en np-pdf.tsx para acomodar "Razón Social:" sin envolver
+  filaFirmanteLabel:  { fontSize: 6, color: GRIS, width: 48 },
+  filaFirmanteValor:  { fontSize: 7, flex: 1 },
+  filaFirma:          { flexDirection: 'row', marginTop: 10 },
 })
 
 function usd(n: number) { return `$${Number(n).toFixed(2)}` }
@@ -84,14 +85,23 @@ function fmtDate(s: string | null | undefined) {
   catch { return s }
 }
 
+// Spec: SC-001 — fila etiqueta:valor de los bloques de aprobaciones. No se
+// comparte con np-pdf.tsx (ver sdd-design.md, decisión 4).
+function FilaFirmante({ label, value, esFirma }: { label: string; value: string; esFirma?: boolean }) {
+  return (
+    <View style={esFirma ? styles.filaFirma : styles.filaFirmante}>
+      <Text style={styles.filaFirmanteLabel}>{label}:</Text>
+      <Text style={styles.filaFirmanteValor}>{value}</Text>
+    </View>
+  )
+}
+
 const COL = { num:'4%', tipo:'8%', cod:'9%', desc:'25%', und:'5%', qty:'5%', info:'17%', pu:'9%', tot:'9%', fecha:'9%' }
 
 export function OCDocument({ oc, items, empresa, logoUrl, creadorCargo }: {
   oc: any; items: any[]; empresa: any; logoUrl: string; creadorCargo: string
 }) {
   const subtotal         = Number(oc.valor_total) || 0
-  const iva              = subtotal * 0.15
-  const total            = subtotal + iva
   const aprobadorEtiqueta = resolverEtiquetaAprobador(oc.aprobado_por_rol ?? null)
 
   return (
@@ -107,29 +117,13 @@ export function OCDocument({ oc, items, empresa, logoUrl, creadorCargo }: {
           <Text style={styles.headerNum}>No. {oc.numero_oc}</Text>
         </View>
 
-        {/* Info bar */}
-        <View style={styles.infoBar}>
-          {([
-            ['DOCUMENTO NUMERO', empresa?.documento_numero_oc ?? 'AL-L4-07-F01'],
-            ['REVISIÓN',         String(empresa?.revision_oc ?? 1)],
-            ['FECHA DE EMISIÓN', fmtDate(oc.fecha_oc ?? oc.created_at)],
-            ['PREPARADO POR',    oc.creado_por_nombre ?? '—'],
-            ['APROBADO POR',     oc.aprobado_por_nombre ?? '—'],
-            ['CLASIFICACIÓN',    'Formatos, L4'],
-          ] as [string, string][]).map(([lbl, val]) => (
-            <View key={lbl} style={styles.infoCell}>
-              <Text style={styles.infoLabel}>{lbl}</Text>
-              <Text style={styles.infoVal}>{val}</Text>
-            </View>
-          ))}
-        </View>
-
         {/* Información General */}
         <Text style={styles.sectionLabel}>INFORMACIÓN GENERAL</Text>
         <View style={styles.twoCol}>
           <View style={styles.col}>
+            {/* Spec CA-09: primera fila relabelada a RAZÓN SOCIAL */}
             {([
-              ['PROVEEDOR', oc.proveedor],
+              ['RAZÓN SOCIAL', oc.proveedor],
               ['RUC',       oc.proveedor_ruc],
               ['DIRECCIÓN', oc.proveedor_direccion],
               ['CONTACTO',  oc.proveedor_contacto],
@@ -144,8 +138,9 @@ export function OCDocument({ oc, items, empresa, logoUrl, creadorCargo }: {
           </View>
           <View style={styles.colRight}>
             <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', marginBottom: 3 }}>FACTURAR A:</Text>
+            {/* Spec CA-09: primera fila relabelada a RAZÓN SOCIAL */}
             {([
-              ['',          empresa?.razon_social],
+              ['RAZÓN SOCIAL', empresa?.razon_social],
               ['RUC',       empresa?.ruc],
               ['DIRECCIÓN', empresa?.direccion],
               ['CONTACTO',  empresa?.contacto],
@@ -189,18 +184,17 @@ export function OCDocument({ oc, items, empresa, logoUrl, creadorCargo }: {
           ))}
         </View>
 
-        {/* Totales */}
+        {/* Totales — 1 sola línea + nota informativa de IVA (RN-02) */}
         <View style={{ borderWidth: 1, borderColor: BORDER, borderStyle: 'solid', borderTopWidth: 0 }}>
-          {([
-            ['VALOR TOTAL DEL REQUERIMIENTO (USD) — sin IVA:', usd(subtotal)],
-            ['IVA 15%:', usd(iva)],
-            ['VALOR TOTAL CON IVA 15%:', usd(total)],
-          ] as [string, string][]).map(([lbl, val]) => (
-            <View key={lbl} style={styles.totalRow}>
-              <Text style={styles.totalLabel}>{lbl}</Text>
-              <Text style={styles.totalVal}>{val}</Text>
-            </View>
-          ))}
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>VALOR TOTAL DEL REQUERIMIENTO (USD) — sin IVA:</Text>
+            <Text style={styles.totalVal}>{usd(subtotal)}</Text>
+          </View>
+          <View style={styles.notaIvaRow}>
+            <Text style={styles.notaIvaText}>
+              EL VALOR DE IVA SERÁ INCLUIDO CONFORME SEA APLICABLE EN LA FACTURA DEL PROVEEDOR POSTERIOR A LA EMISIÓN DE LA ORDEN DE COMPRA
+            </Text>
+          </View>
         </View>
 
         {/* Condiciones mínimas */}
@@ -214,35 +208,47 @@ export function OCDocument({ oc, items, empresa, logoUrl, creadorCargo }: {
           <Text style={styles.condText}>{oc.condiciones_minimas ?? ''}</Text>
         </View>
 
-        {/* Aprobaciones */}
+        {/* Aprobaciones — 4 bloques, variantes por bloque (ver SC-001-v3.md §2.2) */}
         <Text style={styles.sectionLabel}>APROBACIONES</Text>
         <View style={styles.aprobRow}>
           <View style={styles.aprobCell}>
             <Text style={styles.aprobHead}>ELABORADO POR</Text>
-            <Text style={styles.aprobName}>{oc.creado_por_nombre ?? ''}</Text>
-            <Text style={styles.aprobCargo}>{creadorCargo}</Text>
-            <Text style={styles.aprobFirma}>Firma / Fecha: _______________</Text>
+            <FilaFirmante label="Nombre" value={oc.creado_por_nombre ?? ''} />
+            <FilaFirmante label="Área"   value={AREA_COMPRAS_FIJA} />
+            <FilaFirmante label="Rol"    value={creadorCargo} />
+            <FilaFirmante label="Fecha"  value={fmtDate(oc.created_at)} />
+            <FilaFirmante label="Firma"  value="" esFirma />
           </View>
           <View style={styles.aprobCell}>
             <Text style={styles.aprobHead}>APROBADO POR{'\n'}COORDINADOR DEL ÁREA</Text>
-            <Text style={styles.aprobName}>
-              {oc.aprobador_np_nombre && oc.aprobador_np_area
-                ? `${oc.aprobador_np_nombre} - ${oc.aprobador_np_area}`
-                : ''}
-            </Text>
-            <Text style={styles.aprobFirma}>Firma / Fecha: _______________</Text>
+            <FilaFirmante label="Nombre" value={oc.aprobador_np_nombre ?? ''} />
+            <FilaFirmante label="Área"   value={oc.aprobador_np_area ?? ''} />
+            <FilaFirmante label="Rol"    value="Coordinador de Área" />
+            {/* Spec RN-04: este bloque nunca muestra Fecha, por diseño */}
+            <FilaFirmante label="Firma"  value="" esFirma />
           </View>
           <View style={styles.aprobCell}>
-            <Text style={styles.aprobHead}>APROBADO POR{'\n'}{aprobadorEtiqueta.titulo}</Text>
-            <Text style={styles.aprobName}>{oc.aprobado_por_nombre ?? ''}</Text>
-            <Text style={styles.aprobCargo}>{aprobadorEtiqueta.cargo}</Text>
-            <Text style={styles.aprobFirma}>Firma / Fecha: _______________</Text>
+            {/* Spec CA-08: renombrado, antes "APROBADO POR {título dinámico}" */}
+            <Text style={styles.aprobHead}>APROBACIÓN DE COMPRA</Text>
+            <FilaFirmante label="Nombre" value={oc.aprobado_por_nombre ?? ''} />
+            <FilaFirmante label="Área"   value={AREA_COMPRAS_FIJA} />
+            <FilaFirmante label="Rol"    value={aprobadorEtiqueta.cargo} />
+            <FilaFirmante label="Fecha"  value={oc.aprobado_en ? fmtDate(oc.aprobado_en) : ''} />
+            <FilaFirmante label="Firma"  value="" esFirma />
           </View>
           <View style={styles.aprobCellLast}>
+            {/* Spec CA-10: Razón Social + RUC en vez de Área/Rol — el proveedor no es usuario del sistema */}
             <Text style={styles.aprobHead}>RECIBIDO Y CONFIRMADO (PROVEEDOR)</Text>
-            <Text style={styles.aprobFirma}>Firma / Fecha: _______________</Text>
+            <FilaFirmante label="Razón Social" value={oc.proveedor ?? ''} />
+            <FilaFirmante label="RUC"          value={oc.proveedor_ruc ?? ''} />
+            <FilaFirmante label="Fecha"        value="" />
+            <FilaFirmante label="Firma"        value="" esFirma />
           </View>
         </View>
+
+        <Text style={styles.pageFooter} fixed>
+          {empresa?.documento_numero_oc ?? 'AL-L4-07-F01'}-R{empresa?.revision_oc ?? 1} / L4
+        </Text>
 
       </Page>
     </Document>
