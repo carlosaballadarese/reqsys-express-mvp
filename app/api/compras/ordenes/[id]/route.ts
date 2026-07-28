@@ -269,13 +269,14 @@ export async function PUT(
           const cobertura = await calcularCoberturaNP(npId)
           if (!cobertura.np_cubierta) {
             await adminClient().from('notas_pedido').update({ estado: 'aprobada' }).eq('id', npId)
-            await adminClient().from('historial_np').insert({
+            const { error: errHistRevert } = await adminClient().from('historial_np').insert({
               np_id:        npId,
               estado:       'reabierta',
               actor_nombre: perfil.nombre,
               actor_email:  perfil.email,
               notas: `NP revertida a Aprobada automáticamente. Cobertura: ${cobertura.porcentaje_global.toFixed(0)}% tras editar OC ${ocActual?.numero_oc ?? id}.`,
-            }).catch(console.error)
+            })
+            if (errHistRevert) console.error(errHistRevert)
           }
         } else {
           await autoCompletarNP(npId, estadoActual).catch(console.error)
