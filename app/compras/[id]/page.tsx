@@ -35,6 +35,10 @@ type NP = {
   creado_por_id:          string | null
   completado_manualmente: boolean | null
   motivo_completado:      string | null
+  // Spec: HU-017 — cancelación
+  estado_previo_cancelacion: string | null
+  motivo_cancelacion_np:     string | null
+  cancelado_por_id:          string | null
   // Spec CA-05: campos de regularización
   es_regularizacion:                     boolean
   fecha_provision:                       string | null
@@ -132,6 +136,7 @@ const ESTADO_COLOR: Record<string, string> = {
   devuelta:      'bg-amber-100 text-amber-800',
   convertida:    'bg-blue-100 text-blue-800',
   completada:    'bg-teal-100 text-teal-800',
+  cancelada:     'bg-gray-100 text-gray-600',
   reabierta:     'bg-purple-100 text-purple-800',
   reenviada:     'bg-indigo-100 text-indigo-800',
   asignacion:    'bg-cyan-100 text-cyan-800',
@@ -148,6 +153,7 @@ const HISTORIAL_ICON: Record<string, string> = {
   devuelta:     '↩',
   convertida:   '🛒',
   completada:   '🏁',
+  cancelada:    '✕',
   reabierta:    '🔓',
   reenviada:    '↗',
   asignacion:   '👤',
@@ -161,6 +167,7 @@ const HISTORIAL_LABEL: Record<string, string> = {
   reasignacion: 'Reasignación',
   toma_control: 'Toma de control',
   completada:   'Completada',
+  cancelada:    'Cancelada',
   reabierta:    'Reabierta',
   reenviada:    'Reenviada',
   oc_cancelada: 'OC Cancelada',
@@ -172,6 +179,9 @@ const HISTORIAL_LABEL: Record<string, string> = {
 const ESTADOS_NP_ABIERTA_A_OC = ['aprobada', 'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada']
 // Espejo de app/api/compras/nps/[id]/completar/route.ts::ESTADOS_COMPLETABLES
 const ESTADOS_NP_COMPLETABLES = ['aprobada', 'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion']
+// Spec: HU-017 — espejo de app/api/compras/nps/[id]/cancelar/route.ts
+const ESTADOS_CANCELABLES = ['aprobada', 'en_gestion', 'oc_directa', 'devuelta', 'rechazada']
+const ESTADOS_CANCELABLES_SOLICITANTE = ['aprobada', 'devuelta', 'rechazada']
 
 function usd(n: number) {
   return `$${Number(n).toFixed(2)}`
@@ -756,6 +766,12 @@ export default function DetalleNPPage() {
   const [reabriendo, setReabriendo]     = useState(false)
   const [errorReabrir, setErrorReabrir] = useState('')
 
+  // Cancelar NP — modal con motivo (Spec HU-017 CA-09)
+  const [modalCancelar, setModalCancelar]   = useState(false)
+  const [motivoCancelar, setMotivoCancelar] = useState('')
+  const [cancelando, setCancelando]         = useState(false)
+  const [errorCancelar, setErrorCancelar]   = useState('')
+
   // Spec CA-13: condiciones mínimas para proveedores
   const [condicionesMinimas, setCondicionesMinimas]         = useState('')
   const [guardandoCondiciones, setGuardandoCondiciones]     = useState(false)
@@ -945,6 +961,22 @@ export default function DetalleNPPage() {
     cargar()
   }
 
+  async function handleCancelar() {
+    setCancelando(true)
+    setErrorCancelar('')
+    const res = await fetch(`/api/compras/nps/${id}/cancelar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo: motivoCancelar.trim() }),
+    })
+    const data = await res.json()
+    setCancelando(false)
+    if (!res.ok) { setErrorCancelar(data.error ?? 'Error'); return }
+    setModalCancelar(false)
+    setMotivoCancelar('')
+    cargar()
+  }
+
   async function handleCompletar() {
     setCompletando(true)
     setErrorCompletar('')
@@ -973,6 +1005,12 @@ export default function DetalleNPPage() {
   const puedeExportar = ['compras', 'admin'].includes(rol) ||
     np?.creado_por_id === userId ||
     (rol === 'asistente_compras' && np?.asignado_a === userId)
+  // Spec: HU-017 CA-01/CA-02 — Compras/Admin cancela en más Estados que el Solicitante
+  // (este último pierde el permiso en cuanto hay comprador asignado, en_gestion/oc_directa)
+  const puedeCancelar = np != null && (
+    (['compras', 'admin'].includes(rol) && ESTADOS_CANCELABLES.includes(np.estado)) ||
+    (np.creado_por_id === userId && ESTADOS_CANCELABLES_SOLICITANTE.includes(np.estado))
+  )
 
   if (cargando) return <div className="min-h-screen flex items-center justify-center text-slate-400">Cargando...</div>
   if (error || !np) return (
@@ -1003,13 +1041,22 @@ export default function DetalleNPPage() {
                 ✏️ Editar NP
               </button>
             )}
-            {/* Spec: botón Reabrir solo para compras/admin en NPs completadas */}
-            {np.estado === 'completada' && ['compras', 'admin'].includes(rol) && (
+            {/* Spec: botón Reabrir solo para compras/admin en NPs completadas o canceladas (HU-017) */}
+            {['completada', 'cancelada'].includes(np.estado) && ['compras', 'admin'].includes(rol) && (
               <button
                 onClick={() => { setErrorReabrir(''); setModalReabrir(true) }}
                 className="text-xs px-3 py-1.5 rounded-lg border border-white/40 text-white hover:bg-white/10 transition-colors font-medium"
               >
                 🔓 Reabrir NP
+              </button>
+            )}
+            {/* Spec: HU-017 CA-01/CA-02 — botón Cancelar NP */}
+            {puedeCancelar && (
+              <button
+                onClick={() => { setErrorCancelar(''); setModalCancelar(true) }}
+                className="text-xs px-3 py-1.5 rounded-lg border border-red-300/60 text-red-100 hover:bg-red-500/20 transition-colors font-medium"
+              >
+                ✕ Cancelar NP
               </button>
             )}
             {/* Spec CA-12: botones exportación PDF y Excel */}
@@ -1099,6 +1146,14 @@ export default function DetalleNPPage() {
               <div className="mt-3 bg-slate-50 border border-slate-200 rounded-md p-3 text-sm">
                 <p className="text-xs font-semibold text-slate-500 mb-1">COMPLETADA MANUALMENTE</p>
                 <p className="text-slate-700">{np.motivo_completado}</p>
+              </div>
+            )}
+            {/* Spec: HU-017 CA-08 — motivo de cancelación visible para compras/admin/asistente_compras y el creador */}
+            {np.estado === 'cancelada' && np.motivo_cancelacion_np &&
+              (['compras', 'admin', 'asistente_compras'].includes(rol) || np.creado_por_id === userId) && (
+              <div className="mt-3 bg-gray-50 border border-gray-200 rounded-md p-3 text-sm">
+                <p className="text-xs font-semibold text-gray-500 mb-1">CANCELADA</p>
+                <p className="text-gray-700">{np.motivo_cancelacion_np}</p>
               </div>
             )}
           </CardContent>
@@ -1769,7 +1824,11 @@ export default function DetalleNPPage() {
             </div>
             <div className="px-6 py-5 space-y-4">
               <p className="text-sm text-slate-700">
-                ¿Estás seguro de que deseas reabrir esta NP? Volverá al estado <span className="font-semibold">Aprobada</span> y podrán generarse nuevas Órdenes de Compra desde ella.
+                {np.estado === 'cancelada' ? (
+                  <>¿Estás seguro de que deseas reabrir esta NP? Volverá al estado <span className="font-semibold capitalize">{(np.estado_previo_cancelacion ?? 'aprobada').replace('_', ' ')}</span>, el que tenía antes de cancelarse.</>
+                ) : (
+                  <>¿Estás seguro de que deseas reabrir esta NP? Volverá al estado <span className="font-semibold">Aprobada</span> y podrán generarse nuevas Órdenes de Compra desde ella.</>
+                )}
               </p>
               {errorReabrir && (
                 <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-2">{errorReabrir}</div>
@@ -1788,6 +1847,57 @@ export default function DetalleNPPage() {
                   style={{ background: '#1a5252' }}
                 >
                   {reabriendo ? 'Procesando...' : '🔓 Confirmar reapertura'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal cancelar NP — Spec HU-017 CA-09 */}
+      {modalCancelar && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.5)' }}
+          onClick={e => { if (e.target === e.currentTarget) { setModalCancelar(false); setMotivoCancelar('') } }}
+        >
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+            <div className="px-6 py-4" style={{ background: 'linear-gradient(90deg, #7f1d1d, #991b1b)' }}>
+              <h2 className="text-white font-semibold text-base">Cancelar Nota de Pedido</h2>
+              <p className="text-xs mt-0.5 text-red-100">{np.numero}</p>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <p className="text-sm text-slate-700">
+                Esta NP quedará marcada como <span className="font-semibold">Cancelada</span> y dejará de contar como pendiente de gestión. Indica el motivo.
+              </p>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">
+                  Motivo de cancelación <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={motivoCancelar}
+                  onChange={e => setMotivoCancelar(e.target.value)}
+                  placeholder="Ej: El área ya no requiere este bien/servicio."
+                  className="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
+                />
+              </div>
+              {errorCancelar && (
+                <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-2">{errorCancelar}</div>
+              )}
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => { setModalCancelar(false); setMotivoCancelar(''); setErrorCancelar('') }}
+                  className="flex-1 py-2 rounded-lg text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+                >
+                  Volver
+                </button>
+                <button
+                  onClick={handleCancelar}
+                  disabled={!motivoCancelar.trim() || cancelando}
+                  className="flex-1 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-60 bg-red-700 hover:bg-red-800"
+                >
+                  {cancelando ? 'Procesando...' : '✕ Confirmar cancelación'}
                 </button>
               </div>
             </div>

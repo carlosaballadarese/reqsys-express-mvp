@@ -49,6 +49,9 @@ jest.mock('@/lib/np-estado', () => ({
   // Vista por NP) los importa de @/lib/np-estado y los ejecuta como código de
   // aplicación, no solo como argumento de query Supabase.
   ESTADOS_OC_VIVOS: ['en_proceso', 'en_aprobacion_compras', 'en_aprobacion_gerencia', 'aprobada'],
+  // Spec: HU-017 — valor real, reabrir/route.ts lo usa como código de aplicación
+  // para decidir el mecanismo de reapertura de una NP cancelada.
+  ESTADOS_AUTOGESTIONADOS: ['aprobada', 'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada'],
   calcularAccionAgregada: (acciones: { orden: number }[]) =>
     acciones.length === 0 ? null : Math.min(...acciones.map(a => a.orden)),
 }))
@@ -1066,6 +1069,237 @@ describe('POST /api/compras/nps/[id]/reabrir', () => {
       { params: Promise.resolve({ id: 'np-123' }) }
     )
     expect(res.status).toBe(403)
+  })
+
+  it('HU-017 CA-07: reabrir una NP cancelada con estado previo autogestionado (en_gestion) invoca actualizarEstadoNP', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockActualizarEstadoNP.mockClear()
+    const updateSpy = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    const chain = mockChainVacio()
+    chain.update = updateSpy
+    chain.single = jest
+      .fn()
+      .mockResolvedValueOnce({ data: { rol: 'compras', nombre: 'C', email: 'c@a.com' }, error: null })
+      .mockResolvedValueOnce({ data: { id: 'np-canc-1', estado: 'cancelada', numero: 'NP-2026-0500', estado_previo_cancelacion: 'en_gestion' }, error: null })
+    mockFrom.mockReturnValue(chain)
+
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-canc-1/reabrir', { method: 'POST' }),
+      { params: Promise.resolve({ id: 'np-canc-1' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ estado: 'aprobada', estado_previo_cancelacion: null }))
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-canc-1')
+  })
+
+  it('HU-017 CA-07: reabrir una NP cancelada con estado previo rechazada restaura directo, sin invocar actualizarEstadoNP', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockActualizarEstadoNP.mockClear()
+    const updateSpy = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    const chain = mockChainVacio()
+    chain.update = updateSpy
+    chain.single = jest
+      .fn()
+      .mockResolvedValueOnce({ data: { rol: 'compras', nombre: 'C', email: 'c@a.com' }, error: null })
+      .mockResolvedValueOnce({ data: { id: 'np-canc-2', estado: 'cancelada', numero: 'NP-2026-0501', estado_previo_cancelacion: 'rechazada' }, error: null })
+    mockFrom.mockReturnValue(chain)
+
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-canc-2/reabrir', { method: 'POST' }),
+      { params: Promise.resolve({ id: 'np-canc-2' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ estado: 'rechazada', estado_previo_cancelacion: null }))
+    expect(mockActualizarEstadoNP).not.toHaveBeenCalled()
+  })
+
+  it('devuelve 404 si la NP no está ni completada ni cancelada', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest
+      .fn()
+      .mockResolvedValueOnce({ data: { rol: 'compras', nombre: 'C', email: 'c@a.com' }, error: null })
+      .mockResolvedValueOnce({ data: { id: 'np-x', estado: 'aprobada', numero: 'NP-2026-0502' }, error: null })
+    mockFrom.mockReturnValue(chain)
+
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-x/reabrir', { method: 'POST' }),
+      { params: Promise.resolve({ id: 'np-x' }) }
+    )
+    expect(res.status).toBe(404)
+  })
+})
+
+// ── HU-017: Cancelación de Notas de Pedido ───────────────────────────────────
+
+describe('POST /api/compras/nps/[id]/cancelar', () => {
+  const { POST } = require('@/app/api/compras/nps/[id]/cancelar/route')
+
+  function chainFor(data: unknown, singleData: unknown = null) {
+    const chain: any = {}
+    const noop = jest.fn(() => chain)
+    chain.select = noop
+    chain.eq     = noop
+    chain.in     = noop
+    chain.neq    = noop
+    chain.single = jest.fn(() => Promise.resolve({ data: singleData, error: null }))
+    chain.update  = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.insert  = jest.fn(() => Promise.resolve({ data: {}, error: null }))
+    chain.then    = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve)
+    return chain
+  }
+
+  const npBase = {
+    id: 'np-1', estado: 'aprobada', numero: 'NP-2026-0500', area: 'Operaciones',
+    creado_por_id: 'user-123', solicitante_email: 'sol@arlift.com', solicitante_nombre: 'Solicitante',
+  }
+
+  function cancelarReq(motivo: string | undefined = 'Ya no se necesita') {
+    return makeRequest('http://localhost/api/compras/nps/np-1/cancelar', {
+      method: 'POST',
+      body: JSON.stringify(motivo === undefined ? {} : { motivo }),
+    })
+  }
+
+  function setup(opts: { rol: string; np?: Record<string, unknown>; itemsOc?: unknown[]; ocsVivas?: unknown[] }) {
+    const { rol, np = npBase, itemsOc = [], ocsVivas = [] } = opts
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')         return chainFor([], { rol, nombre: 'Carlos', email: 'c@a.com' })
+      if (table === 'notas_pedido')     return chainFor([], np)
+      if (table === 'items_np')         return chainFor([{ id: 'item-1' }])
+      if (table === 'items_oc')         return chainFor(itemsOc)
+      if (table === 'registro_compras') return chainFor(ocsVivas)
+      if (table === 'historial_np')     return chainFor([])
+      if (table === 'coordinadores_area') return chainFor([], { nombre: 'Coordinadora', email: 'coord@arlift.com' })
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+  }
+
+  beforeEach(() => {
+    const { transporter } = require('@/lib/mailer')
+    transporter.sendMail.mockClear()
+    transporter.sendMail.mockResolvedValue({})
+  })
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(cancelarReq(), { params: Promise.resolve({ id: 'np-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol no autorizado (gerencia, no es dueño ni compras)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION) // user-123
+    setup({ rol: 'gerencia', np: { ...npBase, creado_por_id: 'otro-user' } })
+    const res = await POST(cancelarReq(), { params: Promise.resolve({ id: 'np-1' }) })
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 400 si el motivo está vacío', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setup({ rol: 'compras' })
+    const res = await POST(cancelarReq(''), { params: Promise.resolve({ id: 'np-1' }) })
+    expect(res.status).toBe(400)
+  })
+
+  it('RN-02: devuelve 400 si la NP está completada', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setup({ rol: 'compras', np: { ...npBase, estado: 'completada' } })
+    const res = await POST(cancelarReq(), { params: Promise.resolve({ id: 'np-1' }) })
+    expect(res.status).toBe(400)
+  })
+
+  it('RN-05: devuelve 400 si la NP está pendiente', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setup({ rol: 'compras', np: { ...npBase, estado: 'pendiente' } })
+    const res = await POST(cancelarReq(), { params: Promise.resolve({ id: 'np-1' }) })
+    expect(res.status).toBe(400)
+  })
+
+  it('CA-02: devuelve 403 si el Solicitante intenta cancelar con comprador ya asignado (en_gestion)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION) // user-123
+    setup({ rol: 'solicitante', np: { ...npBase, estado: 'en_gestion', creado_por_id: 'user-123' } })
+    const res = await POST(cancelarReq(), { params: Promise.resolve({ id: 'np-1' }) })
+    expect(res.status).toBe(403)
+  })
+
+  it('CA-02: el Solicitante SÍ puede cancelar su propia NP en aprobada (200)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION) // user-123
+    setup({ rol: 'solicitante', np: { ...npBase, estado: 'aprobada', creado_por_id: 'user-123' } })
+    const res = await POST(cancelarReq(), { params: Promise.resolve({ id: 'np-1' }) })
+    expect(res.status).toBe(200)
+  })
+
+  it('RN-04: devuelve 403 si el Solicitante intenta cancelar una NP ajena', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION) // user-123
+    setup({ rol: 'solicitante', np: { ...npBase, estado: 'aprobada', creado_por_id: 'otro-user' } })
+    const res = await POST(cancelarReq(), { params: Promise.resolve({ id: 'np-1' }) })
+    expect(res.status).toBe(403)
+  })
+
+  it('RN-01: devuelve 400 si hay una OC viva vinculada a la NP', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setup({
+      rol: 'compras',
+      itemsOc: [{ registro_compras_id: 'oc-1' }],
+      ocsVivas: [{ id: 'oc-1', numero_oc: 'OC-2026-0100' }],
+    })
+    const res = await POST(cancelarReq(), { params: Promise.resolve({ id: 'np-1' }) })
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.ocs_vivas).toHaveLength(1)
+  })
+
+  it('no bloquea si la única OC vinculada está rechazada/cancelada (fuera del resultado de "vivas")', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setup({
+      rol: 'compras',
+      itemsOc: [{ registro_compras_id: 'oc-1' }],
+      ocsVivas: [], // la query real ya excluye rechazada/cancelada — el mock simula ese resultado
+    })
+    const res = await POST(cancelarReq(), { params: Promise.resolve({ id: 'np-1' }) })
+    expect(res.status).toBe(200)
+  })
+
+  it('CA-04/CA-05: Compras cancela con éxito — pausa SLA y notifica al coordinador de área', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const updateSpy = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')     return chainFor([], { rol: 'compras', nombre: 'Carlos', email: 'c@a.com' })
+      if (table === 'notas_pedido') { const c = chainFor([], { ...npBase, creado_por_id: 'otro-user' }); c.update = updateSpy; return c }
+      if (table === 'items_np')     return chainFor([{ id: 'item-1' }])
+      if (table === 'items_oc')     return chainFor([])
+      if (table === 'historial_np') return chainFor([])
+      if (table === 'coordinadores_area') return chainFor([], { nombre: 'Coordinadora', email: 'coord@arlift.com' })
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const res = await POST(cancelarReq('Ya no se requiere'), { params: Promise.resolve({ id: 'np-1' }) })
+    expect(res.status).toBe(200)
+    expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({
+      estado: 'cancelada', estado_previo_cancelacion: 'aprobada', motivo_cancelacion_np: 'Ya no se requiere',
+    }))
+    const { transporter } = require('@/lib/mailer')
+    // coordinador de área + solicitante (Compras canceló, no es el dueño) = 2 correos
+    expect(transporter.sendMail).toHaveBeenCalledTimes(2)
+  })
+
+  it('CA-10: cuando cancela el propio Solicitante, notifica al coordinador de Compras (no a sí mismo)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION) // user-123
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')     return chainFor([], { rol: 'solicitante', nombre: 'Solicitante', email: 'sol@arlift.com' })
+      if (table === 'notas_pedido') return chainFor([], { ...npBase, estado: 'aprobada', creado_por_id: 'user-123' })
+      if (table === 'items_np')     return chainFor([{ id: 'item-1' }])
+      if (table === 'items_oc')     return chainFor([])
+      if (table === 'historial_np') return chainFor([])
+      if (table === 'coordinadores_area') return chainFor([], { nombre: 'Coordinadora', email: 'coord@arlift.com' })
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const res = await POST(cancelarReq(), { params: Promise.resolve({ id: 'np-1' }) })
+    expect(res.status).toBe(200)
+    const { transporter } = require('@/lib/mailer')
+    // coordinador de área + coordinador de Compras = 2 correos (nunca al propio solicitante)
+    expect(transporter.sendMail).toHaveBeenCalledTimes(2)
+    const destinatarios = transporter.sendMail.mock.calls.map((c: any[]) => c[0].to)
+    expect(destinatarios).not.toContain('sol@arlift.com')
   })
 })
 

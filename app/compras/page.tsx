@@ -43,6 +43,7 @@ const ESTADO_BADGE: Record<string, string> = {
   oc_en_aprobacion: 'bg-purple-100 text-purple-800',
   oc_aprobada:      'bg-teal-100 text-teal-800',
   completada:       'bg-teal-100 text-teal-800',
+  cancelada:        'bg-gray-100 text-gray-600',
 }
 
 // Spec: HU-009 — notas_pedido.estado ya no es solo el conjunto original; se
@@ -59,6 +60,7 @@ const ESTADO_LABEL: Record<string, string> = {
   oc_en_aprobacion: 'OC en aprobación',
   oc_aprobada:      'OC aprobada',
   completada:       'Completada',
+  cancelada:        'Cancelada',
 }
 
 // Spec: HU-010 — espejo de ESTADOS_NP_ABIERTA_A_OC (lib/np-estado.ts). No se importa
@@ -76,6 +78,7 @@ const PRIORIDAD_BADGE: Record<string, string> = {
 const ESTADOS = [
   'todos', 'borrador', 'pendiente', 'aprobada', 'rechazada', 'devuelta',
   'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada',
+  'cancelada',
 ]
 
 export default function ComprasPage() {

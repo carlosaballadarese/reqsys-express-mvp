@@ -3,12 +3,15 @@ import { adminClient } from '@/lib/supabase/clients'
 export type Estado =
   | 'borrador' | 'pendiente' | 'aprobada' | 'rechazada' | 'devuelta'
   | 'en_gestion' | 'oc_directa' | 'oc_generada' | 'oc_en_aprobacion'
-  | 'oc_aprobada' | 'completada'
+  | 'oc_aprobada' | 'completada' | 'cancelada'
 
 // Spec: HU-009 RN-01 — solo estos valores se recalculan automáticamente.
-// borrador/pendiente/rechazada/devuelta/completada son transiciones explícitas
-// de otros endpoints (creación, aprobar NP, devolver, completar).
-const ESTADOS_AUTOGESTIONADOS: Estado[] =
+// borrador/pendiente/rechazada/devuelta/completada/cancelada son transiciones
+// explícitas de otros endpoints (creación, aprobar NP, devolver, completar, cancelar).
+// Spec: HU-017 — exportada para que reabrir/route.ts decida si, al reabrir una NP
+// cancelada, el Estado previo debe recalcularse vía actualizarEstadoNP() (autogestionado)
+// o restaurarse directo (devuelta/rechazada, que este motor nunca toca).
+export const ESTADOS_AUTOGESTIONADOS: Estado[] =
   ['aprobada', 'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada']
 
 // Spec: HU-009 RN-02 — el SLA cuenta únicamente mientras el Estado está en este conjunto.
