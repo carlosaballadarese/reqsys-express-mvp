@@ -52,6 +52,9 @@ jest.mock('@/lib/np-estado', () => ({
   // Spec: HU-017 — valor real, reabrir/route.ts lo usa como código de aplicación
   // para decidir el mecanismo de reapertura de una NP cancelada.
   ESTADOS_AUTOGESTIONADOS: ['aprobada', 'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada'],
+  // Fix: valor real — nps/[id]/route.ts (PATCH devolver) lo usa como código de
+  // aplicación para decidir qué estados admiten devolución al solicitante.
+  ESTADOS_DEVOLVIBLES: ['aprobada', 'en_gestion', 'oc_directa'],
   calcularAccionAgregada: (acciones: { orden: number }[]) =>
     acciones.length === 0 ? null : Math.min(...acciones.map(a => a.orden)),
 }))
@@ -1915,6 +1918,82 @@ describe('PATCH /api/compras/nps/[id] — aprobación portal persiste aprobador_
         aprobador_np_area:   'Compras',
       })
     )
+  })
+})
+
+// ── Fix: devolver ya no se limita a estado==='aprobada' literal ──────────────
+// Antes de HU-009 solo existía 'aprobada' como estado post-aprobación; desde que
+// HU-010 mueve la NP a en_gestion/oc_directa al asignar comprador, la opción de
+// devolver desaparecía silenciosamente pese a que la NP sigue abierta (sin OC).
+
+describe('PATCH /api/compras/nps/[id] — devolver ya no se limita a estado=aprobada', () => {
+  const { PATCH } = require('@/app/api/compras/nps/[id]/route')
+
+  function mockPatchDevolver(npEstado: string) {
+    const { transporter } = require('@/lib/mailer')
+    transporter.sendMail.mockResolvedValue({})
+
+    const np = {
+      id: 'np-dev-1', numero: 'NP-2026-0305', area: 'Operaciones',
+      estado: npEstado, total_estimado: 100,
+      solicitante_email: 'sol@arlift.com', solicitante_nombre: 'Solicitante',
+    }
+
+    const updateEqMock = jest.fn(() => Promise.resolve({ data: {}, error: null }))
+    const chain = mockChainVacio()
+    chain.update = jest.fn(() => ({ eq: updateEqMock }))
+
+    let singleCalls = 0
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras', nombre: 'Claudia Sánchez', email: 'compras@arlift.com.ec' }, error: null }) // perfil
+      if (singleCalls === 2) return Promise.resolve({ data: np, error: null })                                                                              // NP
+      return Promise.resolve({ data: null, error: null })                                                                                                    // coord email (opcional)
+    })
+    mockFrom.mockReturnValue(chain)
+    return chain
+  }
+
+  it('permite devolver una NP en en_gestion (comprador asignado, sin OC) y pausa el SLA', async () => {
+    const chain = mockPatchDevolver('en_gestion')
+    mockPausarSLAPorCierre.mockClear()
+
+    const req = makeRequest('http://localhost/api/compras/nps/np-dev-1', {
+      method: 'PATCH',
+      body: JSON.stringify({ accion: 'devolver', motivo: 'Falta especificación técnica' }),
+    })
+    const res = await PATCH(req, { params: Promise.resolve({ id: 'np-dev-1' }) })
+
+    expect(res.status).toBe(200)
+    expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ estado: 'devuelta' }))
+    expect(mockPausarSLAPorCierre).toHaveBeenCalledWith('np-dev-1')
+  })
+
+  it('permite devolver una NP en oc_directa (Excepcional, sin OC generada)', async () => {
+    const chain = mockPatchDevolver('oc_directa')
+
+    const req = makeRequest('http://localhost/api/compras/nps/np-dev-1', {
+      method: 'PATCH',
+      body: JSON.stringify({ accion: 'devolver', motivo: 'Reconsiderar prioridad' }),
+    })
+    const res = await PATCH(req, { params: Promise.resolve({ id: 'np-dev-1' }) })
+
+    expect(res.status).toBe(200)
+    expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ estado: 'devuelta' }))
+  })
+
+  it('sigue bloqueando devolver desde un estado no elegible (oc_generada — ya tiene OC)', async () => {
+    mockPatchDevolver('oc_generada')
+
+    const req = makeRequest('http://localhost/api/compras/nps/np-dev-1', {
+      method: 'PATCH',
+      body: JSON.stringify({ accion: 'devolver', motivo: 'motivo' }),
+    })
+    const res = await PATCH(req, { params: Promise.resolve({ id: 'np-dev-1' }) })
+    const data = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(data.error).toMatch(/aprobada, en_gestion u oc_directa/)
   })
 })
 

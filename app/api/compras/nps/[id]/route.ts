@@ -6,6 +6,7 @@ import { transporter } from '@/lib/mailer'
 import { escapeHtml } from '@/lib/utils'
 import { calcularCoberturaNP } from '@/lib/np-cobertura'
 import { puedeVerPrecioNP, puedeGuardarPrecioNP } from '@/lib/np-precio'
+import { ESTADOS_DEVOLVIBLES, pausarSLAPorCierre } from '@/lib/np-estado'
 
 export async function GET(
   req: NextRequest,
@@ -305,8 +306,8 @@ export async function PATCH(
     if (errorNP || !np) return NextResponse.json({ error: 'NP no encontrada' }, { status: 404 })
 
     // Validar estados
-    if (accion === 'devolver' && np.estado !== 'aprobada') {
-      return NextResponse.json({ error: 'Solo se pueden devolver NPs ya aprobadas' }, { status: 400 })
+    if (accion === 'devolver' && !ESTADOS_DEVOLVIBLES.includes(np.estado)) {
+      return NextResponse.json({ error: 'Solo se pueden devolver NPs en aprobada, en_gestion u oc_directa' }, { status: 400 })
     }
     if ((accion === 'aprobar' || accion === 'rechazar') && np.estado !== 'pendiente') {
       return NextResponse.json({ error: 'Solo se pueden procesar NPs pendientes' }, { status: 400 })
@@ -368,6 +369,13 @@ export async function PATCH(
     }
 
     await adminClient().from('notas_pedido').update(updateData).eq('id', id)
+
+    // Fix: devolver puede ocurrir con comprador ya asignado (en_gestion/oc_directa,
+    // SLA activo) — pausarlo aquí, mismo patrón que cancelar/route.ts (HU-017).
+    // Idempotente: no hace nada si el SLA nunca inició (devolver desde 'aprobada').
+    if (accion === 'devolver') {
+      await pausarSLAPorCierre(id).catch(console.error)
+    }
 
     // Registrar historial
     await adminClient().from('historial_np').insert({

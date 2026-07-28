@@ -182,6 +182,9 @@ const ESTADOS_NP_COMPLETABLES = ['aprobada', 'en_gestion', 'oc_directa', 'oc_gen
 // Spec: HU-017 — espejo de app/api/compras/nps/[id]/cancelar/route.ts
 const ESTADOS_CANCELABLES = ['aprobada', 'en_gestion', 'oc_directa', 'devuelta', 'rechazada']
 const ESTADOS_CANCELABLES_SOLICITANTE = ['aprobada', 'devuelta', 'rechazada']
+// Fix: espejo de lib/np-estado.ts::ESTADOS_DEVOLVIBLES — antes limitado a 'aprobada'
+// literal, ocultaba la opción en cuanto se asignaba comprador (en_gestion/oc_directa)
+const ESTADOS_DEVOLVIBLES = ['aprobada', 'en_gestion', 'oc_directa']
 
 function usd(n: number) {
   return `$${Number(n).toFixed(2)}`
@@ -994,7 +997,7 @@ export default function DetalleNPPage() {
   }
 
   const mostrarAprobacion    = np?.estado === 'pendiente' && puedeAprobar
-  const mostrarDevolucion    = np?.estado === 'aprobada' && ['compras', 'admin'].includes(rol)
+  const mostrarDevolucion    = !!np && ESTADOS_DEVOLVIBLES.includes(np.estado) && ['compras', 'admin'].includes(rol)
   // Spec CA-06: precio visible para roles privilegiados O para el creador en NPs de regularización
   const puedeVerPrecio       = ['compras', 'admin', 'asistente_compras'].includes(rol) ||
     (np?.es_regularizacion === true && np.creado_por_id === userId)

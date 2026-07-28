@@ -25,6 +25,12 @@ const ESTADOS_ACTIVOS_SLA: Estado[] = ['en_gestion', 'oc_directa']
 export const ESTADOS_NP_ABIERTA_A_OC: Estado[] =
   ['aprobada', 'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada']
 
+// Fix: "Devolver al Solicitante" estaba limitado a estado==='aprobada' literal (código
+// anterior a HU-009), por lo que dejaba de ofrecerse en cuanto se asignaba un comprador
+// (en_gestion/oc_directa) — misma clase de regresión ya corregida en HU-009/HU-010/HU-017.
+// Mismo criterio que ESTADOS_CANCELABLES: permitido mientras no exista ninguna OC generada.
+export const ESTADOS_DEVOLVIBLES: Estado[] = ['aprobada', 'en_gestion', 'oc_directa']
+
 // Spec: HU-009 CA-03 — orden de avance de una OC "viva" para determinar
 // la menos avanzada entre las que cubren una NP.
 const ORDEN_AVANCE_OC: Record<string, number> = {
