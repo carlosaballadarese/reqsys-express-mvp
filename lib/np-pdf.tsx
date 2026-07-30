@@ -284,7 +284,7 @@ export function NPDocumento({ np, items, mostrarPrecios, config, logoUrl }: {
         </View>
 
         <Text style={styles.pageFooter} fixed>
-          {config.documento_numero_np}-R{config.revision_np}/  L4
+          {config.documento_numero_np}-R{config.revision_np}
         </Text>
 
       </Page>

@@ -247,7 +247,7 @@ export function OCDocument({ oc, items, empresa, logoUrl, creadorCargo }: {
         </View>
 
         <Text style={styles.pageFooter} fixed>
-          {empresa?.documento_numero_oc ?? 'AL-L4-07-F01'}-R{empresa?.revision_oc ?? 1} / L4
+          {empresa?.documento_numero_oc ?? 'AL-L4-07-F01'}-R{empresa?.revision_oc ?? 1}
         </Text>
 
       </Page>

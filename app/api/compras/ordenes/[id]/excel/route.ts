@@ -304,7 +304,7 @@ export async function GET(
     row++
 
     // Spec CA-02: pie de página con código de documento + revisión
-    ws.headerFooter.oddFooter = `&R${empresa?.documento_numero_oc ?? 'AL-L4-07-F01'}-R${empresa?.revision_oc ?? 1} / L4`
+    ws.headerFooter.oddFooter = `&R${empresa?.documento_numero_oc ?? 'AL-L4-07-F01'}-R${empresa?.revision_oc ?? 1}`
 
     // ── Generar buffer ───────────────────────────────────────────────────────
     const rawBuffer = await wb.xlsx.writeBuffer()

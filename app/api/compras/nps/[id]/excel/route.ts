@@ -319,7 +319,7 @@ export async function GET(
     ws.getRow(row).height = 30
 
     // Spec CA-02: pie de página con código de documento + revisión
-    ws.headerFooter.oddFooter = `&R${config?.documento_numero_np ?? 'AL-L4-07-F01'}-R${config?.revision_np ?? 1}/  L4`
+    ws.headerFooter.oddFooter = `&R${config?.documento_numero_np ?? 'AL-L4-07-F01'}-R${config?.revision_np ?? 1}`
 
     // Spec CA-11: nombre de archivo
     const area   = (np.area ?? 'NP').toUpperCase().replace(/[^A-Z0-9]/g, '-')

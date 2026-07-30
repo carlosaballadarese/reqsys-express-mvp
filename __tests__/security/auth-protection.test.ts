@@ -3077,7 +3077,7 @@ describe('GET /api/compras/nps/[id]/excel — SC-001 CA-02/CA-05/CA-05b', () => 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const ExcelJS = require('exceljs').default
     const ws = new ExcelJS.Workbook().addWorksheet('NP')
-    expect(ws.headerFooter.oddFooter).toBe('&RAL-L4-07-03-R3/  L4')
+    expect(ws.headerFooter.oddFooter).toBe('&RAL-L4-07-03-R3')
   })
 })
 
@@ -3139,7 +3139,7 @@ describe('GET /api/compras/ordenes/[id]/excel — SC-001 CA-02/CA-08/CA-09', () 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const ExcelJS = require('exceljs').default
     const ws = new ExcelJS.Workbook().addWorksheet('OC')
-    expect(ws.headerFooter.oddFooter).toBe('&RAL-L4-07-04-R2 / L4')
+    expect(ws.headerFooter.oddFooter).toBe('&RAL-L4-07-04-R2')
 
     const valoresEscritos = ws.getCell.mock.results.map((r: any) => r.value.value)
     expect(valoresEscritos).toContain('APROBACIÓN DE COMPRA')
