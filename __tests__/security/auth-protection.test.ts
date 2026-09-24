@@ -957,17 +957,31 @@ describe('PUT /api/compras/nps/[id]', () => {
 
   // ── Lógica de negocio: condicionado de precio + proveedor_sugerido ──────────
   // Cadena que permite llegar hasta el insert de items_np capturando el payload.
-  // single() es secuencial: 1) perfil  2) notas_pedido  3) coordinadores_area
-  function mockChainEditar(singles: any[]) {
+  // single() es secuencial: 1) perfil  2) notas_pedido.
+  // maybeSingle() es secuencial (SC-002): 1) areas  2) coordinadores_area por id.
+  // limit() resuelve el aprobador por defecto (resolverAprobadorPorDefecto).
+  function mockChainEditar(opts: {
+    perfil: any
+    np: any
+    area?: { id: string; nombre: string } | null
+    coordinadorDefault?: { id: string; nombre: string; email: string } | null
+  }) {
     const resolved = { data: [], error: null }
     const chain: any = {}
     const noop = jest.fn(() => chain)
     chain.select = noop
     chain.eq     = noop
     chain.order  = noop
-    const singleFn = jest.fn()
-    singles.forEach(s => singleFn.mockResolvedValueOnce(s))
-    chain.single = singleFn
+    chain.single = jest.fn()
+      .mockResolvedValueOnce({ data: opts.perfil, error: null })
+      .mockResolvedValueOnce({ data: opts.np, error: null })
+    chain.maybeSingle = jest.fn()
+      .mockResolvedValueOnce({ data: opts.area ?? null, error: null })
+      .mockResolvedValueOnce({ data: opts.coordinadorDefault ?? null, error: null })
+    chain.limit = jest.fn(() => Promise.resolve({
+      data: opts.coordinadorDefault ? [opts.coordinadorDefault] : [],
+      error: null,
+    }))
     chain.update = jest.fn(() => chain)
     chain.delete = jest.fn(() => chain)
     chain.insert = jest.fn(() => Promise.resolve(resolved))
@@ -980,13 +994,15 @@ describe('PUT /api/compras/nps/[id]', () => {
     area: 'TI', creado_por_id: 'user-123', solicitante_nombre: 'Solicitante X',
     token_aprobacion: 'tok-aprob', motivo_rechazo: 'faltan datos',
   }
-  const COORDINADOR = { nombre: 'Coordinador TI', email: 'coord@arlift.com' }
+  const AREA_TI = { id: 'area-ti', nombre: 'TI' }
+  const COORDINADOR = { id: 'coord-ti', nombre: 'Coordinador TI', email: 'coord@arlift.com' }
 
   function bodyEditar(precio: number) {
     return JSON.stringify({
       encabezado: {
         solicitante_nombre: 'Solicitante X', solicitante_email: 's@arlift.com',
-        area: 'TI', prioridad: 'media', tipo_compra: 'producto',
+        // Spec: SC-002 — el área se identifica por area_id.
+        area_id: 'area-ti', prioridad: 'media', tipo_compra: 'producto',
         centro_costo: 'gasto', descripcion_general: 'Corregido',
       },
       items: [{
@@ -999,11 +1015,12 @@ describe('PUT /api/compras/nps/[id]', () => {
   it('fuerza precio_unitario a 0 para rol solicitante (sin permiso de precio) y persiste proveedor_sugerido', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     // Creador (creado_por_id === user-123) con rol solicitante → puedeVerPrecio false
-    const chain = mockChainEditar([
-      { data: { rol: 'solicitante', nombre: 'Solicitante X', email: 's@arlift.com' }, error: null },
-      { data: NP_RECHAZADA, error: null },
-      { data: COORDINADOR, error: null },
-    ])
+    const chain = mockChainEditar({
+      perfil: { rol: 'solicitante', nombre: 'Solicitante X', email: 's@arlift.com' },
+      np: NP_RECHAZADA,
+      area: AREA_TI,
+      coordinadorDefault: COORDINADOR,
+    })
     mockFrom.mockReturnValue(chain)
     const res = await PUT(
       makeRequest('http://localhost/api/compras/nps/np-123', { method: 'PUT', body: bodyEditar(99) }),
@@ -1018,11 +1035,12 @@ describe('PUT /api/compras/nps/[id]', () => {
 
   it('respeta precio_unitario y persiste proveedor_sugerido para rol compras', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
-    const chain = mockChainEditar([
-      { data: { rol: 'compras', nombre: 'Jefe Compras', email: 'compras@arlift.com' }, error: null },
-      { data: NP_RECHAZADA, error: null },
-      { data: COORDINADOR, error: null },
-    ])
+    const chain = mockChainEditar({
+      perfil: { rol: 'compras', nombre: 'Jefe Compras', email: 'compras@arlift.com' },
+      np: NP_RECHAZADA,
+      area: AREA_TI,
+      coordinadorDefault: COORDINADOR,
+    })
     mockFrom.mockReturnValue(chain)
     const res = await PUT(
       makeRequest('http://localhost/api/compras/nps/np-123', { method: 'PUT', body: bodyEditar(99) }),
@@ -1042,11 +1060,12 @@ describe('PUT /api/compras/nps/[id]', () => {
       token_aprobacion: 'tok-aprob', motivo_rechazo: null,
       motivo_devolucion: 'SE DEVUELVE PARA CORRECCIONES',
     }
-    const chain = mockChainEditar([
-      { data: { rol: 'solicitante', nombre: 'Suylen Vargas', email: 'tecnico.hse@arlift.com' }, error: null },
-      { data: NP_DEVUELTA, error: null },
-      { data: COORDINADOR, error: null },
-    ])
+    const chain = mockChainEditar({
+      perfil: { rol: 'solicitante', nombre: 'Suylen Vargas', email: 'tecnico.hse@arlift.com' },
+      np: NP_DEVUELTA,
+      area: AREA_TI,
+      coordinadorDefault: COORDINADOR,
+    })
     mockFrom.mockReturnValue(chain)
     const res = await PUT(
       makeRequest('http://localhost/api/compras/nps/np-123', { method: 'PUT', body: bodyEditar(50) }),
