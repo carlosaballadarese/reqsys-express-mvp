@@ -26,7 +26,7 @@ export async function GET() {
 
   const { data, error } = await adminClient()
     .from('perfiles')
-    .select('id, email, nombre, rol, activo, created_at')
+    .select('id, email, nombre, rol, activo, area_id, created_at')
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -38,10 +38,23 @@ export async function POST(req: NextRequest) {
   if (!accesos) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
 
   try {
-    const { email, nombre, rol, password } = await req.json()
+    const { email, nombre, rol, password, area_id } = await req.json()
 
     if (!email || !nombre || !rol || !password) {
       return NextResponse.json({ error: 'email, nombre, rol y password son requeridos' }, { status: 400 })
+    }
+
+    // Spec: SC-002 CA-08 — área es opcional al crear la cuenta.
+    if (area_id) {
+      const { data: area } = await adminClient()
+        .from('areas')
+        .select('id')
+        .eq('id', area_id)
+        .eq('activo', true)
+        .maybeSingle()
+      if (!area) {
+        return NextResponse.json({ error: 'Área inválida o inactiva' }, { status: 400 })
+      }
     }
 
     const { data: authData, error: authError } = await adminClient().auth.admin.createUser({
@@ -56,7 +69,7 @@ export async function POST(req: NextRequest) {
 
     const { error: perfilError } = await adminClient()
       .from('perfiles')
-      .insert({ id: authData.user.id, email, nombre, rol, activo: true })
+      .insert({ id: authData.user.id, email, nombre, rol, activo: true, area_id: area_id || null })
 
     if (perfilError) {
       await adminClient().auth.admin.deleteUser(authData.user.id)

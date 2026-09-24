@@ -111,7 +111,7 @@ export async function verificarDependenciasActivasCoordinador(
     .from('notas_pedido')
     .select('id', { count: 'exact', head: true })
     .eq('aprobador_asignado_id', coordinadorId)
-    .not('estado', 'in', `(${ESTADOS_NP_TERMINALES.join(',')})`)
+    .not('estado', 'in', `(${ESTADOS_NP_TERMINALES.map(e => `"${e}"`).join(',')})`)
 
   if ((npsVivasCount ?? 0) > 0) {
     motivos.push('Es el aprobador asignado de al menos una Nota de Pedido activa')

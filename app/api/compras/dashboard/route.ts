@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 
     let query = adminClient()
       .from('notas_pedido')
-      .select('id, estado, area, prioridad, tipo_compra, convertida, created_at')
+      .select('id, estado, area, area_id, prioridad, tipo_compra, convertida, created_at')
 
     if (rol === 'solicitante') {
       query = query.eq('solicitante_email', email)
@@ -48,6 +48,18 @@ export async function GET(req: NextRequest) {
     const { data: nps, error } = await query
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+    // Spec: SC-002 CA-07 — el agrupamiento por área usa area_id (resuelto al
+    // nombre vigente en `areas`, no el texto legado congelado al crear la NP)
+    // como fuente de verdad; el texto solo actúa de fallback para NPs sin
+    // area_id (huérfanas anteriores a esta SC — no debería haberlas, pero no
+    // se descartan en silencio).
+    const areaIds = [...new Set((nps ?? []).map(np => np.area_id).filter(Boolean) as string[])]
+    const nombrePorAreaId = new Map<string, string>()
+    if (areaIds.length > 0) {
+      const { data: areasUsadas } = await adminClient().from('areas').select('id, nombre').in('id', areaIds)
+      for (const a of (areasUsadas ?? [])) nombrePorAreaId.set(a.id, a.nombre)
+    }
+
     // Agregación en JS — evita RPC y funciona con cualquier filtro
     const byEstado:    Record<string, number> = {}
     const byArea:      Record<string, number> = {}
@@ -58,8 +70,9 @@ export async function GET(req: NextRequest) {
     let convertidas = 0
 
     for (const np of (nps ?? [])) {
+      const areaNombre = (np.area_id && nombrePorAreaId.get(np.area_id)) || np.area
       byEstado[np.estado]    = (byEstado[np.estado]    ?? 0) + 1
-      byArea[np.area]        = (byArea[np.area]        ?? 0) + 1
+      byArea[areaNombre]     = (byArea[areaNombre]     ?? 0) + 1
       byPrioridad[np.prioridad] = (byPrioridad[np.prioridad] ?? 0) + 1
       byTipo[np.tipo_compra] = (byTipo[np.tipo_compra] ?? 0) + 1
       const mes = np.created_at?.slice(0, 7)
@@ -70,12 +83,12 @@ export async function GET(req: NextRequest) {
       if (np.convertida) convertidas++
     }
 
-    // Áreas disponibles para filtro (global)
+    // Áreas disponibles para filtro (global) — desde el catálogo `areas`
+    // (activo), no derivadas de los valores de texto ya usados en NPs.
     let areas: string[] = []
     if (esGlobal) {
-      const { data: allAreas } = await adminClient()
-        .from('notas_pedido').select('area')
-      areas = [...new Set(allAreas?.map(r => r.area) ?? [])].sort()
+      const { data: allAreas } = await adminClient().from('areas').select('nombre').eq('activo', true).order('nombre')
+      areas = (allAreas ?? []).map(a => a.nombre)
     }
 
     return NextResponse.json({
