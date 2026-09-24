@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { adminClient } from '@/lib/supabase/clients'
+import { resolverOCrearArea } from '@/lib/np-area'
 
 async function verificarAdminOCompras() {
   const supabase = await createSupabaseServerClient()
@@ -25,24 +26,21 @@ export async function GET() {
   return NextResponse.json(data ?? [])
 }
 
-// Spec: SC-002 — el body ahora exige area_id (no area de texto); el nombre real
-// del área se resuelve desde `areas` para seguir poblando la columna legado (RN-06).
+// Spec: SC-002 — el body exige area_id (existente, activa) o area_nombre (crea
+// el área si no existe — no hay CRUD dedicado de `areas` en esta SC, ver
+// resolverOCrearArea); el nombre real se persiste también en la columna legado
+// (RN-06).
 export async function POST(req: NextRequest) {
   const user = await verificarAdminOCompras()
   if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
 
   try {
-    const { area_id, nombre, email } = await req.json()
-    if (!area_id || !nombre || !email) {
+    const { area_id, area_nombre, nombre, email } = await req.json()
+    if ((!area_id && !area_nombre) || !nombre || !email) {
       return NextResponse.json({ error: 'área, nombre y email son requeridos' }, { status: 400 })
     }
 
-    const { data: area } = await adminClient()
-      .from('areas')
-      .select('id, nombre')
-      .eq('id', area_id)
-      .eq('activo', true)
-      .maybeSingle()
+    const area = await resolverOCrearArea({ area_id, area_nombre })
 
     if (!area) {
       return NextResponse.json({ error: 'Área inválida o inactiva' }, { status: 400 })

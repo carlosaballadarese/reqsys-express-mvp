@@ -2542,6 +2542,155 @@ describe('GET /api/compras/dashboard/ocs', () => {
   })
 })
 
+// ── SC-002: Coordinadores — area_id/activo, alta con área nueva, DELETE bloqueado ──
+
+function chainTablaCoord(porTabla: Record<string, any>) {
+  return (table: string) => {
+    const result = porTabla[table] ?? { data: null, error: null, count: 0 }
+    const obj: any = {}
+    obj.select = () => obj
+    obj.eq     = () => obj
+    obj.in     = () => obj
+    obj.not    = () => obj
+    obj.order  = () => obj
+    obj.insert = () => obj
+    obj.update = () => obj
+    obj.delete = () => obj
+    obj.single = () => Promise.resolve(result)
+    obj.maybeSingle = () => Promise.resolve(result)
+    obj.then   = (resolve: any) => Promise.resolve(result).then(resolve)
+    return obj
+  }
+}
+
+describe('POST /api/compras/coordinadores — SC-002', () => {
+  const { POST } = require('@/app/api/compras/coordinadores/route')
+
+  it('devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'solicitante' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/coordinadores', {
+      method: 'POST',
+      body: JSON.stringify({ area_id: 'area-1', nombre: 'X', email: 'x@arlift.com' }),
+    }))
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 400 si falta area_id y area_nombre', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'compras' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/coordinadores', {
+      method: 'POST',
+      body: JSON.stringify({ nombre: 'X', email: 'x@arlift.com' }),
+    }))
+    expect(res.status).toBe(400)
+  })
+
+  it('crea el área si se envía area_nombre y no existe todavía (sin CRUD de áreas aparte)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      // resolverOCrearArea: no existe -> se crea
+      areas:    { data: { id: 'area-nueva', nombre: 'Logística Oriente' }, error: null },
+      coordinadores_area: { data: { id: 'coord-1', area: 'Logística Oriente', area_id: 'area-nueva', nombre: 'X', email: 'x@arlift.com', activo: true }, error: null },
+    }))
+    const res = await POST(makeRequest('http://localhost/api/compras/coordinadores', {
+      method: 'POST',
+      body: JSON.stringify({ area_nombre: 'Logística Oriente', nombre: 'X', email: 'x@arlift.com' }),
+    }))
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.area_id).toBe('area-nueva')
+  })
+})
+
+describe('PUT /api/compras/coordinadores/[id] — SC-002 CA-10', () => {
+  const { PUT } = require('@/app/api/compras/coordinadores/[id]/route')
+
+  it('devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'gerencia' }, error: null } }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/coordinadores/coord-1', { method: 'PUT', body: JSON.stringify({ area_id: 'area-1', nombre: 'X', email: 'x@arlift.com', activo: false }) }),
+      { params: Promise.resolve({ id: 'coord-1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('desactiva un coordinador (activo:false) sin borrarlo', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let updatePayload: any = null
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return chainTablaCoord({ perfiles: { data: { rol: 'compras' }, error: null } })('perfiles')
+      if (table === 'areas')    return chainTablaCoord({ areas: { data: { id: 'area-1', nombre: 'TI' }, error: null } })('areas')
+      if (table === 'coordinadores_area') {
+        const obj: any = {}
+        obj.select = () => obj
+        obj.eq     = () => obj
+        obj.update = (payload: any) => { updatePayload = payload; return obj }
+        obj.then   = (resolve: any) => Promise.resolve({ error: null }).then(resolve)
+        return obj
+      }
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/coordinadores/coord-1', { method: 'PUT', body: JSON.stringify({ area_id: 'area-1', nombre: 'X', email: 'x@arlift.com', activo: false }) }),
+      { params: Promise.resolve({ id: 'coord-1' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(updatePayload.activo).toBe(false)
+  })
+})
+
+describe('DELETE /api/compras/coordinadores/[id] — SC-002 CA-11/RN-08', () => {
+  const { DELETE } = require('@/app/api/compras/coordinadores/[id]/route')
+
+  it('devuelve 409 con los motivos si tiene dependencias activas', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')            return chainTablaCoord({ perfiles: { data: { rol: 'admin' }, error: null } })('perfiles')
+      if (table === 'coordinadores_area')  return chainTablaCoord({ coordinadores_area: { data: { area_id: 'area-1' }, error: null } })('coordinadores_area')
+      if (table === 'areas')               return chainTablaCoord({ areas: { data: { activo: true }, error: null } })('areas')
+      if (table === 'notas_pedido')        return chainTablaCoord({ notas_pedido: { data: null, error: null, count: 0 } })('notas_pedido')
+      if (table === 'area_aprobadores_alternativos') return chainTablaCoord({ area_aprobadores_alternativos: { data: null, error: null, count: 0 } })('area_aprobadores_alternativos')
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const res = await DELETE(
+      makeRequest('http://localhost/api/compras/coordinadores/coord-1', { method: 'DELETE' }),
+      { params: Promise.resolve({ id: 'coord-1' }) }
+    )
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.motivos).toContain('Es el aprobador por defecto de un área activa')
+  })
+
+  it('elimina físicamente si no hay dependencias activas', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let deleteLlamado = false
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')           return chainTablaCoord({ perfiles: { data: { rol: 'admin' }, error: null } })('perfiles')
+      if (table === 'coordinadores_area') {
+        const obj: any = {}
+        obj.select = () => obj
+        obj.eq     = () => obj
+        obj.maybeSingle = () => Promise.resolve({ data: { area_id: null }, error: null })
+        obj.delete = () => { deleteLlamado = true; return obj }
+        obj.then   = (resolve: any) => Promise.resolve({ error: null }).then(resolve)
+        return obj
+      }
+      if (table === 'notas_pedido')        return chainTablaCoord({ notas_pedido: { data: null, error: null, count: 0 } })('notas_pedido')
+      if (table === 'area_aprobadores_alternativos') return chainTablaCoord({ area_aprobadores_alternativos: { data: null, error: null, count: 0 } })('area_aprobadores_alternativos')
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const res = await DELETE(
+      makeRequest('http://localhost/api/compras/coordinadores/coord-1', { method: 'DELETE' }),
+      { params: Promise.resolve({ id: 'coord-1' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(deleteLlamado).toBe(true)
+  })
+})
+
 // ── Sección 32: Dashboard OCs canceladas ────────────────────────────────────
 describe('GET /api/compras/dashboard/canceladas', () => {
   const { GET } = require('@/app/api/compras/dashboard/canceladas/route')
