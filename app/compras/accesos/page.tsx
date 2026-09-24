@@ -16,8 +16,11 @@ type Usuario = {
   nombre: string
   rol: string
   activo: boolean
+  area_id: string | null
   created_at: string
 }
+
+type AreaCatalogo = { id: string; nombre: string }
 
 const ROLES = ['solicitante', 'bodega', 'coordinador', 'asistente_compras', 'compras', 'gerencia', 'consulta', 'admin']
 
@@ -34,19 +37,21 @@ const ROL_BADGE: Record<string, string> = {
 
 export default function AccesosPage() {
   const [usuarios, setUsuarios]   = useState<Usuario[]>([])
+  const [areas, setAreas]         = useState<AreaCatalogo[]>([])
   const [cargando, setCargando]   = useState(true)
   const [miId, setMiId]           = useState('')
   const [miRol, setMiRol]         = useState('')
 
   // Modal nuevo usuario
   const [showNuevo, setShowNuevo]               = useState(false)
-  const [nuevoForm, setNuevoForm]               = useState({ email: '', nombre: '', rol: 'solicitante', password: '' })
+  // Spec: SC-002 CA-08 — area_id opcional, valor por defecto para las NPs que cree este usuario.
+  const [nuevoForm, setNuevoForm]               = useState({ email: '', nombre: '', rol: 'solicitante', password: '', area_id: '' })
   const [guardandoNuevo, setGuardandoNuevo]     = useState(false)
   const [errorNuevo, setErrorNuevo]             = useState('')
 
   // Edición inline
   const [editandoId, setEditandoId]             = useState<string | null>(null)
-  const [editForm, setEditForm]                 = useState({ nombre: '', rol: '', activo: true, email: '' })
+  const [editForm, setEditForm]                 = useState({ nombre: '', rol: '', activo: true, email: '', area_id: '' })
   const [guardandoEdit, setGuardandoEdit]       = useState(false)
   const [errorEdit, setErrorEdit]               = useState('')
 
@@ -64,9 +69,15 @@ export default function AccesosPage() {
 
   function cargar() {
     setCargando(true)
-    fetch('/api/admin/usuarios')
-      .then(r => r.json())
-      .then(data => { setUsuarios(Array.isArray(data) ? data : []); setCargando(false) })
+    Promise.all([
+      fetch('/api/admin/usuarios').then(r => r.json()),
+      fetch('/api/compras/areas').then(r => r.json()),
+    ])
+      .then(([usuariosData, areasData]) => {
+        setUsuarios(Array.isArray(usuariosData) ? usuariosData : [])
+        setAreas(Array.isArray(areasData) ? areasData : [])
+        setCargando(false)
+      })
       .catch(() => setCargando(false))
   }
 
@@ -89,12 +100,12 @@ export default function AccesosPage() {
     const res  = await fetch('/api/admin/usuarios', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(nuevoForm),
+      body: JSON.stringify({ ...nuevoForm, area_id: nuevoForm.area_id || undefined }),
     })
     const data = await res.json()
     if (data.success) {
       setShowNuevo(false)
-      setNuevoForm({ email: '', nombre: '', rol: 'solicitante', password: '' })
+      setNuevoForm({ email: '', nombre: '', rol: 'solicitante', password: '', area_id: '' })
       cargar()
     } else {
       setErrorNuevo(data.error || 'Error al crear usuario')
@@ -104,7 +115,7 @@ export default function AccesosPage() {
 
   function iniciarEdicion(u: Usuario) {
     setEditandoId(u.id)
-    setEditForm({ nombre: u.nombre, rol: u.rol, activo: u.activo, email: u.email })
+    setEditForm({ nombre: u.nombre, rol: u.rol, activo: u.activo, email: u.email, area_id: u.area_id ?? '' })
     setErrorEdit('')
     setResetId(null)
   }
@@ -224,6 +235,15 @@ export default function AccesosPage() {
                   <Input type="password" value={nuevoForm.password} onChange={e => setNuevoForm(f => ({ ...f, password: e.target.value }))}
                     className="mt-1 h-8 text-sm" placeholder="Mínimo 8 caracteres" />
                 </div>
+                <div>
+                  <Label className="text-xs">Área (opcional)</Label>
+                  <select value={nuevoForm.area_id} onChange={e => setNuevoForm(f => ({ ...f, area_id: e.target.value }))}
+                    className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
+                    <option value="">Sin asignar</option>
+                    {areas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                  </select>
+                  <p className="text-xs text-slate-400 mt-0.5">Precarga el área en sus futuras Notas de Pedido — sigue siendo editable.</p>
+                </div>
               </div>
               {errorNuevo && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2 mt-3">{errorNuevo}</p>}
               <div className="flex gap-3 mt-4">
@@ -279,6 +299,14 @@ export default function AccesosPage() {
                               {ROLES.map(r => <option key={r} value={r}>{ROL_LABEL[r]}</option>)}
                             </select>
                           </div>
+                          <div>
+                            <Label className="text-xs">Área (opcional)</Label>
+                            <select value={editForm.area_id} onChange={e => setEditForm(f => ({ ...f, area_id: e.target.value }))}
+                              className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
+                              <option value="">Sin asignar</option>
+                              {areas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                            </select>
+                          </div>
                           <div className="flex items-end pb-1">
                             <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
                               <input type="checkbox" checked={editForm.activo}
@@ -324,6 +352,11 @@ export default function AccesosPage() {
                             {!u.activo && (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-600">
                                 Inactivo
+                              </span>
+                            )}
+                            {u.area_id && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500">
+                                {areas.find(a => a.id === u.area_id)?.nombre ?? 'Área desconocida'}
                               </span>
                             )}
                           </div>
