@@ -11,17 +11,19 @@ export async function GET() {
 
   const { data: perfil } = await adminClient()
     .from('perfiles')
-    .select('rol, nombre, activo')
+    .select('rol, nombre, activo, area_id')
     .eq('id', user.id)
     .single()
 
   if (!perfil) return NextResponse.json({ error: 'Sin perfil' }, { status: 403 })
 
   return NextResponse.json({
-    id:     user.id,
-    email:  user.email,
-    nombre: perfil.nombre,
-    rol:    perfil.rol,
-    activo: perfil.activo,
+    id:      user.id,
+    email:   user.email,
+    nombre:  perfil.nombre,
+    rol:     perfil.rol,
+    activo:  perfil.activo,
+    // Spec: SC-002 CA-01 — área del perfil, usada como default (editable) al crear una NP.
+    area_id: perfil.area_id,
   })
 }

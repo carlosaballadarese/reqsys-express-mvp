@@ -11,17 +11,26 @@ async function verificarAdminOCompras() {
   return perfil && ['admin', 'compras'].includes(perfil.rol) ? user : null
 }
 
+async function verificarSesion() {
+  const supabase = await createSupabaseServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  return user
+}
+
 // Spec: SC-002 CA-04/CA-09 — lista los coordinadores registrados como
 // aprobador alternativo de esta área (independientemente de si están
-// activos o no — el CRUD de coordinadores/page.tsx necesita verlos todos
-// para poder gestionarlos; el formulario de NP filtra por activo por su
-// cuenta vía lib/np-area.ts::listarAlternativosActivos()).
+// activos o no). Abierto a cualquier usuario autenticado (no solo
+// admin/compras) porque el formulario de "Nueva NP" — usado por todos los
+// roles que crean NPs — lo consume para mostrar el selector de aprobador
+// (CA-04); filtra por `activo` del lado del cliente. El CRUD de
+// coordinadores/page.tsx (admin/compras) reutiliza el mismo endpoint y sí
+// necesita ver los inactivos para poder gestionarlos.
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await verificarAdminOCompras()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+  const user = await verificarSesion()
+  if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
   const { id: areaId } = await params
 
