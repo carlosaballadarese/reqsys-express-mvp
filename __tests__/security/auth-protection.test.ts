@@ -2418,6 +2418,128 @@ describe('GET /api/compras/dashboard/ocs', () => {
     const body = await res.json()
     expect(body.scope).toBe('global')
   })
+
+  // Spec: SC-002 CA-12 — deriva el área real vía items_oc -> items_np ->
+  // notas_pedido.area_id -> areas.nombre, cubriendo OCs consolidadas (HU-016)
+  // que antes quedaban excluidas del breakdown por área (registro_compras.area
+  // NULL en consolidadas).
+  it('deriva el área de OCs consolidadas — cuenta no-exclusiva por área + valor por línea (SC-002 CA-12)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+
+    const REGISTRO_COMPRAS = [
+      { id: 'oc-simple', estado_oc: 'aprobada', valor_total: 100, valor_a_pagar: 100, created_at: '2026-01-15' },
+      { id: 'oc-multi',  estado_oc: 'aprobada', valor_total: 300, valor_a_pagar: 300, created_at: '2026-01-20' },
+    ]
+    // oc-simple: 1 línea, NP de Bombeo. oc-multi (consolidada): 1 línea de Bombeo + 1 de Eléctrica.
+    const ITEMS_OC = [
+      { registro_compras_id: 'oc-simple', item_np_id: 'item-1', cantidad: 2, precio_unitario: 50 },
+      { registro_compras_id: 'oc-multi',  item_np_id: 'item-2', cantidad: 1, precio_unitario: 100 },
+      { registro_compras_id: 'oc-multi',  item_np_id: 'item-3', cantidad: 2, precio_unitario: 100 },
+    ]
+    const ITEMS_NP = [
+      { id: 'item-1', nota_pedido_id: 'np-a' },
+      { id: 'item-2', nota_pedido_id: 'np-b' },
+      { id: 'item-3', nota_pedido_id: 'np-c' },
+    ]
+    const NOTAS_PEDIDO = [
+      { id: 'np-a', area_id: 'area-bombeo' },
+      { id: 'np-b', area_id: 'area-bombeo' },
+      { id: 'np-c', area_id: 'area-electrica' },
+    ]
+    const AREAS = [
+      { id: 'area-bombeo',    nombre: 'Bombeo Mecánico' },
+      { id: 'area-electrica', nombre: 'Eléctrica' },
+    ]
+
+    function chainTabla(result: any) {
+      const obj: any = {}
+      obj.select = () => obj
+      obj.eq     = () => obj
+      obj.in     = () => obj
+      obj.order  = () => obj
+      obj.single = () => Promise.resolve(result)
+      obj.then   = (resolve: any) => Promise.resolve(result).then(resolve)
+      return obj
+    }
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')         return chainTabla({ data: { rol: 'compras' }, error: null })
+      if (table === 'registro_compras') return chainTabla({ data: REGISTRO_COMPRAS, error: null })
+      if (table === 'items_oc')         return chainTabla({ data: ITEMS_OC, error: null })
+      if (table === 'items_np')         return chainTabla({ data: ITEMS_NP, error: null })
+      if (table === 'notas_pedido')     return chainTabla({ data: NOTAS_PEDIDO, error: null })
+      if (table === 'areas')            return chainTabla({ data: AREAS, error: null })
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/compras/dashboard/ocs'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    const bombeo    = body.porArea.find((a: any) => a.area === 'Bombeo Mecánico')
+    const electrica = body.porArea.find((a: any) => a.area === 'Eléctrica')
+
+    // oc-simple y oc-multi tocan Bombeo Mecánico → cuenta 2 (no-exclusivo)
+    expect(bombeo.count).toBe(2)
+    expect(bombeo.valor).toBe(200) // 100 (oc-simple) + 100 (línea item-2 de oc-multi)
+
+    // Solo oc-multi toca Eléctrica → cuenta 1
+    expect(electrica.count).toBe(1)
+    expect(electrica.valor).toBe(200) // línea item-3 de oc-multi (2 × 100)
+
+    // El filtro-lista de áreas conserva su contrato (string[] de nombres)
+    expect(body.areas).toEqual(expect.arrayContaining(['Bombeo Mecánico', 'Eléctrica']))
+  })
+
+  it('filtro ?area= incluye una OC consolidada que toca esa área, aunque tenga líneas de otra', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+
+    const REGISTRO_COMPRAS = [
+      { id: 'oc-multi', estado_oc: 'aprobada', valor_total: 300, valor_a_pagar: 300, created_at: '2026-01-20' },
+    ]
+    const ITEMS_OC = [
+      { registro_compras_id: 'oc-multi', item_np_id: 'item-2', cantidad: 1, precio_unitario: 100 },
+      { registro_compras_id: 'oc-multi', item_np_id: 'item-3', cantidad: 2, precio_unitario: 100 },
+    ]
+    const ITEMS_NP = [
+      { id: 'item-2', nota_pedido_id: 'np-b' },
+      { id: 'item-3', nota_pedido_id: 'np-c' },
+    ]
+    const NOTAS_PEDIDO = [
+      { id: 'np-b', area_id: 'area-bombeo' },
+      { id: 'np-c', area_id: 'area-electrica' },
+    ]
+    const AREAS = [
+      { id: 'area-bombeo',    nombre: 'Bombeo Mecánico' },
+      { id: 'area-electrica', nombre: 'Eléctrica' },
+    ]
+
+    function chainTabla(result: any) {
+      const obj: any = {}
+      obj.select = () => obj
+      obj.eq     = () => obj
+      obj.in     = () => obj
+      obj.order  = () => obj
+      obj.single = () => Promise.resolve(result)
+      obj.then   = (resolve: any) => Promise.resolve(result).then(resolve)
+      return obj
+    }
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')         return chainTabla({ data: { rol: 'compras' }, error: null })
+      if (table === 'registro_compras') return chainTabla({ data: REGISTRO_COMPRAS, error: null })
+      if (table === 'items_oc')         return chainTabla({ data: ITEMS_OC, error: null })
+      if (table === 'items_np')         return chainTabla({ data: ITEMS_NP, error: null })
+      if (table === 'notas_pedido')     return chainTabla({ data: NOTAS_PEDIDO, error: null })
+      if (table === 'areas')            return chainTabla({ data: AREAS, error: null })
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/compras/dashboard/ocs?area=Eléctrica'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.kpis.total).toBe(1) // oc-multi aparece aunque también tenga una línea de Bombeo
+  })
 })
 
 // ── Sección 32: Dashboard OCs canceladas ────────────────────────────────────
