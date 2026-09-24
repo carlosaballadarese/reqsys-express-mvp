@@ -94,6 +94,7 @@ function mockChainVacio() {
   chain.in     = noop
   chain.limit  = jest.fn(() => Promise.resolve(resolved))
   chain.single = jest.fn(() => Promise.resolve({ data: null, error: null }))
+  chain.maybeSingle = jest.fn(() => Promise.resolve({ data: null, error: null }))
   chain.insert = jest.fn(() => Promise.resolve(resolved))
   chain.upsert = jest.fn(() => Promise.resolve(resolved))
   chain.update = jest.fn(() => Promise.resolve(resolved))
@@ -3294,7 +3295,8 @@ describe('POST /api/compras/nps — accion borrador/enviar (HU-009)', () => {
   const encabezadoBase = {
     es_regularizacion: false,
     solicitante_nombre: 'Juan', solicitante_email: 'juan@test.com',
-    area: 'Operaciones', prioridad: 'media', tipo_compra: 'producto',
+    // Spec: SC-002 — el área se identifica por area_id, no por texto libre.
+    area_id: 'area-1', prioridad: 'media', tipo_compra: 'producto',
     centro_costo: 'costo', descripcion_general: 'Descripción de prueba con más de 10 caracteres',
   }
   const itemsBase = [{ descripcion: 'Ítem', unidad: 'EA', cantidad: 1, precio_unitario: 100 }]
@@ -3309,6 +3311,8 @@ describe('POST /api/compras/nps — accion borrador/enviar (HU-009)', () => {
       // insert().select().single() de la NP
       return Promise.resolve({ data: { id: 'np-borrador-1' }, error: null })
     })
+    // Spec: SC-002 — lookup de areas (GET /api/compras/nps: valida area_id activo)
+    chain.maybeSingle = jest.fn(() => Promise.resolve({ data: { id: 'area-1', nombre: 'Operaciones' }, error: null }))
     chain.insert = jest.fn(() => chain)
     mockFrom.mockReturnValue(chain)
 
@@ -3324,10 +3328,10 @@ describe('POST /api/compras/nps — accion borrador/enviar (HU-009)', () => {
   it('accion=enviar (default) devuelve 400 si no hay coordinador para el área', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     const chain = mockChainVacio()
-    chain.single = jest
-      .fn()
-      .mockResolvedValueOnce({ data: { rol: 'solicitante' }, error: null }) // perfil
-      .mockResolvedValueOnce({ data: null, error: { message: 'not found' } }) // coordinador
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante' }, error: null })) // perfil
+    // Spec: SC-002 — área válida, pero sin ningún coordinador activo asignado
+    // (chain.limit por defecto resuelve { data: [] } — calcularAprobadorAsignado cae a null).
+    chain.maybeSingle = jest.fn(() => Promise.resolve({ data: { id: 'area-1', nombre: 'Operaciones' }, error: null }))
     mockFrom.mockReturnValue(chain)
 
     const res = await POST(makeRequest('http://localhost/api/compras/nps', {

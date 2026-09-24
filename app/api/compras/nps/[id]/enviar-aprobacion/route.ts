@@ -3,6 +3,7 @@ import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { enviarNPACoordinador } from '@/lib/np-notificacion'
+import { calcularAprobadorAsignado } from '@/lib/np-area'
 
 // Spec: HU-009 CA-01, CA-14, CA-16
 export async function POST(
@@ -20,7 +21,7 @@ export async function POST(
       .from('notas_pedido')
       .select(`
         id, estado, numero, creado_por_id,
-        solicitante_nombre, solicitante_email, area, prioridad,
+        solicitante_nombre, solicitante_email, area, area_id, aprobador_asignado_id, prioridad,
         tipo_compra, centro_costo, descripcion_general, total_estimado,
         es_regularizacion, fecha_provision
       `)
@@ -42,6 +43,14 @@ export async function POST(
       .eq('nota_pedido_id', id)
       .order('linea')
 
+    // Spec: SC-002 CA-13 — el borrador ya trae aprobador_asignado_id calculado
+    // (default o override), pero se re-valida al enviar por si el coordinador
+    // fue desactivado mientras la NP seguía en borrador (calcularAprobadorAsignado
+    // cae al default automáticamente si el valor guardado ya no es válido).
+    const aprobadorAsignadoId = np.area_id
+      ? await calcularAprobadorAsignado(np.area_id, np.aprobador_asignado_id)
+      : null
+
     const resultado = await enviarNPACoordinador(
       np.id,
       np.numero,
@@ -57,7 +66,8 @@ export async function POST(
         fecha_provision:    np.fecha_provision,
       },
       items ?? [],
-      Number(np.total_estimado) || 0
+      Number(np.total_estimado) || 0,
+      aprobadorAsignadoId
     )
 
     if (!resultado.ok) {
@@ -66,9 +76,11 @@ export async function POST(
 
     // Spec: HU-009 — helper ya inserta historial_np con estado 'pendiente';
     // aquí solo falta actualizar el estado real de la NP (el helper no lo hace).
+    // Spec: SC-002 — persiste el aprobador re-validado, por si difiere del
+    // que se calculó al guardar el borrador.
     await adminClient()
       .from('notas_pedido')
-      .update({ estado: 'pendiente' })
+      .update({ estado: 'pendiente', aprobador_asignado_id: aprobadorAsignadoId })
       .eq('id', id)
 
     await registrarAuditoria({

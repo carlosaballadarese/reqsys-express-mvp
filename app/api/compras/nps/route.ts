@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { adminClient, anonClient } from '@/lib/supabase/clients'
 import { puedeVerPrecioNP, puedeGuardarPrecioNP } from '@/lib/np-precio'
 import { enviarNPACoordinador } from '@/lib/np-notificacion'
+import { calcularAprobadorAsignado } from '@/lib/np-area'
 
 
 async function generarNumeroNP(): Promise<string> {
@@ -45,21 +46,39 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Spec: HU-009 CA-01 — un Borrador no requiere coordinador todavía (se
-    // valida recién al enviar, en /api/compras/nps/[id]/enviar-aprobacion).
-    if (accion === 'enviar') {
-      const { data: coordinador, error: errorCoord } = await anonClient()
-        .from('coordinadores_area')
-        .select('nombre, email')
-        .eq('area', encabezado.area)
-        .single()
+    // Spec: SC-002 CA-01/CA-02 — el área ahora se identifica por area_id (el
+    // <select> viene precargado desde perfiles.area_id pero sigue siendo
+    // editable). Se resuelve el nombre real desde `areas` para seguir
+    // poblando la columna de texto legado `area` (RN-06).
+    if (!encabezado?.area_id) {
+      return NextResponse.json({ error: 'Área es obligatoria' }, { status: 400 })
+    }
 
-      if (errorCoord || !coordinador) {
-        return NextResponse.json(
-          { error: 'No se encontró coordinador para el área seleccionada' },
-          { status: 400 }
-        )
-      }
+    const { data: areaSeleccionada } = await adminClient()
+      .from('areas')
+      .select('id, nombre')
+      .eq('id', encabezado.area_id)
+      .eq('activo', true)
+      .maybeSingle()
+
+    if (!areaSeleccionada) {
+      return NextResponse.json({ error: 'Área inválida o inactiva' }, { status: 400 })
+    }
+
+    // Spec: SC-002 CA-04/CA-05/CA-13/RN-02 — el aprobador se calcula ya en
+    // borrador (informativo, sin bloquear); solo se bloquea al enviar si no
+    // hay ningún coordinador activo disponible para el área (HU-009 CA-01:
+    // un Borrador no requiere coordinador todavía).
+    const aprobadorAsignadoId = await calcularAprobadorAsignado(
+      areaSeleccionada.id,
+      encabezado.aprobador_elegido_id ?? null
+    )
+
+    if (accion === 'enviar' && !aprobadorAsignadoId) {
+      return NextResponse.json(
+        { error: 'No se encontró coordinador para el área seleccionada' },
+        { status: 400 }
+      )
     }
 
     // Spec CA-13: guardar precio real si es regularización, sin importar el rol
@@ -85,7 +104,11 @@ export async function POST(req: NextRequest) {
         creado_por_id:      user.id,
         solicitante_nombre: encabezado.solicitante_nombre,
         solicitante_email:  encabezado.solicitante_email,
-        area:               encabezado.area,
+        // Spec: SC-002 — area (texto) se resuelve desde areaSeleccionada,
+        // no desde el body; area_id/aprobador_asignado_id son el dato real.
+        area:                  areaSeleccionada.nombre,
+        area_id:               areaSeleccionada.id,
+        aprobador_asignado_id: aprobadorAsignadoId,
         prioridad:          encabezado.prioridad,
         tipo_compra:        encabezado.tipo_compra,
         centro_costo:       encabezado.centro_costo,
@@ -144,7 +167,12 @@ export async function POST(req: NextRequest) {
       })
     } else {
       // Spec: HU-009 — reutiliza el helper compartido con enviar-aprobacion/route.ts
-      await enviarNPACoordinador(np.id, numero, encabezado, items, totalEstimado)
+      // Spec: SC-002 — aprobadorAsignadoId ya calculado arriba, no se re-deriva por área.
+      await enviarNPACoordinador(
+        np.id, numero,
+        { ...encabezado, area: areaSeleccionada.nombre },
+        items, totalEstimado, aprobadorAsignadoId
+      )
     }
 
     return NextResponse.json({ success: true, numero, id: np.id })

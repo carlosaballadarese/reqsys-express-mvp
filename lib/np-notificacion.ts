@@ -24,17 +24,28 @@ export type EncabezadoEmailNP = {
 // Spec: HU-009 CA-01/CA-13/CA-14 — extraído de POST /api/compras/nps para
 // reutilizarse también desde POST /api/compras/nps/[id]/enviar-aprobacion
 // (una NP en Borrador se envía más tarde, sin volver a pasar por el formulario).
+//
+// Spec: SC-002 — deja de resolver el aprobador por lookup de área (texto);
+// recibe aprobadorAsignadoId ya calculado por lib/np-area.ts::calcularAprobadorAsignado()
+// y persistido en notas_pedido.aprobador_asignado_id (por defecto u override). Solo
+// coordinadores activos son válidos como destino — RN-07.
 export async function enviarNPACoordinador(
   np_id: string,
   numero: string,
   encabezado: EncabezadoEmailNP,
   items: ItemEmailNP[],
-  totalEstimado: number
+  totalEstimado: number,
+  aprobadorAsignadoId: string | null
 ): Promise<{ ok: boolean; error?: string }> {
+  if (!aprobadorAsignadoId) {
+    return { ok: false, error: 'No se encontró coordinador para el área seleccionada' }
+  }
+
   const { data: coordinador, error: errorCoord } = await anonClient()
     .from('coordinadores_area')
     .select('nombre, email')
-    .eq('area', encabezado.area)
+    .eq('id', aprobadorAsignadoId)
+    .eq('activo', true)
     .single()
 
   if (errorCoord || !coordinador) {
