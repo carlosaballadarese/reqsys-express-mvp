@@ -5,8 +5,25 @@
 -- que los crea vía Admin API después de que el stack esté arriba.
 -- ============================================================
 
+-- Áreas (SC-002) — identidad pura, independiente de quién aprueba.
+-- Deben existir antes que coordinadores_area, que ahora exige area_id.
+INSERT INTO areas (nombre) VALUES
+  ('Operaciones - Bombeo Mecánico'),
+  ('Operaciones - Servicio Eléctrico'),
+  ('Operaciones - Niveles'),
+  ('Compras'),
+  ('QHSE'),
+  ('TTHH'),
+  ('Finanzas'),
+  ('Gerencia'),
+  ('Ventas')
+ON CONFLICT (nombre) DO NOTHING;
+
 -- Coordinadores por área (idéntico a supabase-schema.sql, réplica de producción)
-INSERT INTO coordinadores_area (area, nombre, email) VALUES
+-- area_id (SC-002): se resuelve por join contra `areas`, poblada arriba.
+INSERT INTO coordinadores_area (area, area_id, nombre, email)
+SELECT v.area, a.id, v.nombre, v.email
+FROM (VALUES
   ('Operaciones - Bombeo Mecánico', 'Coordinador Bombeo', 'coordinador.bombeo@arlift.com'),
   ('Operaciones - Servicio Eléctrico', 'Coordinador Eléctrico', 'coordinador.electrico@arlift.com'),
   ('Operaciones - Niveles', 'Coordinador Niveles', 'coordinador.niveles@arlift.com'),
@@ -16,6 +33,8 @@ INSERT INTO coordinadores_area (area, nombre, email) VALUES
   ('Finanzas', 'Coordinador Finanzas', 'coordinador.finanzas@arlift.com'),
   ('Gerencia', 'Gerente General', 'gerencia@arlift.com'),
   ('Ventas', 'Coordinador Ventas', 'coordinador.ventas@arlift.com')
+) AS v(area, nombre, email)
+JOIN areas a ON a.nombre = v.area
 ON CONFLICT (area) DO NOTHING;
 
 -- Feriados de referencia (HU-009) — mínimo set para probar cálculo de SLA en días hábiles
