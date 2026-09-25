@@ -17,12 +17,12 @@ type Coordinador = {
   activo: boolean
 }
 
-type AreaCatalogo = { id: string; nombre: string }
+type AreaCatalogo = { id: string; nombre: string; activo: boolean }
 
-// Spec: SC-002 — el form ahora identifica el área por id; modoArea permite
-// crear un área nueva al vuelo (no hay CRUD dedicado de `areas` en esta SC).
-type FormCoordinador = { modoArea: 'existente' | 'nueva'; area_id: string; area_nombre: string; nombre: string; email: string }
-const FORM_VACIO: FormCoordinador = { modoArea: 'existente', area_id: '', area_nombre: '', nombre: '', email: '' }
+// Spec: SC-002 — el form identifica el área por id, seleccionada de un
+// catálogo con CRUD propio (ver sección "Áreas" más abajo).
+type FormCoordinador = { area_id: string; nombre: string; email: string }
+const FORM_VACIO: FormCoordinador = { area_id: '', nombre: '', email: '' }
 
 type Alternativo = { id: string; coordinador_id: string; coordinadores_area: Coordinador | null }
 
@@ -53,11 +53,16 @@ export default function CoordinadoresPage() {
   const [nuevoAltId, setNuevoAltId]       = useState('')
   const [errorAlt, setErrorAlt]           = useState('')
 
+  // Spec: CRUD de áreas — catálogo propio, independiente del alta de coordinador.
+  const [nuevaAreaNombre, setNuevaAreaNombre] = useState('')
+  const [creandoArea, setCreandoArea]         = useState(false)
+  const [errorArea, setErrorArea]             = useState('')
+
   function cargar() {
     setCargando(true)
     Promise.all([
       fetch('/api/compras/coordinadores').then(r => r.json()),
-      fetch('/api/compras/areas').then(r => r.json()),
+      fetch('/api/compras/areas?todas=1').then(r => r.json()),
     ])
       .then(([coords, areasData]) => {
         setCoordinadores(Array.isArray(coords) ? coords : [])
@@ -65,6 +70,33 @@ export default function CoordinadoresPage() {
         setCargando(false)
       })
       .catch(() => setCargando(false))
+  }
+
+  const areasActivas = areas.filter(a => a.activo)
+
+  async function handleCrearArea() {
+    if (!nuevaAreaNombre.trim()) return
+    setCreandoArea(true); setErrorArea('')
+    const res = await fetch('/api/compras/areas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nombre: nuevaAreaNombre.trim() }),
+    })
+    const data = await res.json()
+    if (res.ok) { setNuevaAreaNombre(''); cargar() }
+    else setErrorArea(data.error || 'Error al crear área')
+    setCreandoArea(false)
+  }
+
+  async function handleToggleAreaActivo(a: AreaCatalogo) {
+    const res = await fetch(`/api/compras/areas/${a.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ activo: !a.activo }),
+    })
+    const data = await res.json()
+    if (data.success) cargar()
+    else alert(data.error || 'Error al actualizar área')
   }
 
   useEffect(() => { cargar() }, [])
@@ -80,8 +112,7 @@ export default function CoordinadoresPage() {
   }, [areaAltSel])
 
   async function handleCrear() {
-    const areaOk = nuevoForm.modoArea === 'existente' ? !!nuevoForm.area_id : !!nuevoForm.area_nombre.trim()
-    if (!areaOk || !nuevoForm.nombre || !nuevoForm.email) {
+    if (!nuevoForm.area_id || !nuevoForm.nombre || !nuevoForm.email) {
       setErrorNuevo('Todos los campos son requeridos'); return
     }
     setGuardandoNuevo(true); setErrorNuevo('')
@@ -89,10 +120,9 @@ export default function CoordinadoresPage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        area_id:     nuevoForm.modoArea === 'existente' ? nuevoForm.area_id : undefined,
-        area_nombre: nuevoForm.modoArea === 'nueva'     ? nuevoForm.area_nombre.trim() : undefined,
-        nombre: nuevoForm.nombre,
-        email:  nuevoForm.email,
+        area_id: nuevoForm.area_id,
+        nombre:  nuevoForm.nombre,
+        email:   nuevoForm.email,
       }),
     })
     const data = await res.json()
@@ -199,6 +229,46 @@ export default function CoordinadoresPage() {
           </div>
         </div>
 
+        {/* Catálogo de Áreas — CRUD propio, independiente del alta de coordinador */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base text-slate-700">Áreas</CardTitle>
+            <p className="text-slate-500 text-xs mt-0.5">
+              Catálogo de áreas de la empresa. Desactivar una área no la elimina — solo deja de ofrecerse en Nueva NP y en las selecciones de coordinador.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {areas.length === 0 ? (
+              <p className="text-slate-400 text-sm">No hay áreas registradas.</p>
+            ) : (
+              <ul className="space-y-1">
+                {areas.map(a => (
+                  <li key={a.id} className="flex items-center justify-between text-sm border rounded-md px-3 py-1.5 bg-slate-50">
+                    <span className={a.activo ? '' : 'text-slate-400'}>{a.nombre}</span>
+                    <button onClick={() => handleToggleAreaActivo(a)}
+                      className={`text-xs px-2 py-0.5 rounded-full border ${a.activo ? 'bg-green-50 text-green-700 border-green-300 hover:bg-green-100' : 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200'}`}
+                      title="Clic para activar/desactivar">
+                      {a.activo ? 'Activa' : 'Inactiva'}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex gap-2 items-end pt-2 border-t">
+              <div className="flex-1">
+                <Label className="text-xs">Nueva área</Label>
+                <Input value={nuevaAreaNombre} onChange={e => setNuevaAreaNombre(e.target.value)}
+                  className="mt-1 h-8 text-sm" placeholder="Nombre del área" />
+              </div>
+              <Button onClick={handleCrearArea} disabled={!nuevaAreaNombre.trim() || creandoArea}
+                className="btn-primary h-8 text-xs px-3">
+                {creandoArea ? 'Creando...' : 'Crear'}
+              </Button>
+            </div>
+            {errorArea && <p className="text-red-600 text-xs">{errorArea}</p>}
+          </CardContent>
+        </Card>
+
         {/* Formulario nuevo */}
         {showNuevo && (
           <Card className="border-blue-200">
@@ -212,26 +282,12 @@ export default function CoordinadoresPage() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <Label className="text-xs">Área *</Label>
-                  <div className="flex gap-2 mt-1 mb-1">
-                    <button type="button" onClick={() => setNuevoForm(f => ({ ...f, modoArea: 'existente' }))}
-                      className={`text-xs px-2 py-1 rounded border transition-colors ${nuevoForm.modoArea === 'existente' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-700 border-blue-300 hover:bg-blue-50'}`}>
-                      Existente
-                    </button>
-                    <button type="button" onClick={() => setNuevoForm(f => ({ ...f, modoArea: 'nueva' }))}
-                      className={`text-xs px-2 py-1 rounded border transition-colors ${nuevoForm.modoArea === 'nueva' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-700 border-blue-300 hover:bg-blue-50'}`}>
-                      Área nueva
-                    </button>
-                  </div>
-                  {nuevoForm.modoArea === 'existente' ? (
-                    <select value={nuevoForm.area_id} onChange={e => setNuevoForm(f => ({ ...f, area_id: e.target.value }))}
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm h-8">
-                      <option value="">Selecciona...</option>
-                      {areas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
-                    </select>
-                  ) : (
-                    <Input value={nuevoForm.area_nombre} onChange={e => setNuevoForm(f => ({ ...f, area_nombre: e.target.value }))}
-                      className="h-8 text-sm" placeholder="Nombre del área nueva" />
-                  )}
+                  <select value={nuevoForm.area_id} onChange={e => setNuevoForm(f => ({ ...f, area_id: e.target.value }))}
+                    className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm h-8">
+                    <option value="">Selecciona...</option>
+                    {areasActivas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                  </select>
+                  <p className="text-xs text-slate-400 mt-1">¿No está en la lista? Créala primero en "Áreas" más arriba.</p>
                 </div>
                 <div>
                   <Label className="text-xs">Nombre *</Label>
@@ -290,7 +346,10 @@ export default function CoordinadoresPage() {
                                 <select value={editForm.area_id} onChange={e => setEditForm(f => ({ ...f, area_id: e.target.value }))}
                                   className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm h-8">
                                   <option value="">Selecciona...</option>
-                                  {areas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                                  {areasActivas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                                  {editForm.area_id && !areasActivas.some(a => a.id === editForm.area_id) && (
+                                    <option value={editForm.area_id}>{nombreArea(editForm.area_id)} (inactiva)</option>
+                                  )}
                                 </select>
                               </div>
                               <div>
@@ -386,7 +445,7 @@ export default function CoordinadoresPage() {
               <select value={areaAltSel} onChange={e => setAreaAltSel(e.target.value)}
                 className="mt-1 w-full sm:w-64 rounded-md border border-input bg-background px-3 py-2 text-sm h-8">
                 <option value="">Selecciona un área...</option>
-                {areas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                {areasActivas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
               </select>
             </div>
 

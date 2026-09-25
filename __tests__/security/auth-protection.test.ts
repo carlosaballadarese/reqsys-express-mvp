@@ -2738,7 +2738,7 @@ describe('POST /api/compras/coordinadores — SC-002', () => {
     expect(res.status).toBe(403)
   })
 
-  it('devuelve 400 si falta area_id y area_nombre', async () => {
+  it('devuelve 400 si falta area_id', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'compras' }, error: null } }))
     const res = await POST(makeRequest('http://localhost/api/compras/coordinadores', {
@@ -2748,21 +2748,150 @@ describe('POST /api/compras/coordinadores — SC-002', () => {
     expect(res.status).toBe(400)
   })
 
-  it('crea el área si se envía area_nombre y no existe todavía (sin CRUD de áreas aparte)', async () => {
+  it('devuelve 400 si area_id no existe o está inactiva', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     mockFrom.mockImplementation(chainTablaCoord({
       perfiles: { data: { rol: 'compras' }, error: null },
-      // resolverOCrearArea: no existe -> se crea
-      areas:    { data: { id: 'area-nueva', nombre: 'Logística Oriente' }, error: null },
-      coordinadores_area: { data: { id: 'coord-1', area: 'Logística Oriente', area_id: 'area-nueva', nombre: 'X', email: 'x@arlift.com', activo: true }, error: null },
+      areas:    { data: null, error: null },
     }))
     const res = await POST(makeRequest('http://localhost/api/compras/coordinadores', {
       method: 'POST',
-      body: JSON.stringify({ area_nombre: 'Logística Oriente', nombre: 'X', email: 'x@arlift.com' }),
+      body: JSON.stringify({ area_id: 'area-inexistente', nombre: 'X', email: 'x@arlift.com' }),
+    }))
+    expect(res.status).toBe(400)
+  })
+
+  it('crea el coordinador con un area_id existente y activa', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      areas:    { data: { id: 'area-1', nombre: 'TI' }, error: null },
+      coordinadores_area: { data: { id: 'coord-1', area: 'TI', area_id: 'area-1', nombre: 'X', email: 'x@arlift.com', activo: true }, error: null },
+    }))
+    const res = await POST(makeRequest('http://localhost/api/compras/coordinadores', {
+      method: 'POST',
+      body: JSON.stringify({ area_id: 'area-1', nombre: 'X', email: 'x@arlift.com' }),
     }))
     expect(res.status).toBe(201)
     const body = await res.json()
-    expect(body.area_id).toBe('area-nueva')
+    expect(body.area_id).toBe('area-1')
+  })
+})
+
+// ── CRUD de áreas ──
+describe('GET/POST /api/compras/areas', () => {
+  const { GET, POST } = require('@/app/api/compras/areas/route')
+
+  it('GET público (sin ?todas) devuelve solo áreas activas, sin exigir sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ areas: { data: [{ id: 'area-1', nombre: 'TI' }], error: null } }))
+    const res = await GET(makeRequest('http://localhost/api/compras/areas'))
+    expect(res.status).toBe(200)
+  })
+
+  it('GET ?todas=1 devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'solicitante' }, error: null } }))
+    const res = await GET(makeRequest('http://localhost/api/compras/areas?todas=1'))
+    expect(res.status).toBe(403)
+  })
+
+  it('GET ?todas=1 devuelve activas e inactivas para admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      areas:    { data: [{ id: 'area-1', nombre: 'TI', activo: true }, { id: 'area-2', nombre: 'Vieja', activo: false }], error: null },
+    }))
+    const res = await GET(makeRequest('http://localhost/api/compras/areas?todas=1'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toHaveLength(2)
+  })
+
+  it('POST devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'gerencia' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/areas', { method: 'POST', body: JSON.stringify({ nombre: 'Logística' }) }))
+    expect(res.status).toBe(403)
+  })
+
+  it('POST devuelve 400 si el nombre viene vacío', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'compras' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/areas', { method: 'POST', body: JSON.stringify({ nombre: '   ' }) }))
+    expect(res.status).toBe(400)
+  })
+
+  it('POST crea el área — 201', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      areas:    { data: { id: 'area-nueva', nombre: 'Logística Oriente', activo: true }, error: null },
+    }))
+    const res = await POST(makeRequest('http://localhost/api/compras/areas', { method: 'POST', body: JSON.stringify({ nombre: 'Logística Oriente' }) }))
+    expect(res.status).toBe(201)
+  })
+
+  it('POST devuelve 409 si el nombre ya existe (unique violation)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      areas:    { data: null, error: { code: '23505', message: 'duplicate key' } },
+    }))
+    const res = await POST(makeRequest('http://localhost/api/compras/areas', { method: 'POST', body: JSON.stringify({ nombre: 'TI' }) }))
+    expect(res.status).toBe(409)
+  })
+})
+
+describe('PUT /api/compras/areas/[id]', () => {
+  const { PUT } = require('@/app/api/compras/areas/[id]/route')
+
+  it('devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'gerencia' }, error: null } }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/areas/area-1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 'area-1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('desactiva un área (activo:false) sin borrarla', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      areas:    { data: null, error: null },
+    }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/areas/area-1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 'area-1' }) }
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.success).toBe(true)
+  })
+
+  it('devuelve 400 si no envía ni nombre ni activo', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'compras' }, error: null } }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/areas/area-1', { method: 'PUT', body: JSON.stringify({}) }),
+      { params: Promise.resolve({ id: 'area-1' }) }
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 409 al renombrar a un nombre ya existente', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      areas:    { data: null, error: { code: '23505', message: 'duplicate key' } },
+    }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/areas/area-1', { method: 'PUT', body: JSON.stringify({ nombre: 'TI' }) }),
+      { params: Promise.resolve({ id: 'area-1' }) }
+    )
+    expect(res.status).toBe(409)
   })
 })
 

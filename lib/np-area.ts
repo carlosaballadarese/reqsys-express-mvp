@@ -77,44 +77,6 @@ export async function calcularAprobadorAsignado(
   return defaultAprobador?.id ?? null
 }
 
-export type AreaResuelta = { id: string; nombre: string }
-
-// Spec: SC-002 — no hay un CRUD dedicado de `areas` en esta SC (el catálogo se
-// puebla por backfill desde coordinadores_area.area existentes). Para no dejar
-// al admin sin forma de registrar un coordinador de un área nueva, el alta de
-// coordinador acepta area_id (existente, activa) o area_nombre (crea la fila si
-// no existe — reutiliza la existente si el nombre ya está registrado).
-export async function resolverOCrearArea(
-  input: { area_id?: string | null; area_nombre?: string | null }
-): Promise<AreaResuelta | null> {
-  if (input.area_id) {
-    const { data } = await adminClient()
-      .from('areas')
-      .select('id, nombre')
-      .eq('id', input.area_id)
-      .eq('activo', true)
-      .maybeSingle()
-    return data ?? null
-  }
-
-  const nombre = input.area_nombre?.trim()
-  if (!nombre) return null
-
-  const { data: existente } = await adminClient()
-    .from('areas')
-    .select('id, nombre')
-    .eq('nombre', nombre)
-    .maybeSingle()
-  if (existente) return existente
-
-  const { data: creada } = await adminClient()
-    .from('areas')
-    .insert({ nombre })
-    .select('id, nombre')
-    .single()
-  return creada ?? null
-}
-
 export type DependenciasCoordinador = {
   bloqueado: boolean
   motivos:   string[]
