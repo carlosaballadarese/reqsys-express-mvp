@@ -58,6 +58,9 @@ export default function CoordinadoresPage() {
   const [creandoArea, setCreandoArea]         = useState(false)
   const [errorArea, setErrorArea]             = useState('')
 
+  // Spec: 3 conceptos separados por pestaña — Áreas, Coordinadores, Alternativos.
+  const [tab, setTab] = useState<'areas' | 'coordinadores' | 'alternativos'>('areas')
+
   function cargar() {
     setCargando(true)
     Promise.all([
@@ -213,23 +216,44 @@ export default function CoordinadoresPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">Coordinadores de Área</h1>
+            <h1 className="text-2xl font-bold text-slate-800">Áreas</h1>
             <p className="text-slate-500 text-sm mt-0.5">
-              Responsables de aprobar Notas de Pedido por área
+              Áreas de la empresa, sus coordinadores y aprobadores alternativos
             </p>
           </div>
-          <div className="flex gap-2">
-            <a href="/api/exportar/coordinadores" download>
-              <Button variant="outline" className="text-sm">⬇ Excel</Button>
-            </a>
-            <Button onClick={() => { setShowNuevo(true); setErrorNuevo(''); setNuevoForm(FORM_VACIO) }}
-              className="btn-primary text-sm">
-              + Nuevo Coordinador
-            </Button>
-          </div>
+          {tab === 'coordinadores' && (
+            <div className="flex gap-2">
+              <a href="/api/exportar/coordinadores" download>
+                <Button variant="outline" className="text-sm">⬇ Excel</Button>
+              </a>
+              <Button onClick={() => { setShowNuevo(true); setErrorNuevo(''); setNuevoForm(FORM_VACIO) }}
+                className="btn-primary text-sm">
+                + Nuevo Coordinador
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Pestañas */}
+        <div className="flex gap-1">
+          {([
+            { id: 'areas' as const, label: 'Áreas' },
+            { id: 'coordinadores' as const, label: 'Coordinadores' },
+            { id: 'alternativos' as const, label: 'Alternativos' },
+          ]).map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
+                tab === t.id
+                  ? 'bg-[#1a5252] text-white border-[#1a5252]'
+                  : 'bg-white text-slate-500 border-slate-300 hover:border-teal-400'
+              }`}>
+              {t.label}
+            </button>
+          ))}
         </div>
 
         {/* Catálogo de Áreas — CRUD propio, independiente del alta de coordinador */}
+        {tab === 'areas' && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base text-slate-700">Áreas</CardTitle>
@@ -268,7 +292,9 @@ export default function CoordinadoresPage() {
             {errorArea && <p className="text-red-600 text-xs">{errorArea}</p>}
           </CardContent>
         </Card>
+        )}
 
+        {tab === 'coordinadores' && (<>
         {/* Formulario nuevo */}
         {showNuevo && (
           <Card className="border-blue-200">
@@ -430,8 +456,10 @@ export default function CoordinadoresPage() {
             )}
           </CardContent>
         </Card>
+        </>)}
 
         {/* Spec: SC-002 CA-04/CA-09 — Aprobadores alternativos por área */}
+        {tab === 'alternativos' && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base text-slate-700">Aprobadores Alternativos por Área</CardTitle>
@@ -495,6 +523,7 @@ export default function CoordinadoresPage() {
             )}
           </CardContent>
         </Card>
+        )}
       </div>
     </div>
   )

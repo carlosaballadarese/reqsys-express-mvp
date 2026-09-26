@@ -86,7 +86,7 @@ const NAV: NavGroup[] = [
     label: 'Configuración',
     roles: ['compras','admin'],
     children: [
-      { label: 'Coordinadores',    href: '/compras/coordinadores' },
+      { label: 'Áreas',    href: '/compras/coordinadores' },
       { label: 'Numeraciones',     href: '/compras/configuracion' },
       { label: 'Datos de Empresa', href: '/compras/empresa' },
       { label: 'Feriados',         href: '/compras/feriados' },
