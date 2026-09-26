@@ -48,7 +48,7 @@ export default function OrdenesPage() {
   const [q, setQ]               = useState('')
   const [estado, setEstado]     = useState('todos')
   const [area, setArea]         = useState('todas')
-  const [areas, setAreas]       = useState<string[]>([])
+  const [areas, setAreas]       = useState<{ id: string; nombre: string }[]>([])
 
   useEffect(() => {
     fetch('/api/compras/areas').then(r => r.json()).then(setAreas).catch(console.error)
@@ -114,7 +114,7 @@ export default function OrdenesPage() {
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="todas">Todas las áreas</option>
-                {areas.map(a => <option key={a} value={a}>{a}</option>)}
+                {areas.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
               </select>
               <Button onClick={cargar} className="h-9 btn-primary">Buscar</Button>
             </div>

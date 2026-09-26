@@ -242,7 +242,7 @@ export default function LineasPendientesPage() {
   const [compradores, setCompradores] = useState<Comprador[]>([])
   const [acciones, setAcciones]     = useState<AccionCatalogo[]>([])
   const [proveedores, setProveedores] = useState<string[]>([])
-  const [areas, setAreas]           = useState<string[]>([])
+  const [areas, setAreas]           = useState<{ id: string; nombre: string }[]>([])
   const [cargando, setCargando]     = useState(true)
   const [seleccion, setSeleccion]   = useState<Set<string>>(new Set())
   const [editando, setEditando]     = useState<Record<string, string>>({})
@@ -357,7 +357,7 @@ export default function LineasPendientesPage() {
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm"
               >
                 <option value="todas">Todas las áreas</option>
-                {areas.map(a => <option key={a} value={a}>{a}</option>)}
+                {areas.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
               </select>
 
               <select

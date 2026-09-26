@@ -794,7 +794,7 @@ export default function DetalleNPPage() {
   }[]>([])
   const [editModoProveedor, setEditModoProveedor] = useState<'existente' | 'libre'>('libre')
   const [editProveedoresCatalogo, setEditProveedoresCatalogo] = useState<{ id: string; nombre: string; ruc: string | null }[]>([])
-  const [editAreas, setEditAreas]         = useState<string[]>([])
+  const [editAreas, setEditAreas]         = useState<{ id: string; nombre: string }[]>([])
   const [editUnidades, setEditUnidades]   = useState<string[]>(['EA'])
   const [guardando, setGuardando]         = useState(false)
   const [errorGuardar, setErrorGuardar]   = useState('')
@@ -1420,7 +1420,7 @@ export default function DetalleNPPage() {
                   <Label className="text-xs">Área *</Label>
                   <select value={editEnc.area} onChange={e => setEditEnc(f => f && ({ ...f, area: e.target.value }))} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
                     {editAreas.length === 0 && <option value={editEnc.area}>{editEnc.area}</option>}
-                    {editAreas.map(a => <option key={a} value={a}>{a}</option>)}
+                    {editAreas.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
                   </select>
                 </div>
                 <div>

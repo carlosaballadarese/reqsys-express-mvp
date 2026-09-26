@@ -15,7 +15,7 @@ export default function NuevoItemPage() {
 
   const [guardando, setGuardando] = useState(false)
   const [error, setError]         = useState('')
-  const [areas, setAreas]         = useState<string[]>([])
+  const [areas, setAreas]         = useState<{ id: string; nombre: string }[]>([])
   const [form, setForm] = useState({
     codigo:             '',
     descripcion:        '',
@@ -109,7 +109,7 @@ export default function NuevoItemPage() {
                 <Label className="text-xs">Área</Label>
                 <select value={form.area} onChange={e => setField('area', e.target.value)} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
                   <option value="">Sin área</option>
-                  {areas.map(a => <option key={a} value={a}>{a}</option>)}
+                  {areas.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
                 </select>
               </div>
               <div>

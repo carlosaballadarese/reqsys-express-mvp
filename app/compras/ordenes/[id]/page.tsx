@@ -283,7 +283,7 @@ export default function DetalleOCPage() {
   const [guardando, setGuardando]         = useState(false)
   const [errorEdit, setErrorEdit]         = useState('')
   const [sobrecompraEdit, setSobrecompraEdit] = useState<{ items_excedidos: ItemExcedido[] } | null>(null)
-  const [areas, setAreas]             = useState<string[]>([])
+  const [areas, setAreas]             = useState<{ id: string; nombre: string }[]>([])
   const [unidades, setUnidades]       = useState<string[]>(['EA'])
   const [proveedorId, setProveedorId] = useState<string | null>(null)
   const [proveedorSnap, setProveedorSnap] = useState<Partial<Proveedor>>({})
@@ -1088,7 +1088,7 @@ export default function DetalleOCPage() {
                   <Label className="text-xs">Área</Label>
                   <select value={form.area ?? ''} onChange={e => setField('area', e.target.value)} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
                     <option value="">Selecciona...</option>
-                    {areas.map(a => <option key={a} value={a}>{a}</option>)}
+                    {areas.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
                   </select>
                 </div>
                 <div>

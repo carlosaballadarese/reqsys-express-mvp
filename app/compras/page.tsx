@@ -87,7 +87,7 @@ export default function ComprasPage() {
   const [q, setQ]               = useState('')
   const [estado, setEstado]     = useState('todos')
   const [area, setArea]         = useState('todas')
-  const [areas, setAreas]       = useState<string[]>([])
+  const [areas, setAreas]       = useState<{ id: string; nombre: string }[]>([])
   const [rol, setRol]           = useState('')
   const [puedeCrearNP, setPuedeCrearNP] = useState(false)
   // Spec: HU-009 CA-15 — necesario para mostrar "Enviar a aprobación" solo en los propios borradores
@@ -242,7 +242,7 @@ export default function ComprasPage() {
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="todas">Todas las áreas</option>
-                {areas.map(a => <option key={a} value={a}>{a}</option>)}
+                {areas.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
               </select>
               <Button onClick={cargar} className="h-9 btn-primary">Buscar</Button>
             </div>

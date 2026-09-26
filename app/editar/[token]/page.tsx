@@ -158,7 +158,7 @@ export default function EditarNP() {
   const [motivoDevolucion, setMotivoDevolucion] = useState('')
   const [numeroNP, setNumeroNP] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
-  const [areas, setAreas] = useState<string[]>([])
+  const [areas, setAreas] = useState<{ id: string; nombre: string }[]>([])
   const [unidades, setUnidades] = useState<string[]>(['EA'])
 
   const {
@@ -329,7 +329,7 @@ export default function EditarNP() {
                   className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <option value="">Selecciona un área...</option>
-                  {areas.map(a => <option key={a} value={a}>{a}</option>)}
+                  {areas.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
                 </select>
                 {errors.area && <p className="text-red-500 text-xs mt-1">{errors.area.message}</p>}
               </div>
