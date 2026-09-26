@@ -192,6 +192,7 @@ export async function GET(req: NextRequest) {
 
     const supabase = await createSupabaseServerClient()
     const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
     let emailFiltro:    string | null   = null
     let areasFiltro:    string[] | null = null

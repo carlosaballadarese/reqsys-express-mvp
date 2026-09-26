@@ -2177,6 +2177,13 @@ describe('PATCH /api/compras/nps/[id] — devolver ya no se limita a estado=apro
 describe('GET /api/compras/nps — filtrado por creado_por_id para solicitante y coordinador', () => {
   const { GET } = require('@/app/api/compras/nps/route')
 
+  it('devuelve 401 sin sesión — no debe filtrar la consulta sin auth', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const req = makeRequest('http://localhost/api/compras/nps')
+    const res = await GET(req)
+    expect(res.status).toBe(401)
+  })
+
   it('solicitante: usa OR(creado_por_id, solicitante_email) — ve sus propias NPs', async () => {
     mockGetUser.mockResolvedValue(CON_SESION) // user.id = 'user-123'
 
