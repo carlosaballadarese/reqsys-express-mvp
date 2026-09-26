@@ -28,8 +28,8 @@ export async function PUT(
   if (!accesos) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
 
   try {
-    const { id }                           = await params
-    const { nombre, rol, activo, email }   = await req.json()
+    const { id }                                   = await params
+    const { nombre, rol, activo, email, area_id }  = await req.json()
 
     if (!nombre || !rol) {
       return NextResponse.json({ error: 'nombre y rol son requeridos' }, { status: 400 })
@@ -49,10 +49,26 @@ export async function PUT(
       return NextResponse.json({ error: 'No puedes modificar cuentas de Administrador' }, { status: 403 })
     }
 
-    // Actualizar nombre, rol y activo en perfiles
+    // Spec: SC-002 CA-08 — área es opcional; si viene, debe existir y estar
+    // activa. Sirve solo como valor por defecto al crear NPs — no es una
+    // restricción de qué área puede usar el usuario (RN mantiene el <select>
+    // de "Nueva NP" siempre editable).
+    if (area_id) {
+      const { data: area } = await adminClient()
+        .from('areas')
+        .select('id')
+        .eq('id', area_id)
+        .eq('activo', true)
+        .maybeSingle()
+      if (!area) {
+        return NextResponse.json({ error: 'Área inválida o inactiva' }, { status: 400 })
+      }
+    }
+
+    // Actualizar nombre, rol, activo y área en perfiles
     const { error: updateError } = await adminClient()
       .from('perfiles')
-      .update({ nombre, rol, activo: activo !== false })
+      .update({ nombre, rol, activo: activo !== false, area_id: area_id || null })
       .eq('id', id)
 
     if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 })

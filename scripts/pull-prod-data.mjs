@@ -57,20 +57,36 @@ async function main() {
   const dumpPath = join(dir, 'prod_data_dump.sql')
 
   try {
-    console.log('1/4 — Descargando datos reales de producción (solo lectura, pg_dump)...')
+    console.log('1/5 — Descargando datos reales de producción (solo lectura, pg_dump)...')
     execSync(
       `npx supabase db dump --data-only --linked --schema public --exclude public.perfiles --exclude public.auditoria -f "${dumpPath}"`,
       { stdio: 'inherit' }
     )
 
-    console.log('\n2/4 — Limpiando datos de catálogo/negocio locales antes de cargar los reales...')
+    console.log('\n2/5 — Limpiando datos de catálogo/negocio locales antes de cargar los reales...')
     psql(`TRUNCATE TABLE ${REFERENCIA_A_LIMPIAR.join(', ')} RESTART IDENTITY CASCADE;`)
     psql('TRUNCATE TABLE historial_np, items_oc, items_np, registro_compras, notas_pedido, inventario RESTART IDENTITY CASCADE;')
 
-    console.log('\n3/4 — Cargando datos reales en el ambiente local...')
+    // SC-002: producción aún no tiene area_id/activo en coordinadores_area (la
+    // migración corre primero en dev:local) — el dump `--data-only` de prod solo
+    // trae las columnas que existen allá (sin area_id), y coordinadores_area
+    // exige area_id NOT NULL localmente. Se relaja la constraint solo durante
+    // la carga del dump crudo, y se repone antes de terminar (ver 4/5).
+    psql(`ALTER TABLE coordinadores_area ALTER COLUMN area_id DROP NOT NULL;`)
+
+    console.log('\n3/5 — Cargando datos reales en el ambiente local...')
     psqlFromFile(dumpPath)
 
-    console.log('\n4/4 — Anulando referencias a usuarios reales (asignado_a, creado_por_id, accion_marcada_por)...')
+    // Backfill determinístico — mismo criterio que la migración
+    // 20260922000000_sc002_separar_area_aprobador.sql — y se re-exige NOT NULL
+    // al terminar (falla fuerte si quedó algún coordinador huérfano sin área).
+    console.log('\n4/5 — Backfill de area_id (SC-002) sobre los datos reales recién cargados...')
+    psql(`INSERT INTO areas (nombre) SELECT DISTINCT area FROM coordinadores_area WHERE area IS NOT NULL ON CONFLICT (nombre) DO NOTHING;`)
+    psql(`UPDATE coordinadores_area ca SET area_id = a.id FROM areas a WHERE a.nombre = ca.area AND ca.area_id IS NULL;`)
+    psql(`UPDATE notas_pedido np SET area_id = a.id FROM areas a WHERE a.nombre = np.area AND np.area_id IS NULL;`)
+    psql(`ALTER TABLE coordinadores_area ALTER COLUMN area_id SET NOT NULL;`)
+
+    console.log('\n5/5 — Anulando referencias a usuarios reales (asignado_a, creado_por_id, accion_marcada_por)...')
     psql('UPDATE notas_pedido SET asignado_a = NULL, creado_por_id = NULL;')
     psql('UPDATE items_np SET accion_marcada_por = NULL;')
     psql('UPDATE registro_compras SET creado_por_id = NULL;')

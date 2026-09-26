@@ -24,7 +24,11 @@ const itemSchema = z.object({
 const formSchema = z.object({
   solicitante_nombre: z.string().min(2, 'Requerido'),
   solicitante_email: z.string().email('Email inválido'),
-  area: z.string().min(1, 'Selecciona un área'),
+  // Spec: SC-002 — el área se identifica por id, no por texto libre.
+  area_id: z.string().min(1, 'Selecciona un área'),
+  // Spec: SC-002 CA-04/CA-05 — aprobador alternativo opcional, solo
+  // relevante si el área tiene alternativos activos configurados.
+  aprobador_elegido_id: z.string().optional(),
   prioridad: z.enum(['excepcional', 'alta', 'media', 'baja']),
   tipo_compra: z.enum(['producto', 'servicio', 'alquiler', 'importacion', 'consumible']),
   centro_costo: z.enum(['costo', 'gasto', 'activo', 'inventario']),
@@ -175,6 +179,8 @@ function TotalEstimado({ control, puedeVer }: { control: ReturnType<typeof useFo
 }
 
 type ProveedorCatalogo = { id: string; nombre: string; ruc: string | null }
+type AreaCatalogo = { id: string; nombre: string }
+type AlternativoCoordinador = { id: string; nombre: string; email: string; activo: boolean }
 
 export default function NuevaNotaPedido() {
   const [estado, setEstado]           = useState<EstadoEnvio>('idle')
@@ -182,39 +188,16 @@ export default function NuevaNotaPedido() {
   const [errorMsg, setErrorMsg]       = useState('')
   // Spec: HU-009 CA-01/CA-13 — distingue el mensaje de éxito según la acción realizada
   const [accionRealizada, setAccionRealizada] = useState<'borrador' | 'enviar'>('enviar')
-  const [areas, setAreas]             = useState<string[]>([])
+  const [areas, setAreas]             = useState<AreaCatalogo[]>([])
   const [unidades, setUnidades]       = useState<string[]>(['EA'])
   const [puedeVerPrecio, setPuedeVerPrecio] = useState(false)
   // Spec CA-03/CA-04: estado de regularización
   const [esRegularizacion, setEsRegularizacion] = useState(false)
   const [modoProveedor, setModoProveedor]       = useState<'existente' | 'libre'>('existente')
   const [proveedoresCatalogo, setProveedoresCatalogo] = useState<ProveedorCatalogo[]>([])
-
-  useEffect(() => {
-    async function loadCatalogs() {
-      try {
-        const [resAreas, resUnidades, resPerfil, resProveedores] = await Promise.all([
-          fetch('/api/compras/areas'),
-          fetch('/api/compras/unidades'),
-          fetch('/api/auth/perfil'),
-          fetch('/api/compras/proveedores?activo=true&limit=200'),
-        ])
-        if (resAreas.ok)    setAreas(await resAreas.json())
-        if (resUnidades.ok) setUnidades(await resUnidades.json())
-        if (resPerfil.ok) {
-          const p = await resPerfil.json()
-          setPuedeVerPrecio(['compras', 'admin', 'asistente_compras'].includes(p.rol ?? ''))
-        }
-        if (resProveedores.ok) {
-          const data = await resProveedores.json()
-          setProveedoresCatalogo((data.proveedores ?? data ?? []).map((p: any) => ({ id: p.id, nombre: p.nombre, ruc: p.ruc ?? null })))
-        }
-      } catch (err) {
-        console.error('Error cargando catálogos:', err)
-      }
-    }
-    loadCatalogs()
-  }, [])
+  // Spec: SC-002 CA-04 — alternativos activos del área elegida (vacío = no se
+  // muestra el selector de aprobador, comportamiento idéntico al actual).
+  const [alternativos, setAlternativos] = useState<AlternativoCoordinador[]>([])
 
   const {
     register,
@@ -234,7 +217,60 @@ export default function NuevaNotaPedido() {
     },
   })
 
+  useEffect(() => {
+    async function loadCatalogs() {
+      try {
+        const [resAreas, resUnidades, resPerfil, resProveedores] = await Promise.all([
+          fetch('/api/compras/areas'),
+          fetch('/api/compras/unidades'),
+          fetch('/api/auth/perfil'),
+          fetch('/api/compras/proveedores?activo=true&limit=200'),
+        ])
+        if (resAreas.ok)    setAreas(await resAreas.json())
+        if (resUnidades.ok) setUnidades(await resUnidades.json())
+        if (resPerfil.ok) {
+          const p = await resPerfil.json()
+          setPuedeVerPrecio(['compras', 'admin', 'asistente_compras'].includes(p.rol ?? ''))
+          // Spec: SC-002 CA-01 — precarga el área del perfil (sigue editable).
+          if (p.area_id) setValue('area_id', p.area_id)
+        }
+        if (resProveedores.ok) {
+          const data = await resProveedores.json()
+          setProveedoresCatalogo((data.proveedores ?? data ?? []).map((p: any) => ({ id: p.id, nombre: p.nombre, ruc: p.ruc ?? null })))
+        }
+      } catch (err) {
+        console.error('Error cargando catálogos:', err)
+      }
+    }
+    loadCatalogs()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const { fields, append, remove } = useFieldArray({ control, name: 'items' })
+
+  // Spec: SC-002 CA-04/CA-14 — al cambiar de área, recarga los alternativos
+  // activos disponibles y resetea cualquier aprobador elegido previamente
+  // (el override es siempre relativo al área actual — mismo criterio que
+  // aplica el backend en calcularAprobadorAsignado()/RN-04).
+  const areaIdSeleccionada = useWatch({ control, name: 'area_id' })
+  useEffect(() => {
+    setValue('aprobador_elegido_id', '')
+    if (!areaIdSeleccionada) { setAlternativos([]); return }
+    let cancelado = false
+    fetch(`/api/compras/areas/${areaIdSeleccionada}/alternativos`)
+      .then(res => (res.ok ? res.json() : []))
+      .then((rows: { coordinadores_area: AlternativoCoordinador | null }[]) => {
+        if (cancelado) return
+        setAlternativos(
+          (rows ?? [])
+            .map(r => r.coordinadores_area)
+            .filter((c): c is AlternativoCoordinador => !!c && c.activo)
+        )
+      })
+      .catch(() => setAlternativos([]))
+    return () => { cancelado = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [areaIdSeleccionada])
 
   // Spec: separar validación de envío para insertar modal de confirmación
   const [modalConfirmar, setModalConfirmar] = useState(false)
@@ -382,17 +418,33 @@ export default function NuevaNotaPedido() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <Label htmlFor="area">Área / Departamento *</Label>
+                <Label htmlFor="area_id">Área / Departamento *</Label>
                 <select
-                  id="area"
-                  {...register('area')}
+                  id="area_id"
+                  {...register('area_id')}
                   className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <option value="">Selecciona un área...</option>
-                  {areas.map((a) => <option key={a} value={a}>{a}</option>)}
+                  {areas.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
                 </select>
-                {errors.area && <p className="text-red-500 text-xs mt-1">{errors.area.message}</p>}
+                {errors.area_id && <p className="text-red-500 text-xs mt-1">{errors.area_id.message}</p>}
               </div>
+
+              {/* Spec: SC-002 CA-04 — solo aparece si el área elegida tiene
+                  aprobadores alternativos activos configurados. */}
+              {alternativos.length > 0 && (
+                <div>
+                  <Label htmlFor="aprobador_elegido_id">Aprobador</Label>
+                  <select
+                    id="aprobador_elegido_id"
+                    {...register('aprobador_elegido_id')}
+                    className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <option value="">Automático (por defecto del área)</option>
+                    {alternativos.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                  </select>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>

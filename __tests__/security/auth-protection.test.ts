@@ -94,6 +94,7 @@ function mockChainVacio() {
   chain.in     = noop
   chain.limit  = jest.fn(() => Promise.resolve(resolved))
   chain.single = jest.fn(() => Promise.resolve({ data: null, error: null }))
+  chain.maybeSingle = jest.fn(() => Promise.resolve({ data: null, error: null }))
   chain.insert = jest.fn(() => Promise.resolve(resolved))
   chain.upsert = jest.fn(() => Promise.resolve(resolved))
   chain.update = jest.fn(() => Promise.resolve(resolved))
@@ -956,17 +957,31 @@ describe('PUT /api/compras/nps/[id]', () => {
 
   // ── Lógica de negocio: condicionado de precio + proveedor_sugerido ──────────
   // Cadena que permite llegar hasta el insert de items_np capturando el payload.
-  // single() es secuencial: 1) perfil  2) notas_pedido  3) coordinadores_area
-  function mockChainEditar(singles: any[]) {
+  // single() es secuencial: 1) perfil  2) notas_pedido.
+  // maybeSingle() es secuencial (SC-002): 1) areas  2) coordinadores_area por id.
+  // limit() resuelve el aprobador por defecto (resolverAprobadorPorDefecto).
+  function mockChainEditar(opts: {
+    perfil: any
+    np: any
+    area?: { id: string; nombre: string } | null
+    coordinadorDefault?: { id: string; nombre: string; email: string } | null
+  }) {
     const resolved = { data: [], error: null }
     const chain: any = {}
     const noop = jest.fn(() => chain)
     chain.select = noop
     chain.eq     = noop
     chain.order  = noop
-    const singleFn = jest.fn()
-    singles.forEach(s => singleFn.mockResolvedValueOnce(s))
-    chain.single = singleFn
+    chain.single = jest.fn()
+      .mockResolvedValueOnce({ data: opts.perfil, error: null })
+      .mockResolvedValueOnce({ data: opts.np, error: null })
+    chain.maybeSingle = jest.fn()
+      .mockResolvedValueOnce({ data: opts.area ?? null, error: null })
+      .mockResolvedValueOnce({ data: opts.coordinadorDefault ?? null, error: null })
+    chain.limit = jest.fn(() => Promise.resolve({
+      data: opts.coordinadorDefault ? [opts.coordinadorDefault] : [],
+      error: null,
+    }))
     chain.update = jest.fn(() => chain)
     chain.delete = jest.fn(() => chain)
     chain.insert = jest.fn(() => Promise.resolve(resolved))
@@ -979,13 +994,15 @@ describe('PUT /api/compras/nps/[id]', () => {
     area: 'TI', creado_por_id: 'user-123', solicitante_nombre: 'Solicitante X',
     token_aprobacion: 'tok-aprob', motivo_rechazo: 'faltan datos',
   }
-  const COORDINADOR = { nombre: 'Coordinador TI', email: 'coord@arlift.com' }
+  const AREA_TI = { id: 'area-ti', nombre: 'TI' }
+  const COORDINADOR = { id: 'coord-ti', nombre: 'Coordinador TI', email: 'coord@arlift.com' }
 
   function bodyEditar(precio: number) {
     return JSON.stringify({
       encabezado: {
         solicitante_nombre: 'Solicitante X', solicitante_email: 's@arlift.com',
-        area: 'TI', prioridad: 'media', tipo_compra: 'producto',
+        // Spec: SC-002 — el área se identifica por area_id.
+        area_id: 'area-ti', prioridad: 'media', tipo_compra: 'producto',
         centro_costo: 'gasto', descripcion_general: 'Corregido',
       },
       items: [{
@@ -998,11 +1015,12 @@ describe('PUT /api/compras/nps/[id]', () => {
   it('fuerza precio_unitario a 0 para rol solicitante (sin permiso de precio) y persiste proveedor_sugerido', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     // Creador (creado_por_id === user-123) con rol solicitante → puedeVerPrecio false
-    const chain = mockChainEditar([
-      { data: { rol: 'solicitante', nombre: 'Solicitante X', email: 's@arlift.com' }, error: null },
-      { data: NP_RECHAZADA, error: null },
-      { data: COORDINADOR, error: null },
-    ])
+    const chain = mockChainEditar({
+      perfil: { rol: 'solicitante', nombre: 'Solicitante X', email: 's@arlift.com' },
+      np: NP_RECHAZADA,
+      area: AREA_TI,
+      coordinadorDefault: COORDINADOR,
+    })
     mockFrom.mockReturnValue(chain)
     const res = await PUT(
       makeRequest('http://localhost/api/compras/nps/np-123', { method: 'PUT', body: bodyEditar(99) }),
@@ -1017,11 +1035,12 @@ describe('PUT /api/compras/nps/[id]', () => {
 
   it('respeta precio_unitario y persiste proveedor_sugerido para rol compras', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
-    const chain = mockChainEditar([
-      { data: { rol: 'compras', nombre: 'Jefe Compras', email: 'compras@arlift.com' }, error: null },
-      { data: NP_RECHAZADA, error: null },
-      { data: COORDINADOR, error: null },
-    ])
+    const chain = mockChainEditar({
+      perfil: { rol: 'compras', nombre: 'Jefe Compras', email: 'compras@arlift.com' },
+      np: NP_RECHAZADA,
+      area: AREA_TI,
+      coordinadorDefault: COORDINADOR,
+    })
     mockFrom.mockReturnValue(chain)
     const res = await PUT(
       makeRequest('http://localhost/api/compras/nps/np-123', { method: 'PUT', body: bodyEditar(99) }),
@@ -1041,11 +1060,12 @@ describe('PUT /api/compras/nps/[id]', () => {
       token_aprobacion: 'tok-aprob', motivo_rechazo: null,
       motivo_devolucion: 'SE DEVUELVE PARA CORRECCIONES',
     }
-    const chain = mockChainEditar([
-      { data: { rol: 'solicitante', nombre: 'Suylen Vargas', email: 'tecnico.hse@arlift.com' }, error: null },
-      { data: NP_DEVUELTA, error: null },
-      { data: COORDINADOR, error: null },
-    ])
+    const chain = mockChainEditar({
+      perfil: { rol: 'solicitante', nombre: 'Suylen Vargas', email: 'tecnico.hse@arlift.com' },
+      np: NP_DEVUELTA,
+      area: AREA_TI,
+      coordinadorDefault: COORDINADOR,
+    })
     mockFrom.mockReturnValue(chain)
     const res = await PUT(
       makeRequest('http://localhost/api/compras/nps/np-123', { method: 'PUT', body: bodyEditar(50) }),
@@ -1363,6 +1383,124 @@ describe('GET /api/admin/usuarios', () => {
     mockFrom.mockReturnValue(chain)
     const res = await GET(makeRequest('http://localhost/api/admin/usuarios'))
     expect(res.status).toBe(200)
+  })
+})
+
+// Spec: SC-002 CA-08 — area_id opcional al crear/editar un usuario, validado
+// contra el catálogo `areas` antes de llegar a Supabase Auth.
+describe('POST /api/admin/usuarios — SC-002 CA-08 (area_id)', () => {
+  const { POST } = require('@/app/api/admin/usuarios/route')
+
+  it('devuelve 400 si area_id no existe o está inactiva', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'admin' }, error: null }))
+    chain.maybeSingle = jest.fn(() => Promise.resolve({ data: null, error: null })) // areas: no encontrada
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(makeRequest('http://localhost/api/admin/usuarios', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'x@arlift.com', nombre: 'X', rol: 'solicitante', password: 'clave1234', area_id: 'area-inexistente' }),
+    }))
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toBe('Área inválida o inactiva')
+  })
+})
+
+describe('PUT /api/admin/usuarios/[id] — SC-002 CA-08 (area_id)', () => {
+  const { PUT } = require('@/app/api/admin/usuarios/[id]/route')
+
+  it('devuelve 400 si area_id no existe o está inactiva', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      // 1) perfil del actor (admin)  2) perfil destino
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'admin' }, error: null })
+      return Promise.resolve({ data: { email: 'destino@arlift.com', rol: 'solicitante' }, error: null })
+    })
+    chain.maybeSingle = jest.fn(() => Promise.resolve({ data: null, error: null })) // areas: no encontrada
+    mockFrom.mockReturnValue(chain)
+    const res = await PUT(
+      makeRequest('http://localhost/api/admin/usuarios/user-456', {
+        method: 'PUT',
+        body: JSON.stringify({ nombre: 'X', rol: 'solicitante', area_id: 'area-inexistente' }),
+      }),
+      { params: Promise.resolve({ id: 'user-456' }) }
+    )
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toBe('Área inválida o inactiva')
+  })
+})
+
+// Spec: SC-002 CA-09 — CRUD de aprobadores alternativos por área.
+describe('/api/compras/areas/[id]/alternativos — SC-002 CA-09', () => {
+  const { GET, POST, DELETE } = require('@/app/api/compras/areas/[id]/alternativos/route')
+
+  it('GET devuelve 401 sin sesión (abierto a cualquier usuario autenticado)', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/areas/area-1/alternativos'),
+      { params: Promise.resolve({ id: 'area-1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('GET devuelve 200 para cualquier rol autenticado (solicitante incluido)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.then = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/areas/area-1/alternativos'),
+      { params: Promise.resolve({ id: 'area-1' }) }
+    )
+    expect(res.status).toBe(200)
+  })
+
+  it('POST devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/areas/area-1/alternativos', {
+        method: 'POST', body: JSON.stringify({ coordinador_id: 'coord-1' }),
+      }),
+      { params: Promise.resolve({ id: 'area-1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('POST devuelve 409 si el coordinador ya es alternativo de esa área', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn()
+      .mockResolvedValueOnce({ data: { rol: 'compras' }, error: null })
+      .mockResolvedValueOnce({ data: null, error: { code: '23505', message: 'duplicate key' } })
+    chain.insert = jest.fn(() => chain)
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/areas/area-1/alternativos', {
+        method: 'POST', body: JSON.stringify({ coordinador_id: 'coord-1' }),
+      }),
+      { params: Promise.resolve({ id: 'area-1' }) }
+    )
+    expect(res.status).toBe(409)
+  })
+
+  it('DELETE devuelve 400 sin coordinador_id', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await DELETE(
+      makeRequest('http://localhost/api/compras/areas/area-1/alternativos'),
+      { params: Promise.resolve({ id: 'area-1' }) }
+    )
+    expect(res.status).toBe(400)
   })
 })
 
@@ -2324,6 +2462,50 @@ describe('POST /api/compras/convertir/[id] — HU-014 CA-08 defensa de backend',
   })
 })
 
+// Spec: SC-002 CA-07 — el Dashboard de NPs agrupa por area_id (resuelto al
+// nombre vigente en `areas`), no por el texto legado congelado en la NP.
+describe('GET /api/compras/dashboard — SC-002 CA-07', () => {
+  const { GET } = require('@/app/api/compras/dashboard/route')
+
+  it('agrupa porArea usando el nombre vigente resuelto vía area_id', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+
+    const NPS = [
+      { id: 'np-1', estado: 'aprobada', area: 'Bombeo (nombre viejo)', area_id: 'area-bombeo', prioridad: 'media', tipo_compra: 'producto', convertida: false, created_at: '2026-01-10' },
+      { id: 'np-2', estado: 'pendiente', area: 'Bombeo (nombre viejo)', area_id: 'area-bombeo', prioridad: 'alta', tipo_compra: 'servicio', convertida: false, created_at: '2026-01-12' },
+    ]
+    const AREAS = [{ id: 'area-bombeo', nombre: 'Bombeo Mecánico (nombre actual)' }]
+
+    function chainTabla(result: any) {
+      const obj: any = {}
+      obj.select = () => obj
+      obj.eq     = () => obj
+      obj.in     = () => obj
+      obj.order  = () => obj
+      obj.single = () => Promise.resolve(result)
+      obj.then   = (resolve: any) => Promise.resolve(result).then(resolve)
+      return obj
+    }
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')      return chainTabla({ data: { rol: 'compras', email: 'compras@arlift.com' }, error: null })
+      if (table === 'notas_pedido')  return chainTabla({ data: NPS, error: null })
+      if (table === 'areas')         return chainTabla({ data: AREAS, error: null })
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/compras/dashboard'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    // Usa el nombre VIGENTE (resuelto por area_id), no el texto legado de la NP.
+    const fila = body.porArea.find((a: any) => a.area === 'Bombeo Mecánico (nombre actual)')
+    expect(fila).toBeDefined()
+    expect(fila.count).toBe(2)
+    expect(body.porArea.find((a: any) => a.area === 'Bombeo (nombre viejo)')).toBeUndefined()
+  })
+})
+
 // ── 32. Dashboard OCs — auth y scope ─────────────────────────────────────────
 
 describe('GET /api/compras/dashboard/ocs', () => {
@@ -2397,6 +2579,406 @@ describe('GET /api/compras/dashboard/ocs', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.scope).toBe('global')
+  })
+
+  // Spec: SC-002 CA-12 — deriva el área real vía items_oc -> items_np ->
+  // notas_pedido.area_id -> areas.nombre, cubriendo OCs consolidadas (HU-016)
+  // que antes quedaban excluidas del breakdown por área (registro_compras.area
+  // NULL en consolidadas).
+  it('deriva el área de OCs consolidadas — cuenta no-exclusiva por área + valor por línea (SC-002 CA-12)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+
+    const REGISTRO_COMPRAS = [
+      { id: 'oc-simple', estado_oc: 'aprobada', valor_total: 100, valor_a_pagar: 100, created_at: '2026-01-15' },
+      { id: 'oc-multi',  estado_oc: 'aprobada', valor_total: 300, valor_a_pagar: 300, created_at: '2026-01-20' },
+    ]
+    // oc-simple: 1 línea, NP de Bombeo. oc-multi (consolidada): 1 línea de Bombeo + 1 de Eléctrica.
+    const ITEMS_OC = [
+      { registro_compras_id: 'oc-simple', item_np_id: 'item-1', cantidad: 2, precio_unitario: 50 },
+      { registro_compras_id: 'oc-multi',  item_np_id: 'item-2', cantidad: 1, precio_unitario: 100 },
+      { registro_compras_id: 'oc-multi',  item_np_id: 'item-3', cantidad: 2, precio_unitario: 100 },
+    ]
+    const ITEMS_NP = [
+      { id: 'item-1', nota_pedido_id: 'np-a' },
+      { id: 'item-2', nota_pedido_id: 'np-b' },
+      { id: 'item-3', nota_pedido_id: 'np-c' },
+    ]
+    const NOTAS_PEDIDO = [
+      { id: 'np-a', area_id: 'area-bombeo' },
+      { id: 'np-b', area_id: 'area-bombeo' },
+      { id: 'np-c', area_id: 'area-electrica' },
+    ]
+    const AREAS = [
+      { id: 'area-bombeo',    nombre: 'Bombeo Mecánico' },
+      { id: 'area-electrica', nombre: 'Eléctrica' },
+    ]
+
+    function chainTabla(result: any) {
+      const obj: any = {}
+      obj.select = () => obj
+      obj.eq     = () => obj
+      obj.in     = () => obj
+      obj.order  = () => obj
+      obj.single = () => Promise.resolve(result)
+      obj.then   = (resolve: any) => Promise.resolve(result).then(resolve)
+      return obj
+    }
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')         return chainTabla({ data: { rol: 'compras' }, error: null })
+      if (table === 'registro_compras') return chainTabla({ data: REGISTRO_COMPRAS, error: null })
+      if (table === 'items_oc')         return chainTabla({ data: ITEMS_OC, error: null })
+      if (table === 'items_np')         return chainTabla({ data: ITEMS_NP, error: null })
+      if (table === 'notas_pedido')     return chainTabla({ data: NOTAS_PEDIDO, error: null })
+      if (table === 'areas')            return chainTabla({ data: AREAS, error: null })
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/compras/dashboard/ocs'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    const bombeo    = body.porArea.find((a: any) => a.area === 'Bombeo Mecánico')
+    const electrica = body.porArea.find((a: any) => a.area === 'Eléctrica')
+
+    // oc-simple y oc-multi tocan Bombeo Mecánico → cuenta 2 (no-exclusivo)
+    expect(bombeo.count).toBe(2)
+    expect(bombeo.valor).toBe(200) // 100 (oc-simple) + 100 (línea item-2 de oc-multi)
+
+    // Solo oc-multi toca Eléctrica → cuenta 1
+    expect(electrica.count).toBe(1)
+    expect(electrica.valor).toBe(200) // línea item-3 de oc-multi (2 × 100)
+
+    // El filtro-lista de áreas conserva su contrato (string[] de nombres)
+    expect(body.areas).toEqual(expect.arrayContaining(['Bombeo Mecánico', 'Eléctrica']))
+  })
+
+  it('filtro ?area= incluye una OC consolidada que toca esa área, aunque tenga líneas de otra', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+
+    const REGISTRO_COMPRAS = [
+      { id: 'oc-multi', estado_oc: 'aprobada', valor_total: 300, valor_a_pagar: 300, created_at: '2026-01-20' },
+    ]
+    const ITEMS_OC = [
+      { registro_compras_id: 'oc-multi', item_np_id: 'item-2', cantidad: 1, precio_unitario: 100 },
+      { registro_compras_id: 'oc-multi', item_np_id: 'item-3', cantidad: 2, precio_unitario: 100 },
+    ]
+    const ITEMS_NP = [
+      { id: 'item-2', nota_pedido_id: 'np-b' },
+      { id: 'item-3', nota_pedido_id: 'np-c' },
+    ]
+    const NOTAS_PEDIDO = [
+      { id: 'np-b', area_id: 'area-bombeo' },
+      { id: 'np-c', area_id: 'area-electrica' },
+    ]
+    const AREAS = [
+      { id: 'area-bombeo',    nombre: 'Bombeo Mecánico' },
+      { id: 'area-electrica', nombre: 'Eléctrica' },
+    ]
+
+    function chainTabla(result: any) {
+      const obj: any = {}
+      obj.select = () => obj
+      obj.eq     = () => obj
+      obj.in     = () => obj
+      obj.order  = () => obj
+      obj.single = () => Promise.resolve(result)
+      obj.then   = (resolve: any) => Promise.resolve(result).then(resolve)
+      return obj
+    }
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')         return chainTabla({ data: { rol: 'compras' }, error: null })
+      if (table === 'registro_compras') return chainTabla({ data: REGISTRO_COMPRAS, error: null })
+      if (table === 'items_oc')         return chainTabla({ data: ITEMS_OC, error: null })
+      if (table === 'items_np')         return chainTabla({ data: ITEMS_NP, error: null })
+      if (table === 'notas_pedido')     return chainTabla({ data: NOTAS_PEDIDO, error: null })
+      if (table === 'areas')            return chainTabla({ data: AREAS, error: null })
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/compras/dashboard/ocs?area=Eléctrica'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.kpis.total).toBe(1) // oc-multi aparece aunque también tenga una línea de Bombeo
+  })
+})
+
+// ── SC-002: Coordinadores — area_id/activo, alta con área nueva, DELETE bloqueado ──
+
+function chainTablaCoord(porTabla: Record<string, any>) {
+  return (table: string) => {
+    const result = porTabla[table] ?? { data: null, error: null, count: 0 }
+    const obj: any = {}
+    obj.select = () => obj
+    obj.eq     = () => obj
+    obj.in     = () => obj
+    obj.not    = () => obj
+    obj.order  = () => obj
+    obj.insert = () => obj
+    obj.update = () => obj
+    obj.delete = () => obj
+    obj.single = () => Promise.resolve(result)
+    obj.maybeSingle = () => Promise.resolve(result)
+    obj.then   = (resolve: any) => Promise.resolve(result).then(resolve)
+    return obj
+  }
+}
+
+describe('POST /api/compras/coordinadores — SC-002', () => {
+  const { POST } = require('@/app/api/compras/coordinadores/route')
+
+  it('devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'solicitante' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/coordinadores', {
+      method: 'POST',
+      body: JSON.stringify({ area_id: 'area-1', nombre: 'X', email: 'x@arlift.com' }),
+    }))
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 400 si falta area_id', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'compras' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/coordinadores', {
+      method: 'POST',
+      body: JSON.stringify({ nombre: 'X', email: 'x@arlift.com' }),
+    }))
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 400 si area_id no existe o está inactiva', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      areas:    { data: null, error: null },
+    }))
+    const res = await POST(makeRequest('http://localhost/api/compras/coordinadores', {
+      method: 'POST',
+      body: JSON.stringify({ area_id: 'area-inexistente', nombre: 'X', email: 'x@arlift.com' }),
+    }))
+    expect(res.status).toBe(400)
+  })
+
+  it('crea el coordinador con un area_id existente y activa', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      areas:    { data: { id: 'area-1', nombre: 'TI' }, error: null },
+      coordinadores_area: { data: { id: 'coord-1', area: 'TI', area_id: 'area-1', nombre: 'X', email: 'x@arlift.com', activo: true }, error: null },
+    }))
+    const res = await POST(makeRequest('http://localhost/api/compras/coordinadores', {
+      method: 'POST',
+      body: JSON.stringify({ area_id: 'area-1', nombre: 'X', email: 'x@arlift.com' }),
+    }))
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.area_id).toBe('area-1')
+  })
+})
+
+// ── CRUD de áreas ──
+describe('GET/POST /api/compras/areas', () => {
+  const { GET, POST } = require('@/app/api/compras/areas/route')
+
+  it('GET público (sin ?todas) devuelve solo áreas activas, sin exigir sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ areas: { data: [{ id: 'area-1', nombre: 'TI' }], error: null } }))
+    const res = await GET(makeRequest('http://localhost/api/compras/areas'))
+    expect(res.status).toBe(200)
+  })
+
+  it('GET ?todas=1 devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'solicitante' }, error: null } }))
+    const res = await GET(makeRequest('http://localhost/api/compras/areas?todas=1'))
+    expect(res.status).toBe(403)
+  })
+
+  it('GET ?todas=1 devuelve activas e inactivas para admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      areas:    { data: [{ id: 'area-1', nombre: 'TI', activo: true }, { id: 'area-2', nombre: 'Vieja', activo: false }], error: null },
+    }))
+    const res = await GET(makeRequest('http://localhost/api/compras/areas?todas=1'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toHaveLength(2)
+  })
+
+  it('POST devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'gerencia' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/areas', { method: 'POST', body: JSON.stringify({ nombre: 'Logística' }) }))
+    expect(res.status).toBe(403)
+  })
+
+  it('POST devuelve 400 si el nombre viene vacío', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'compras' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/areas', { method: 'POST', body: JSON.stringify({ nombre: '   ' }) }))
+    expect(res.status).toBe(400)
+  })
+
+  it('POST crea el área — 201', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      areas:    { data: { id: 'area-nueva', nombre: 'Logística Oriente', activo: true }, error: null },
+    }))
+    const res = await POST(makeRequest('http://localhost/api/compras/areas', { method: 'POST', body: JSON.stringify({ nombre: 'Logística Oriente' }) }))
+    expect(res.status).toBe(201)
+  })
+
+  it('POST devuelve 409 si el nombre ya existe (unique violation)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      areas:    { data: null, error: { code: '23505', message: 'duplicate key' } },
+    }))
+    const res = await POST(makeRequest('http://localhost/api/compras/areas', { method: 'POST', body: JSON.stringify({ nombre: 'TI' }) }))
+    expect(res.status).toBe(409)
+  })
+})
+
+describe('PUT /api/compras/areas/[id]', () => {
+  const { PUT } = require('@/app/api/compras/areas/[id]/route')
+
+  it('devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'gerencia' }, error: null } }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/areas/area-1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 'area-1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('desactiva un área (activo:false) sin borrarla', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      areas:    { data: null, error: null },
+    }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/areas/area-1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 'area-1' }) }
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.success).toBe(true)
+  })
+
+  it('devuelve 400 si no envía ni nombre ni activo', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'compras' }, error: null } }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/areas/area-1', { method: 'PUT', body: JSON.stringify({}) }),
+      { params: Promise.resolve({ id: 'area-1' }) }
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 409 al renombrar a un nombre ya existente', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      areas:    { data: null, error: { code: '23505', message: 'duplicate key' } },
+    }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/areas/area-1', { method: 'PUT', body: JSON.stringify({ nombre: 'TI' }) }),
+      { params: Promise.resolve({ id: 'area-1' }) }
+    )
+    expect(res.status).toBe(409)
+  })
+})
+
+describe('PUT /api/compras/coordinadores/[id] — SC-002 CA-10', () => {
+  const { PUT } = require('@/app/api/compras/coordinadores/[id]/route')
+
+  it('devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'gerencia' }, error: null } }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/coordinadores/coord-1', { method: 'PUT', body: JSON.stringify({ area_id: 'area-1', nombre: 'X', email: 'x@arlift.com', activo: false }) }),
+      { params: Promise.resolve({ id: 'coord-1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('desactiva un coordinador (activo:false) sin borrarlo', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let updatePayload: any = null
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return chainTablaCoord({ perfiles: { data: { rol: 'compras' }, error: null } })('perfiles')
+      if (table === 'areas')    return chainTablaCoord({ areas: { data: { id: 'area-1', nombre: 'TI' }, error: null } })('areas')
+      if (table === 'coordinadores_area') {
+        const obj: any = {}
+        obj.select = () => obj
+        obj.eq     = () => obj
+        obj.update = (payload: any) => { updatePayload = payload; return obj }
+        obj.then   = (resolve: any) => Promise.resolve({ error: null }).then(resolve)
+        return obj
+      }
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/coordinadores/coord-1', { method: 'PUT', body: JSON.stringify({ area_id: 'area-1', nombre: 'X', email: 'x@arlift.com', activo: false }) }),
+      { params: Promise.resolve({ id: 'coord-1' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(updatePayload.activo).toBe(false)
+  })
+})
+
+describe('DELETE /api/compras/coordinadores/[id] — SC-002 CA-11/RN-08', () => {
+  const { DELETE } = require('@/app/api/compras/coordinadores/[id]/route')
+
+  it('devuelve 409 con los motivos si tiene dependencias activas', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')            return chainTablaCoord({ perfiles: { data: { rol: 'admin' }, error: null } })('perfiles')
+      if (table === 'coordinadores_area')  return chainTablaCoord({ coordinadores_area: { data: { area_id: 'area-1' }, error: null } })('coordinadores_area')
+      if (table === 'areas')               return chainTablaCoord({ areas: { data: { activo: true }, error: null } })('areas')
+      if (table === 'notas_pedido')        return chainTablaCoord({ notas_pedido: { data: null, error: null, count: 0 } })('notas_pedido')
+      if (table === 'area_aprobadores_alternativos') return chainTablaCoord({ area_aprobadores_alternativos: { data: null, error: null, count: 0 } })('area_aprobadores_alternativos')
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const res = await DELETE(
+      makeRequest('http://localhost/api/compras/coordinadores/coord-1', { method: 'DELETE' }),
+      { params: Promise.resolve({ id: 'coord-1' }) }
+    )
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.motivos).toContain('Es el aprobador por defecto de un área activa')
+  })
+
+  it('elimina físicamente si no hay dependencias activas', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let deleteLlamado = false
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')           return chainTablaCoord({ perfiles: { data: { rol: 'admin' }, error: null } })('perfiles')
+      if (table === 'coordinadores_area') {
+        const obj: any = {}
+        obj.select = () => obj
+        obj.eq     = () => obj
+        obj.maybeSingle = () => Promise.resolve({ data: { area_id: null }, error: null })
+        obj.delete = () => { deleteLlamado = true; return obj }
+        obj.then   = (resolve: any) => Promise.resolve({ error: null }).then(resolve)
+        return obj
+      }
+      if (table === 'notas_pedido')        return chainTablaCoord({ notas_pedido: { data: null, error: null, count: 0 } })('notas_pedido')
+      if (table === 'area_aprobadores_alternativos') return chainTablaCoord({ area_aprobadores_alternativos: { data: null, error: null, count: 0 } })('area_aprobadores_alternativos')
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const res = await DELETE(
+      makeRequest('http://localhost/api/compras/coordinadores/coord-1', { method: 'DELETE' }),
+      { params: Promise.resolve({ id: 'coord-1' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(deleteLlamado).toBe(true)
   })
 })
 
@@ -3294,7 +3876,8 @@ describe('POST /api/compras/nps — accion borrador/enviar (HU-009)', () => {
   const encabezadoBase = {
     es_regularizacion: false,
     solicitante_nombre: 'Juan', solicitante_email: 'juan@test.com',
-    area: 'Operaciones', prioridad: 'media', tipo_compra: 'producto',
+    // Spec: SC-002 — el área se identifica por area_id, no por texto libre.
+    area_id: 'area-1', prioridad: 'media', tipo_compra: 'producto',
     centro_costo: 'costo', descripcion_general: 'Descripción de prueba con más de 10 caracteres',
   }
   const itemsBase = [{ descripcion: 'Ítem', unidad: 'EA', cantidad: 1, precio_unitario: 100 }]
@@ -3309,6 +3892,8 @@ describe('POST /api/compras/nps — accion borrador/enviar (HU-009)', () => {
       // insert().select().single() de la NP
       return Promise.resolve({ data: { id: 'np-borrador-1' }, error: null })
     })
+    // Spec: SC-002 — lookup de areas (GET /api/compras/nps: valida area_id activo)
+    chain.maybeSingle = jest.fn(() => Promise.resolve({ data: { id: 'area-1', nombre: 'Operaciones' }, error: null }))
     chain.insert = jest.fn(() => chain)
     mockFrom.mockReturnValue(chain)
 
@@ -3324,10 +3909,10 @@ describe('POST /api/compras/nps — accion borrador/enviar (HU-009)', () => {
   it('accion=enviar (default) devuelve 400 si no hay coordinador para el área', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     const chain = mockChainVacio()
-    chain.single = jest
-      .fn()
-      .mockResolvedValueOnce({ data: { rol: 'solicitante' }, error: null }) // perfil
-      .mockResolvedValueOnce({ data: null, error: { message: 'not found' } }) // coordinador
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante' }, error: null })) // perfil
+    // Spec: SC-002 — área válida, pero sin ningún coordinador activo asignado
+    // (chain.limit por defecto resuelve { data: [] } — calcularAprobadorAsignado cae a null).
+    chain.maybeSingle = jest.fn(() => Promise.resolve({ data: { id: 'area-1', nombre: 'Operaciones' }, error: null }))
     mockFrom.mockReturnValue(chain)
 
     const res = await POST(makeRequest('http://localhost/api/compras/nps', {

@@ -7,6 +7,7 @@ import { escapeHtml } from '@/lib/utils'
 import { calcularCoberturaNP } from '@/lib/np-cobertura'
 import { puedeVerPrecioNP, puedeGuardarPrecioNP } from '@/lib/np-precio'
 import { ESTADOS_DEVOLVIBLES, pausarSLAPorCierre } from '@/lib/np-estado'
+import { calcularAprobadorAsignado } from '@/lib/np-area'
 
 export async function GET(
   req: NextRequest,
@@ -43,7 +44,22 @@ export async function GET(
           verPrecio = puedeVerPrecioNP(perfil.rol, np.es_regularizacion ?? false, np.creado_por_id, user.id)
           if (['admin', 'compras'].includes(perfil.rol)) {
             puedeAprobar = true
+          } else if (np.aprobador_asignado_id) {
+            // Spec: SC-002 — puedeAprobar refleja al aprobador realmente asignado
+            // a esta NP (default u override), no al coordinador "natural" del área
+            // — de lo contrario un aprobador alternativo nunca podría aprobar
+            // desde el portal, aunque el correo sí le llegue a él (CA-05).
+            const { data: coord } = await adminClient()
+              .from('coordinadores_area')
+              .select('id')
+              .eq('id', np.aprobador_asignado_id)
+              .eq('email', perfil.email)
+              .maybeSingle()
+            puedeAprobar = !!coord
           } else {
+            // Fallback: NPs creadas antes de SC-002 no tienen aprobador_asignado_id
+            // (sin backfill posible) — se resuelve por el área de texto legado,
+            // mismo criterio que antes de esta SC.
             const { data: coord } = await adminClient()
               .from('coordinadores_area')
               .select('id')
@@ -120,12 +136,38 @@ export async function PUT(
       }
     }
 
-    // Buscar coordinador del área (puede haber cambiado en el encabezado)
+    // Spec: SC-002 — el área se identifica por area_id (puede haber cambiado en
+    // el encabezado); se resuelve el nombre real para la columna de texto legado.
+    if (!encabezado?.area_id)
+      return NextResponse.json({ error: 'Área es obligatoria' }, { status: 400 })
+
+    const { data: areaSeleccionada } = await adminClient()
+      .from('areas')
+      .select('id, nombre')
+      .eq('id', encabezado.area_id)
+      .eq('activo', true)
+      .maybeSingle()
+
+    if (!areaSeleccionada)
+      return NextResponse.json({ error: 'Área inválida o inactiva' }, { status: 400 })
+
+    // Spec: SC-002 CA-06/CA-14/RN-04 — si el área cambió, el aprobador se
+    // recalcula (default u override válido de la nueva área); un override
+    // que ya no corresponde se ignora y cae al default.
+    const aprobadorAsignadoId = await calcularAprobadorAsignado(
+      areaSeleccionada.id,
+      encabezado.aprobador_elegido_id ?? null
+    )
+
+    if (!aprobadorAsignadoId)
+      return NextResponse.json({ error: 'No se encontró coordinador para el área seleccionada' }, { status: 400 })
+
     const { data: coordinador } = await adminClient()
       .from('coordinadores_area')
       .select('nombre, email')
-      .eq('area', encabezado.area)
-      .single()
+      .eq('id', aprobadorAsignadoId)
+      .eq('activo', true)
+      .maybeSingle()
 
     if (!coordinador)
       return NextResponse.json({ error: 'No se encontró coordinador para el área seleccionada' }, { status: 400 })
@@ -146,7 +188,10 @@ export async function PUT(
       .update({
         solicitante_nombre:  encabezado.solicitante_nombre,
         solicitante_email:   encabezado.solicitante_email,
-        area:                encabezado.area,
+        // Spec: SC-002 — area (texto) se resuelve desde areaSeleccionada.
+        area:                   areaSeleccionada.nombre,
+        area_id:                areaSeleccionada.id,
+        aprobador_asignado_id:  aprobadorAsignadoId,
         prioridad:           encabezado.prioridad,
         tipo_compra:         encabezado.tipo_compra,
         centro_costo:        encabezado.centro_costo,
@@ -215,13 +260,13 @@ export async function PUT(
       await transporter.sendMail({
         from:    'One ARLIFT <one.arlift@arlift.com.ec>',
         to:      coordinador.email,
-        subject: `REQSYS NP Corregida ${np.numero} - ${encabezado.area}`,
+        subject: `REQSYS NP Corregida ${np.numero} - ${areaSeleccionada.nombre}`,
         text: [
           `Estimado/a ${coordinador.nombre},`,
           '',
           `La Nota de Pedido ${np.numero} que fue rechazada ha sido corregida y reenviada para aprobacion.`,
           `Solicitante: ${encabezado.solicitante_nombre}`,
-          `Area: ${encabezado.area}`,
+          `Area: ${areaSeleccionada.nombre}`,
           `Total estimado: $${totalEstimado.toFixed(2)}`,
           '',
           `Aprobar: ${urlAprobar}`,
@@ -280,14 +325,25 @@ export async function PATCH(
     // Los coordinadores de área pueden aprobar/rechazar NPs de su área aunque no tengan rol privilegiado
     let esCoordinadorDelArea = false
     if (!esRolPrivilegiado && (accion === 'aprobar' || accion === 'rechazar')) {
-      const { data: npPrevia } = await adminClient().from('notas_pedido').select('area').eq('id', id).single()
-      if (npPrevia) {
+      // Spec: SC-002 — se valida contra el aprobador realmente asignado a esta NP
+      // (default u override), con fallback al área de texto legado para NPs
+      // creadas antes de esta SC (sin aprobador_asignado_id, sin backfill posible).
+      const { data: npPrevia } = await adminClient().from('notas_pedido').select('area, aprobador_asignado_id').eq('id', id).single()
+      if (npPrevia?.aprobador_asignado_id) {
+        const { data: coord } = await adminClient()
+          .from('coordinadores_area')
+          .select('email')
+          .eq('id', npPrevia.aprobador_asignado_id)
+          .eq('email', perfil.email)
+          .maybeSingle()
+        esCoordinadorDelArea = !!coord
+      } else if (npPrevia) {
         const { data: coord } = await adminClient()
           .from('coordinadores_area')
           .select('email')
           .eq('area', npPrevia.area)
           .eq('email', perfil.email)
-          .single()
+          .maybeSingle()
         esCoordinadorDelArea = !!coord
       }
     }
