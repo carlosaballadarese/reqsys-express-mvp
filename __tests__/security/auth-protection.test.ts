@@ -1786,6 +1786,62 @@ describe('GET /api/compras/nps/[id] — incluye campo cobertura', () => {
   })
 })
 
+describe('GET /api/compras/nps/[id] — preview del aprobador asignado (SC-002)', () => {
+  const { GET } = require('@/app/api/compras/nps/[id]/route')
+
+  it('NP pendiente: resuelve y devuelve aprobadorPendiente', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockObtenerAprobadorPendiente.mockResolvedValueOnce({ nombre: 'Coordinador Eléctrico', area: 'Operaciones - Servicio Eléctrico' })
+
+    const np = { id: 'np-1', numero: 'NP-2026-0001', area: 'Operaciones - Servicio Eléctrico', estado: 'pendiente',
+      total_estimado: 500, creado_por_id: 'user-123', aprobador_asignado_id: 'coord-elec-1' }
+
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.in = jest.fn(() => chain)
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: np, error: null })
+      if (singleCalls === 2) return Promise.resolve({ data: { rol: 'compras', email: 'c@a.com' }, error: null })
+      return Promise.resolve({ data: null, error: null })
+    })
+    chain.then = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+
+    const req = makeRequest(`http://localhost/api/compras/nps/np-1`)
+    const res = await GET(req, { params: Promise.resolve({ id: 'np-1' }) })
+    const body = await res.json()
+
+    expect(mockObtenerAprobadorPendiente).toHaveBeenCalledWith('coord-elec-1')
+    expect(body.aprobadorPendiente).toEqual({ nombre: 'Coordinador Eléctrico', area: 'Operaciones - Servicio Eléctrico' })
+  })
+
+  it('NP ya aprobada: no resuelve el aprobador pendiente (queda null)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+
+    const np = { id: 'np-2', numero: 'NP-2026-0002', area: 'Operaciones', estado: 'aprobada',
+      total_estimado: 500, creado_por_id: 'user-123', aprobador_asignado_id: 'coord-elec-1' }
+
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.in = jest.fn(() => chain)
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: np, error: null })
+      if (singleCalls === 2) return Promise.resolve({ data: { rol: 'compras', email: 'c@a.com' }, error: null })
+      return Promise.resolve({ data: null, error: null })
+    })
+    chain.then = (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+
+    const req = makeRequest(`http://localhost/api/compras/nps/np-2`)
+    const res = await GET(req, { params: Promise.resolve({ id: 'np-2' }) })
+    const body = await res.json()
+
+    expect(body.aprobadorPendiente).toBeNull()
+  })
+})
+
 describe('POST /api/compras/convertir/[id] — validación sobrecompra', () => {
   const { POST } = require('@/app/api/compras/convertir/[id]/route')
 

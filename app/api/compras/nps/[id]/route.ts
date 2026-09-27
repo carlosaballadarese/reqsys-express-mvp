@@ -8,6 +8,7 @@ import { calcularCoberturaNP } from '@/lib/np-cobertura'
 import { puedeVerPrecioNP, puedeGuardarPrecioNP } from '@/lib/np-precio'
 import { ESTADOS_DEVOLVIBLES, pausarSLAPorCierre } from '@/lib/np-estado'
 import { calcularAprobadorAsignado } from '@/lib/np-area'
+import { obtenerAprobadorPendiente } from '@/lib/np-fechas-documento'
 
 export async function GET(
   req: NextRequest,
@@ -29,6 +30,12 @@ export async function GET(
     if (error || !np) return NextResponse.json({ error: 'NP no encontrada' }, { status: 404 })
 
     const cobertura = await calcularCoberturaNP(id)
+
+    // Spec: preview del aprobador asignado (SC-002 aprobador_asignado_id) mientras
+    // la NP está pendiente — mismo dato que ya se muestra en el PDF/Excel.
+    const aprobadorPendiente = np.estado === 'pendiente'
+      ? await obtenerAprobadorPendiente(np.aprobador_asignado_id ?? null)
+      : null
 
     // Calcular permisos del usuario autenticado
     let puedeAprobar   = false
@@ -78,7 +85,7 @@ export async function GET(
       ? (items ?? [])
       : (items ?? []).map((item: any) => ({ ...item, precio_unitario: null }))
 
-    return NextResponse.json({ np: npResp, items: itemsResp, historial: historial ?? [], puedeAprobar, ocs: ocs ?? [], cobertura })
+    return NextResponse.json({ np: npResp, items: itemsResp, historial: historial ?? [], puedeAprobar, ocs: ocs ?? [], cobertura, aprobadorPendiente })
   } catch (err) {
     console.error(err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })

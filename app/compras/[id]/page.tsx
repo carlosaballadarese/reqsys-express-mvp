@@ -757,6 +757,8 @@ export default function DetalleNPPage() {
   const [rol, setRol]             = useState('')
   const [userId, setUserId]       = useState('')
   const [puedeAprobar, setPuedeAprobar] = useState(false)
+  // Spec: preview del aprobador asignado (SC-002) mientras la NP está pendiente
+  const [aprobadorPendiente, setAprobadorPendiente] = useState<{ nombre: string; area: string } | null>(null)
 
   // Completar NP — modal con motivo (Spec CA-09)
   const [modalCompletar, setModalCompletar]   = useState(false)
@@ -833,6 +835,7 @@ export default function DetalleNPPage() {
         setOcs(data.ocs ?? [])
         setCobertura(data.cobertura ?? null)
         setPuedeAprobar(data.puedeAprobar ?? false)
+        setAprobadorPendiente(data.aprobadorPendiente ?? null)
         setCondicionesMinimas(data.np?.condiciones_minimas ?? '')
         setCargando(false)
       })
@@ -1095,6 +1098,10 @@ export default function DetalleNPPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
               <div><p className="text-xs text-slate-500">Solicitante</p><p className="font-medium">{np.solicitante_nombre}</p><p className="text-xs text-slate-400">{np.solicitante_email}</p></div>
               <div><p className="text-xs text-slate-500">Área</p><p className="font-medium">{np.area}</p></div>
+              {/* Spec: preview del aprobador asignado (SC-002) — solo mientras la NP está pendiente */}
+              {aprobadorPendiente && (
+                <div><p className="text-xs text-slate-500">Pendiente de aprobación por</p><p className="font-medium">{aprobadorPendiente.nombre} <span className="text-xs text-slate-400 font-normal">({aprobadorPendiente.area})</span></p></div>
+              )}
               <div><p className="text-xs text-slate-500">Prioridad</p><p className="font-medium capitalize">{np.prioridad}</p></div>
               <div><p className="text-xs text-slate-500">Tipo de Compra</p><p className="font-medium capitalize">{np.tipo_compra}</p></div>
               <div><p className="text-xs text-slate-500">Centro de Costo</p><p className="font-medium capitalize">{np.centro_costo}</p></div>
