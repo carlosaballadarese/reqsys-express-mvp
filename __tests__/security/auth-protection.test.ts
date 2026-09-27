@@ -1462,6 +1462,27 @@ describe('/api/compras/areas/[id]/alternativos — SC-002 CA-09', () => {
     expect(res.status).toBe(200)
   })
 
+  it('GET devuelve {default, alternativos} — incluye el coordinador natural del área', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chainAlternativos = mockChainVacio()
+    chainAlternativos.then = (resolve: any) => Promise.resolve({
+      data: [{ id: 'alt-1', coordinador_id: 'coord-bombeo', coordinadores_area: { id: 'coord-bombeo', nombre: 'Coordinador Bombeo', email: 'b@arlift.com', activo: true } }],
+      error: null,
+    }).then(resolve)
+    const chainDefault = mockChainVacio()
+    chainDefault.limit = jest.fn(() => chainDefault)
+    chainDefault.then = (resolve: any) => Promise.resolve({ data: [{ id: 'coord-elec', nombre: 'Coordinador Eléctrico', email: 'e@arlift.com' }], error: null }).then(resolve)
+    mockFrom.mockImplementation((table: string) => table === 'coordinadores_area' ? chainDefault : chainAlternativos)
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/areas/area-1/alternativos'),
+      { params: Promise.resolve({ id: 'area-1' }) }
+    )
+    const body = await res.json()
+    expect(body.default).toEqual({ id: 'coord-elec', nombre: 'Coordinador Eléctrico', email: 'e@arlift.com' })
+    expect(body.alternativos).toHaveLength(1)
+    expect(body.alternativos[0].coordinadores_area.nombre).toBe('Coordinador Bombeo')
+  })
+
   it('POST devuelve 403 sin rol admin/compras', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     const chain = mockChainVacio()

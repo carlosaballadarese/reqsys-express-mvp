@@ -109,7 +109,7 @@ export default function CoordinadoresPage() {
     setCargandoAlt(true)
     fetch(`/api/compras/areas/${areaAltSel}/alternativos`)
       .then(r => r.json())
-      .then(data => setAltList(Array.isArray(data) ? data : []))
+      .then(data => setAltList(Array.isArray(data?.alternativos) ? data.alternativos : []))
       .catch(() => setAltList([]))
       .finally(() => setCargandoAlt(false))
   }, [areaAltSel])
@@ -196,7 +196,7 @@ export default function CoordinadoresPage() {
     const data = await res.json()
     if (res.ok) {
       setNuevoAltId('')
-      fetch(`/api/compras/areas/${areaAltSel}/alternativos`).then(r => r.json()).then(setAltList)
+      fetch(`/api/compras/areas/${areaAltSel}/alternativos`).then(r => r.json()).then(data => setAltList(data?.alternativos ?? []))
     } else {
       setErrorAlt(data.error || 'Error al agregar')
     }
@@ -204,7 +204,7 @@ export default function CoordinadoresPage() {
 
   async function handleQuitarAlternativo(coordinadorId: string) {
     await fetch(`/api/compras/areas/${areaAltSel}/alternativos?coordinador_id=${coordinadorId}`, { method: 'DELETE' })
-    fetch(`/api/compras/areas/${areaAltSel}/alternativos`).then(r => r.json()).then(setAltList)
+    fetch(`/api/compras/areas/${areaAltSel}/alternativos`).then(r => r.json()).then(data => setAltList(data?.alternativos ?? []))
   }
 
   const nombreArea = (id: string | null) => areas.find(a => a.id === id)?.nombre ?? '—'

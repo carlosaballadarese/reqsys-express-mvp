@@ -198,6 +198,9 @@ export default function NuevaNotaPedido() {
   // Spec: SC-002 CA-04 — alternativos activos del área elegida (vacío = no se
   // muestra el selector de aprobador, comportamiento idéntico al actual).
   const [alternativos, setAlternativos] = useState<AlternativoCoordinador[]>([])
+  // Spec: coordinador natural del área — se ofrece como opción explícita
+  // "Área propia" cuando hay alternativos (en vez del genérico "Automático").
+  const [coordinadorDefault, setCoordinadorDefault] = useState<{ id: string; nombre: string } | null>(null)
 
   const {
     register,
@@ -255,19 +258,26 @@ export default function NuevaNotaPedido() {
   const areaIdSeleccionada = useWatch({ control, name: 'area_id' })
   useEffect(() => {
     setValue('aprobador_elegido_id', '')
+    setCoordinadorDefault(null)
     if (!areaIdSeleccionada) { setAlternativos([]); return }
     let cancelado = false
     fetch(`/api/compras/areas/${areaIdSeleccionada}/alternativos`)
-      .then(res => (res.ok ? res.json() : []))
-      .then((rows: { coordinadores_area: AlternativoCoordinador | null }[]) => {
+      .then(res => (res.ok ? res.json() : { default: null, alternativos: [] }))
+      .then((data: { default: { id: string; nombre: string } | null; alternativos: { coordinadores_area: AlternativoCoordinador | null }[] }) => {
         if (cancelado) return
-        setAlternativos(
-          (rows ?? [])
-            .map(r => r.coordinadores_area)
-            .filter((c): c is AlternativoCoordinador => !!c && c.activo)
-        )
+        const activos = (data.alternativos ?? [])
+          .map(r => r.coordinadores_area)
+          .filter((c): c is AlternativoCoordinador => !!c && c.activo)
+        setAlternativos(activos)
+        setCoordinadorDefault(data.default ?? null)
+        // Spec: cuando el área tiene alternativo(s), el selector arranca en el
+        // primer alternativo (no en "automático") — evita que quien crea la NP
+        // deje pasar por defecto una aprobación que quizás no corresponde
+        // (ej. autoaprobación si el creador es el propio coordinador del área).
+        // "Área propia" queda disponible como elección explícita en el combo.
+        if (activos.length > 0) setValue('aprobador_elegido_id', activos[0].id)
       })
-      .catch(() => setAlternativos([]))
+      .catch(() => { setAlternativos([]); setCoordinadorDefault(null) })
     return () => { cancelado = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [areaIdSeleccionada])
@@ -440,8 +450,10 @@ export default function NuevaNotaPedido() {
                     {...register('aprobador_elegido_id')}
                     className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <option value="">Automático (por defecto del área)</option>
                     {alternativos.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                    {coordinadorDefault && (
+                      <option value={coordinadorDefault.id}>Área propia ({coordinadorDefault.nombre})</option>
+                    )}
                   </select>
                 </div>
               )}

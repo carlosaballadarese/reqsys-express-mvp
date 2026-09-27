@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { adminClient } from '@/lib/supabase/clients'
+import { resolverAprobadorPorDefecto } from '@/lib/np-area'
 
 async function verificarAdminOCompras() {
   const supabase = await createSupabaseServerClient()
@@ -34,13 +35,20 @@ export async function GET(
 
   const { id: areaId } = await params
 
-  const { data, error } = await adminClient()
-    .from('area_aprobadores_alternativos')
-    .select('id, coordinador_id, coordinadores_area(id, nombre, email, activo)')
-    .eq('area_id', areaId)
+  const [{ data, error }, coordinadorDefault] = await Promise.all([
+    adminClient()
+      .from('area_aprobadores_alternativos')
+      .select('id, coordinador_id, coordinadores_area(id, nombre, email, activo)')
+      .eq('area_id', areaId)
+      .order('created_at'),
+    resolverAprobadorPorDefecto(areaId),
+  ])
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data ?? [])
+  // Spec: el default se expone junto a los alternativos para que "Nueva NP"
+  // pueda ofrecer "Área propia (Nombre)" como opción explícita en el selector,
+  // en vez de un genérico "Automático" que no dice quién es.
+  return NextResponse.json({ default: coordinadorDefault, alternativos: data ?? [] })
 }
 
 // Spec: SC-002 CA-09 — registra un coordinador como aprobador alternativo
