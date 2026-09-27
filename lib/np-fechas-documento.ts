@@ -39,3 +39,22 @@ export async function obtenerRolSolicitante(
 
   return rol ? (ROL_LABEL[rol] ?? rol) : null
 }
+
+// Spec: preview del aprobador asignado antes de que exista una aprobación real
+// — distinto del snapshot aprobador_np_nombre/aprobador_np_area (que solo se
+// llena al aprobar). Se muestra en el PDF/Excel de la NP solo mientras está
+// pendiente, ya que aprobador_asignado_id puede ser un override (SC-002) que
+// no es deducible por el área.
+export async function obtenerAprobadorPendiente(
+  aprobadorAsignadoId: string | null
+): Promise<{ nombre: string; area: string } | null> {
+  if (!aprobadorAsignadoId) return null
+
+  const { data } = await adminClient()
+    .from('coordinadores_area')
+    .select('nombre, area')
+    .eq('id', aprobadorAsignadoId)
+    .maybeSingle()
+
+  return data ? { nombre: data.nombre, area: data.area } : null
+}

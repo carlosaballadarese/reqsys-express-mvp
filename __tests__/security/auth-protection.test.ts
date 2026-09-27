@@ -40,11 +40,13 @@ jest.mock('@/lib/auditoria', () => ({
 // Spec: SC-001 — mockeado para verificar que las rutas de exportación de NP
 // (PDF/Excel) invocan estas funciones con los argumentos correctos; la lógica
 // real ya está cubierta por __tests__/security/np-fechas-documento.test.ts.
-const mockObtenerFechaAprobacionNP = jest.fn((..._args: unknown[]) => Promise.resolve<string | null>(null))
-const mockObtenerRolSolicitante    = jest.fn((..._args: unknown[]) => Promise.resolve<string | null>(null))
+const mockObtenerFechaAprobacionNP  = jest.fn((..._args: unknown[]) => Promise.resolve<string | null>(null))
+const mockObtenerRolSolicitante     = jest.fn((..._args: unknown[]) => Promise.resolve<string | null>(null))
+const mockObtenerAprobadorPendiente = jest.fn((..._args: unknown[]) => Promise.resolve<{ nombre: string; area: string } | null>(null))
 jest.mock('@/lib/np-fechas-documento', () => ({
-  obtenerFechaAprobacionNP: (...args: unknown[]) => mockObtenerFechaAprobacionNP(...args),
-  obtenerRolSolicitante:    (...args: unknown[]) => mockObtenerRolSolicitante(...args),
+  obtenerFechaAprobacionNP:  (...args: unknown[]) => mockObtenerFechaAprobacionNP(...args),
+  obtenerRolSolicitante:     (...args: unknown[]) => mockObtenerRolSolicitante(...args),
+  obtenerAprobadorPendiente: (...args: unknown[]) => mockObtenerAprobadorPendiente(...args),
 }))
 
 const mockActualizarEstadoNP = jest.fn((..._args: unknown[]) => Promise.resolve())
@@ -3607,6 +3609,7 @@ function npDataCompleta() {
     proveedor_regularizacion_nombre: null, proveedor_regularizacion_identificacion: null,
     creado_por_id: 'user-123', solicitante_email: 'sol@arlift.com', solicitante_nombre: 'Juan Pérez',
     asignado_a: null, aprobador_np_nombre: null, aprobador_np_area: null, condiciones_minimas: null,
+    estado: 'pendiente', aprobador_asignado_id: 'coord-elec-1',
   }
 }
 
@@ -3635,6 +3638,8 @@ describe('GET /api/compras/nps/[id]/pdf — SC-001 CA-05/CA-05b (wiring)', () =>
     expect(res.status).toBe(200)
     expect(mockObtenerFechaAprobacionNP).toHaveBeenCalledWith('np-1')
     expect(mockObtenerRolSolicitante).toHaveBeenCalledWith({ creado_por_id: 'user-123', solicitante_email: 'sol@arlift.com' })
+    // Spec: preview del aprobador asignado (SC-002) mientras la NP está pendiente
+    expect(mockObtenerAprobadorPendiente).toHaveBeenCalledWith('coord-elec-1')
   })
 })
 
@@ -3662,6 +3667,8 @@ describe('GET /api/compras/nps/[id]/excel — SC-001 CA-02/CA-05/CA-05b', () => 
     )
     expect(res.status).toBe(200)
     expect(mockObtenerFechaAprobacionNP).toHaveBeenCalledWith('np-1')
+    // Spec: preview del aprobador asignado (SC-002) mientras la NP está pendiente
+    expect(mockObtenerAprobadorPendiente).toHaveBeenCalledWith('coord-elec-1')
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const ExcelJS = require('exceljs').default

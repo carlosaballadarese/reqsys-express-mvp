@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { puedeVerPrecioNP } from '@/lib/np-precio'
-import { obtenerFechaAprobacionNP, obtenerRolSolicitante } from '@/lib/np-fechas-documento'
+import { obtenerFechaAprobacionNP, obtenerRolSolicitante, obtenerAprobadorPendiente } from '@/lib/np-fechas-documento'
 import ExcelJS from 'exceljs'
 
 function usd(n: number | null | undefined) { return `$${Number(n ?? 0).toFixed(2)}` }
@@ -85,9 +85,10 @@ export async function GET(
     const mostrarPrecios = puedeVerPrecioNP(rol, np.es_regularizacion ?? false, np.creado_por_id, user.id)
 
     // Spec: SC-001 CA-05/CA-05b — fecha de aprobación (historial_np) y rol real del solicitante
-    const [fecha_aprobacion, solicitante_rol] = await Promise.all([
+    const [fecha_aprobacion, solicitante_rol, aprobador_pendiente] = await Promise.all([
       obtenerFechaAprobacionNP(id),
       obtenerRolSolicitante({ creado_por_id: np.creado_por_id ?? null, solicitante_email: np.solicitante_email }),
+      obtenerAprobadorPendiente(np.aprobador_asignado_id ?? null),
     ])
 
     const wb = new ExcelJS.Workbook()
@@ -285,6 +286,17 @@ export async function GET(
     ws.getCell(`F${row}`).style = headerStyle(ROJO2)
     ws.getRow(row).height = 14
     row++
+
+    // Spec: preview del aprobador asignado mientras la NP está pendiente —
+    // distinto del snapshot aprobador_np_nombre/area, que solo existe tras
+    // la aprobación real.
+    if (np.estado === 'pendiente' && aprobador_pendiente) {
+      ws.mergeCells(`F${row}:${LAST_COL}${row}`)
+      ws.getCell(`F${row}`).value = `Pendiente de aprobación por: ${aprobador_pendiente.nombre} (${aprobador_pendiente.area})`
+      ws.getCell(`F${row}`).style = { font: { size: 6, italic: true, color: { argb: 'FF64748b' } }, border: allBorder() }
+      ws.getRow(row).height = 12
+      row++
+    }
 
     // Spec: SC-001 CA-05/CA-05b — Nombre/Área/Rol/Fecha/Firma por bloque
     const filaFirmante = (label: string, valIzq: string, valDer: string) => {

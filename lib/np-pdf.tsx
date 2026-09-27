@@ -65,6 +65,7 @@ const styles = StyleSheet.create({
   filaFirmanteLabel:  { fontSize: 6, color: GRIS, width: 34 },
   filaFirmanteValor:  { fontSize: 7, flex: 1 },
   filaFirma:          { flexDirection: 'row', marginTop: 10 },
+  aprobPendienteNota: { fontSize: 6, color: GRIS, fontStyle: 'italic', marginBottom: 4 },
 })
 
 // Spec CA-07: anchos de columna condicionales al permiso de precio
@@ -92,6 +93,7 @@ function FilaFirmante({ label, value, esFirma }: { label: string; value: string;
 
 export interface NPExportData {
   numero: string
+  estado: string
   area: string
   clasificacion: string | null
   prioridad: string | null
@@ -112,6 +114,10 @@ export interface NPExportData {
   fecha_aprobacion: string | null
   // Spec: SC-001 §2.2 — rol real del solicitante, ya traducido con ROL_LABEL.
   solicitante_rol: string | null
+  // Spec: preview del aprobador asignado (SC-002 aprobador_asignado_id) mientras
+  // la NP está pendiente — distinto de aprobador_np_nombre/area, que es el
+  // snapshot histórico que solo existe tras la aprobación real.
+  aprobador_pendiente: { nombre: string; area: string } | null
 }
 
 export interface ItemNPExport {
@@ -275,6 +281,11 @@ export function NPDocumento({ np, items, mostrarPrecios, config, logoUrl }: {
           </View>
           <View style={styles.aprobCellLast}>
             <Text style={styles.aprobHead}>APROBADO POR</Text>
+            {np.estado === 'pendiente' && np.aprobador_pendiente && (
+              <Text style={styles.aprobPendienteNota}>
+                Pendiente de aprobación por: {np.aprobador_pendiente.nombre} ({np.aprobador_pendiente.area})
+              </Text>
+            )}
             <FilaFirmante label="Nombre" value={np.aprobador_np_nombre ?? ''} />
             <FilaFirmante label="Área"   value={np.aprobador_np_area ?? ''} />
             <FilaFirmante label="Rol"    value="Coordinador de Área" />
