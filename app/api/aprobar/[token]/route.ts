@@ -103,6 +103,10 @@ export async function POST(
         motivo_rechazo: accion === 'rechazar' ? motivo_rechazo : null,
         ...(esAprobada && {
           aprobador_np_nombre: coordinadorArea?.nombre ?? null,
+          // Spec: el área impresa en "APROBADO POR" es la del coordinador que
+          // realmente aprueba (real por disposición explícita, ej. Bombeo
+          // aprobando por Eléctrico) — distinta del área de la NP (siempre la
+          // real de creación, usada para estadísticas y nunca tocada aquí).
           aprobador_np_area:   coordinadorArea?.area ?? np.area,
         }),
       })

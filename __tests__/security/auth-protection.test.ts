@@ -1644,7 +1644,8 @@ describe('POST /api/aprobar/[token] — persistencia de aprobador_np', () => {
     await POST(req, { params: Promise.resolve({ token: 'tok-aprobar-alt' }) })
 
     // El snapshot y el email deben atribuir la aprobación al alternativo
-    // (Coordinador Bombeo), no al coordinador natural del área de la NP.
+    // (Coordinador Bombeo), incluyendo su área real — distinta del área de
+    // la NP (Servicio Eléctrico), que permanece intacta para estadísticas.
     expect(chain.update).toHaveBeenCalledWith(
       expect.objectContaining({
         aprobador_np_nombre: 'Coordinador Bombeo',
