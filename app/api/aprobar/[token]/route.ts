@@ -35,19 +35,20 @@ export async function POST(
     const nuevoEstado = accion === 'aprobar' ? 'aprobada' : 'rechazada'
     const esAprobada  = accion === 'aprobar'
 
-    // Obtener coordinador del área (actor de la acción)
-    const { data: coordinadorArea } = await anonClient()
-      .from('coordinadores_area')
-      .select('nombre, email')
-      .eq('area', np.area)
-      .single()
+    // Resolver el coordinador que realmente aprueba/rechaza (actor de la acción).
+    // Spec SC-002: usa aprobador_asignado_id (default u override, ej. un
+    // alternativo) si existe — de lo contrario, un aprobador alternativo que
+    // aprueba por el link de su email quedaría atribuido al coordinador
+    // "natural" del área en vez de a sí mismo. Fallback al área de texto legado
+    // para NPs creadas antes de esta SC (sin backfill posible).
+    const { data: coordinadorArea } = np.aprobador_asignado_id
+      ? await anonClient().from('coordinadores_area').select('nombre, email, area').eq('id', np.aprobador_asignado_id).single()
+      : await anonClient().from('coordinadores_area').select('nombre, email, area').eq('area', np.area).single()
 
     // Si fue aprobada, preparar y enviar email a Compras
     if (esAprobada) {
-      const [{ data: compras }, { data: aprobador }] = await Promise.all([
-        anonClient().from('coordinadores_area').select('nombre, email').eq('area', 'Compras').single(),
-        anonClient().from('coordinadores_area').select('nombre, email').eq('area', np.area).single(),
-      ])
+      const { data: compras } = await anonClient().from('coordinadores_area').select('nombre, email').eq('area', 'Compras').single()
+      const aprobador = coordinadorArea
 
       if (compras) {
         // Email a compras - Simplificado para evitar filtros
@@ -102,7 +103,7 @@ export async function POST(
         motivo_rechazo: accion === 'rechazar' ? motivo_rechazo : null,
         ...(esAprobada && {
           aprobador_np_nombre: coordinadorArea?.nombre ?? null,
-          aprobador_np_area:   np.area,
+          aprobador_np_area:   coordinadorArea?.area ?? np.area,
         }),
       })
       .eq('id', np.id)

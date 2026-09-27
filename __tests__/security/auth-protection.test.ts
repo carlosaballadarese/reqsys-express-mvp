@@ -1608,6 +1608,55 @@ describe('POST /api/aprobar/[token] — persistencia de aprobador_np', () => {
       })
     )
   })
+
+  it('SC-002: atribuye la aprobación al aprobador alternativo asignado, no al coordinador natural del área de la NP', async () => {
+    const { transporter } = require('@/lib/mailer')
+    transporter.sendMail.mockResolvedValue({})
+
+    // NP de Servicio Eléctrico, pero con aprobador_asignado_id apuntando al
+    // alternativo de Bombeo Mecánico (caso real: Andrés Fiallos / Olger Salazar)
+    const np = {
+      id: 'np-apr-alt-1', numero: 'NP-2026-0441', area: 'Operaciones - Servicio Eléctrico',
+      estado: 'pendiente', token_aprobacion: 'tok-aprobar-alt',
+      aprobador_asignado_id: 'coord-bombeo-1',
+      descripcion_general: 'Test', total_estimado: 500,
+      solicitante_email: 'andres@arlift.com', solicitante_nombre: 'Andrés Fiallos',
+    }
+    const coordinadorAlternativo = { nombre: 'Coordinador Bombeo', email: 'olger@arlift.com', area: 'Operaciones - Bombeo Mecánico' }
+    const comprasCoord = { nombre: 'Ana Compras', email: 'ana@arlift.com' }
+
+    let singleCalls = 0
+    const updateEqMock = jest.fn(() => Promise.resolve({ data: {}, error: null }))
+    const chain = mockChainVacio()
+    chain.update = jest.fn(() => ({ eq: updateEqMock }))
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: np,                    error: null }) // NP
+      if (singleCalls === 2) return Promise.resolve({ data: coordinadorAlternativo, error: null }) // coordinadorArea (por aprobador_asignado_id)
+      return Promise.resolve({ data: comprasCoord, error: null })                                  // Promise.all → compras
+    })
+    mockFrom.mockReturnValue(chain)
+
+    const req = makeRequest('http://localhost/api/aprobar/tok-aprobar-alt', {
+      method: 'POST',
+      body: JSON.stringify({ accion: 'aprobar' }),
+    })
+    await POST(req, { params: Promise.resolve({ token: 'tok-aprobar-alt' }) })
+
+    // El snapshot y el email deben atribuir la aprobación al alternativo
+    // (Coordinador Bombeo), no al coordinador natural del área de la NP.
+    expect(chain.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aprobador_np_nombre: 'Coordinador Bombeo',
+        aprobador_np_area:   'Operaciones - Bombeo Mecánico',
+      })
+    )
+    expect(transporter.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining('fue aprobada por Coordinador Bombeo'),
+      })
+    )
+  })
 })
 
 // ── 23. Convertir NP → OC — propagación del aprobador ────────────────────────
