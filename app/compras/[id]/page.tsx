@@ -19,6 +19,7 @@ type NP = {
   solicitante_nombre: string
   solicitante_email: string
   area: string
+  area_id: string
   prioridad: string
   tipo_compra: string
   centro_costo: string
@@ -785,7 +786,7 @@ export default function DetalleNPPage() {
   // Edición inline de NP rechazada
   const [modoEdicion, setModoEdicion]     = useState(false)
   const [editEnc, setEditEnc]             = useState<{
-    solicitante_nombre: string; solicitante_email: string; area: string
+    solicitante_nombre: string; solicitante_email: string; area_id: string
     prioridad: string; tipo_compra: string; centro_costo: string; descripcion_general: string
     es_regularizacion: boolean; fecha_provision: string
     proveedor_regularizacion_nombre: string; proveedor_regularizacion_identificacion: string
@@ -887,7 +888,7 @@ export default function DetalleNPPage() {
     setEditEnc({
       solicitante_nombre:  np.solicitante_nombre,
       solicitante_email:                   np.solicitante_email,
-      area:                                np.area,
+      area_id:                             np.area_id,
       prioridad:                           np.prioridad,
       tipo_compra:                         np.tipo_compra,
       centro_costo:                        np.centro_costo,
@@ -1425,9 +1426,9 @@ export default function DetalleNPPage() {
                 </div>
                 <div>
                   <Label className="text-xs">Área *</Label>
-                  <select value={editEnc.area} onChange={e => setEditEnc(f => f && ({ ...f, area: e.target.value }))} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
-                    {editAreas.length === 0 && <option value={editEnc.area}>{editEnc.area}</option>}
-                    {editAreas.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
+                  <select value={editEnc.area_id} onChange={e => setEditEnc(f => f && ({ ...f, area_id: e.target.value }))} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
+                    {editAreas.length === 0 && <option value={editEnc.area_id}>{np?.area}</option>}
+                    {editAreas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
                   </select>
                 </div>
                 <div>
