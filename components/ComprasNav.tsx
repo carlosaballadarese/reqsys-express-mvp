@@ -73,6 +73,15 @@ const NAV: NavGroup[] = [
       { label: 'Inventario', href: '/compras/inventario' },
     ],
   },
+  // Spec: HU-018 CA-12 — grupo de nivel superior (no anidado bajo "Compras",
+  // que excluye solicitante/bodega), ya que esos 2 roles podrán generar
+  // releases contra una OCA vigente (RN-07, Fase D futura). Excluye
+  // 'coordinador' a propósito — no está en la lista de roles de la HU.
+  {
+    label: 'OCA',
+    href: '/compras/ocas',
+    roles: ['solicitante','bodega','compras','admin','gerencia','consulta','asistente_compras'],
+  },
   {
     label: 'Dashboard',
     roles: ['compras','admin','gerencia','consulta','coordinador','bodega','asistente_compras','solicitante'],
