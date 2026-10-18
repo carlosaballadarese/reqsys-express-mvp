@@ -16,6 +16,12 @@ export const ESTADOS_OCA_ACTIVA: EstadoOca[] = ['vigente']
 // única vía de regreso a vigente.
 export const ESTADOS_OCA_AUTOGESTIONADOS: EstadoOca[] = ['vigente']
 
+// Spec: HU-019 RN-01 — una OCA cuenta como cobertura viva de una línea de NP
+// en cualquier estado salvo `cerrada` (terminal) — mismo rol que excluir
+// rechazada/cancelada cumple para "OC viva" (ESTADOS_OC_VIVOS en np-estado.ts).
+export const ESTADOS_OCA_VIVAS: EstadoOca[] =
+  ['borrador', 'en_aprobacion', 'vigente', 'suspendida', 'agotada', 'vencida']
+
 type OcaResumen = {
   id: string
   estado: string

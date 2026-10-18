@@ -1,4 +1,5 @@
 import { type Estado, ESTADOS_OC_VIVOS, calcularAccionAgregada } from '@/lib/np-estado'
+import { ESTADOS_OCA_VIVAS } from '@/lib/oca-estado'
 
 export type SlaBadge = 'no_activo' | 'pausado' | 'a_tiempo' | 'vencido'
 
@@ -84,6 +85,20 @@ export function ocVivaDeLinea(
   const ocs = ocsPorItem.get(itemNpId) ?? []
   const viva = ocs.find(oc => ESTADOS_OC_VIVOS.includes(oc.estado_oc))
   return viva ? { id: viva.id, numero_oc: viva.numero_oc } : null
+}
+
+export type OcaDeLinea = { id: string; numero_oca: string }
+
+// Spec: HU-019 CA-05, RN-01 — espejo exacto de ocVivaDeLinea(), mismo contrato
+// (recibe el Map ya construido por el caller). Una OCA en estado `cerrada` no
+// cubre la línea a estos efectos (RN-01, mismo rol que rechazada/cancelada para OC).
+export function ocaVivaDeLinea(
+  itemNpId: string,
+  ocasPorItem: Map<string, { id: string; numero_oca: string; estado: string }[]>
+): OcaDeLinea | null {
+  const ocas = ocasPorItem.get(itemNpId) ?? []
+  const viva = ocas.find(oca => (ESTADOS_OCA_VIVAS as string[]).includes(oca.estado))
+  return viva ? { id: viva.id, numero_oca: viva.numero_oca } : null
 }
 
 // Spec: HU-011 CA-08 — envoltorio delgado sobre puedeVerPrecioNP para no repetir

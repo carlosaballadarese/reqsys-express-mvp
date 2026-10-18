@@ -16,6 +16,7 @@ import {
   ESTADOS_OCA_AUTOGESTIONADOS,
   ESTADOS_OCA_NO_TERMINALES,
   ESTADOS_OCA_ACTIVA,
+  ESTADOS_OCA_VIVAS,
 } from '@/lib/oca-estado'
 
 type Oca = {
@@ -67,6 +68,12 @@ describe('ESTADOS_OCA_* — constantes (CA-07, CA-09, CA-11)', () => {
     expect(ESTADOS_OCA_NO_TERMINALES.sort()).toEqual(
       ['agotada', 'suspendida', 'vencida', 'vigente'].sort()
     )
+  })
+  it('ESTADOS_OCA_VIVAS incluye los 6 estados salvo cerrada (HU-019 RN-01)', () => {
+    expect(ESTADOS_OCA_VIVAS.sort()).toEqual(
+      ['borrador', 'en_aprobacion', 'vigente', 'suspendida', 'agotada', 'vencida'].sort()
+    )
+    expect(ESTADOS_OCA_VIVAS).not.toContain('cerrada')
   })
 })
 
