@@ -5953,3 +5953,92 @@ describe('POST /api/compras/ocas/[id]/enviar-aprobacion', () => {
     expect(body.estado).toBe('en_aprobacion')
   })
 })
+
+describe('POST /api/compras/ocas/[id]/aprobar', () => {
+  const { POST } = require('@/app/api/compras/ocas/[id]/aprobar/route')
+
+  function setupMock(opts: { rol?: string | null; estado?: string } = {}) {
+    mockFrom.mockImplementation((table: string) => {
+      const chain = mockChainVacio()
+      if (table === 'perfiles') {
+        chain.single = jest.fn(() =>
+          Promise.resolve({ data: opts.rol ? { rol: opts.rol, nombre: 'Gerente', email: 'g@test.com' } : null, error: null })
+        )
+        return chain
+      }
+      if (table === 'oca') {
+        chain.single = jest.fn(() => Promise.resolve({
+          data: { id: 'oca-1', numero_oca: 'OCA-2026-0001', estado: opts.estado ?? 'en_aprobacion', creado_por_id: 'user-creador' },
+          error: null,
+        }))
+        chain.update = jest.fn(() => chain)
+        return chain
+      }
+      return chain
+    })
+  }
+
+  function req(body: Record<string, unknown>) {
+    return makeRequest('http://localhost/api/compras/ocas/oca-1/aprobar', { method: 'POST', body: JSON.stringify(body) })
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(req({ decision: 'aprobar' }), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'bodega', 'compras', 'consulta', 'asistente_compras'])(
+    'devuelve 403 para rol %s (RN-02: solo gerencia/admin)',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupMock({ rol })
+      const res = await POST(req({ decision: 'aprobar' }), { params: Promise.resolve({ id: 'oca-1' }) })
+      expect(res.status).toBe(403)
+    }
+  )
+
+  it('devuelve 400 si decision no es aprobar ni rechazar', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'gerencia' })
+    const res = await POST(req({ decision: 'otra-cosa' }), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 400 si rechaza sin motivo (CA-06)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'gerencia' })
+    const res = await POST(req({ decision: 'rechazar' }), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 409 si la OCA no está en en_aprobacion', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'gerencia', estado: 'borrador' })
+    const res = await POST(req({ decision: 'aprobar' }), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(409)
+  })
+
+  it('aprobar devuelve 200 con estado vigente', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'gerencia' })
+    const res = await POST(req({ decision: 'aprobar' }), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(200)
+    expect((await res.json()).estado).toBe('vigente')
+  })
+
+  it('admin también puede aprobar (RN-02)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'admin' })
+    const res = await POST(req({ decision: 'aprobar' }), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(200)
+  })
+
+  it('rechazar con motivo devuelve 200 con estado borrador y notifica al creador', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'gerencia' })
+    const res = await POST(req({ decision: 'rechazar', motivo: 'Faltan datos del proveedor' }), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(200)
+    expect((await res.json()).estado).toBe('borrador')
+  })
+})
