@@ -5739,3 +5739,139 @@ describe('GET /api/compras/ocas', () => {
     expect(mockActualizarEstadoOca).toHaveBeenCalledWith('oca-1')
   })
 })
+
+describe('GET /api/compras/ocas/[id]', () => {
+  const { GET } = require('@/app/api/compras/ocas/[id]/route')
+
+  function setupMock(opts: { rol?: string | null; oca?: Record<string, unknown> | null } = {}) {
+    mockFrom.mockImplementation((table: string) => {
+      const chain = mockChainVacio()
+      if (table === 'perfiles') {
+        chain.single = jest.fn(() => Promise.resolve({ data: opts.rol ? { rol: opts.rol } : null, error: null }))
+        return chain
+      }
+      if (table === 'oca') {
+        chain.single = jest.fn(() => Promise.resolve({ data: opts.oca ?? null, error: null }))
+        return chain
+      }
+      return chain // oca_items, oca_areas_habilitadas, historial_oca, areas
+    })
+  }
+
+  const ocaBase = {
+    id: 'oca-1', numero_oca: 'OCA-2026-0001', estado: 'borrador',
+    proveedor_id: 'p1', tipo: 'precio_fijo', presupuesto_total: 1000,
+    fecha_inicio: '2026-01-01', fecha_fin: '2026-12-31',
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1'), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol coordinador (excluido de CA-13)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'coordinador', oca: ocaBase })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1'), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 404 si la OCA no existe', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', oca: null })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/no-existe'), { params: Promise.resolve({ id: 'no-existe' }) })
+    expect(res.status).toBe(404)
+  })
+
+  it.each(['solicitante', 'bodega', 'compras', 'admin', 'gerencia', 'consulta', 'asistente_compras'])(
+    'devuelve 200 para rol %s',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupMock({ rol, oca: ocaBase })
+      const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1'), { params: Promise.resolve({ id: 'oca-1' }) })
+      expect(res.status).toBe(200)
+    }
+  )
+
+  it('invoca actualizarEstadoOca() solo si la OCA está vigente', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockActualizarEstadoOca.mockClear()
+    setupMock({ rol: 'compras', oca: { ...ocaBase, estado: 'borrador' } })
+    await GET(makeRequest('http://localhost/api/compras/ocas/oca-1'), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(mockActualizarEstadoOca).not.toHaveBeenCalled()
+
+    setupMock({ rol: 'compras', oca: { ...ocaBase, estado: 'vigente' } })
+    await GET(makeRequest('http://localhost/api/compras/ocas/oca-1'), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(mockActualizarEstadoOca).toHaveBeenCalledWith('oca-1')
+  })
+})
+
+describe('PUT /api/compras/ocas/[id]', () => {
+  const { PUT } = require('@/app/api/compras/ocas/[id]/route')
+
+  function setupMock(opts: { rol?: string | null; estado?: string } = {}) {
+    mockFrom.mockImplementation((table: string) => {
+      const chain = mockChainVacio()
+      if (table === 'perfiles') {
+        chain.single = jest.fn(() => Promise.resolve({ data: opts.rol ? { rol: opts.rol } : null, error: null }))
+        return chain
+      }
+      if (table === 'oca') {
+        chain.single = jest.fn(() => Promise.resolve({ data: { id: 'oca-1', estado: opts.estado ?? 'borrador' }, error: null }))
+        chain.update = jest.fn(() => chain)
+        return chain
+      }
+      chain.delete = jest.fn(() => chain)
+      return chain
+    })
+  }
+
+  const bodyValido = {
+    proveedor_id: 'prov-1', tipo: 'precio_fijo', descripcion: 'Ferretería',
+    fecha_inicio: '2026-01-01', fecha_fin: '2026-12-31', presupuesto_total: 5000,
+    referencia_contractual: 'CONTRATO-001', areas_habilitadas: ['area-1'],
+    items: [{ codigo: 'FER-001', descripcion: 'Tornillos', unidad: 'caja', precio_unitario: 10 }],
+  }
+
+  function reqEditar(body: Record<string, unknown>) {
+    return makeRequest('http://localhost/api/compras/ocas/oca-1', { method: 'PUT', body: JSON.stringify(body) })
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await PUT(reqEditar(bodyValido), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'bodega', 'gerencia', 'consulta', 'asistente_compras', 'coordinador'])(
+    'devuelve 403 para rol %s (RN-01: solo compras/admin editan)',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupMock({ rol })
+      const res = await PUT(reqEditar(bodyValido), { params: Promise.resolve({ id: 'oca-1' }) })
+      expect(res.status).toBe(403)
+    }
+  )
+
+  it('devuelve 409 si la OCA no está en borrador', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', estado: 'vigente' })
+    const res = await PUT(reqEditar(bodyValido), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(409)
+  })
+
+  it('devuelve 400 si la validación de cabecera/ítems falla (RN-03/04/05)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', estado: 'borrador' })
+    const res = await PUT(reqEditar({ ...bodyValido, presupuesto_total: 0 }), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 200 con payload válido en borrador', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', estado: 'borrador' })
+    const res = await PUT(reqEditar(bodyValido), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(200)
+  })
+})

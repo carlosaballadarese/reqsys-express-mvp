@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { adminClient } from '@/lib/supabase/clients'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { actualizarEstadoOca } from '@/lib/oca-estado'
+import { validarCabeceraEItems, type OcaItemInput } from '@/lib/oca-validaciones'
 
 // Spec: HU-018 RN-01 — solo compras/admin crean OCA
 const ROLES_CREAR = ['compras', 'admin']
@@ -10,48 +11,11 @@ const ROLES_CREAR = ['compras', 'admin']
 // solicitante/bodega porque podrán generar releases en la Fase D futura)
 const ROLES_LISTAR = ['solicitante', 'bodega', 'compras', 'admin', 'gerencia', 'consulta', 'asistente_compras']
 
-type ItemInput = {
-  codigo: string
-  descripcion: string
-  unidad: string
-  categoria?: string
-  precio_unitario?: number
-  precio_maximo?: number
-}
-
 async function generarNumeroOca(): Promise<string> {
   const year = new Date().getFullYear()
   const { data, error } = await adminClient().rpc('siguiente_numero_oca', { p_year: year })
   if (error || data === null) throw new Error('Error al generar número de OCA')
   return `OCA-${year}-${String(data).padStart(4, '0')}`
-}
-
-// Spec: HU-018 RN-03, RN-04, RN-05 — validaciones compartidas por POST y PUT
-function validarCabeceraEItems(body: {
-  tipo?: string
-  fecha_inicio?: string
-  fecha_fin?: string
-  presupuesto_total?: number
-  items?: ItemInput[]
-}): string | null {
-  if (!['precio_fijo', 'precio_variable_tope'].includes(body.tipo ?? '')) {
-    return 'Tipo de OCA inválido'
-  }
-  if (!body.fecha_inicio || !body.fecha_fin || new Date(body.fecha_fin) <= new Date(body.fecha_inicio)) {
-    return 'La fecha de fin debe ser posterior a la fecha de inicio'
-  }
-  if (!body.presupuesto_total || body.presupuesto_total <= 0) {
-    return 'El presupuesto total debe ser un monto positivo'
-  }
-  for (const item of body.items ?? []) {
-    if (body.tipo === 'precio_fijo' && (item.precio_unitario === undefined || item.precio_unitario === null)) {
-      return `El ítem ${item.codigo} requiere precio_unitario (tipo precio_fijo)`
-    }
-    if (body.tipo === 'precio_variable_tope' && (item.precio_maximo === undefined || item.precio_maximo === null)) {
-      return `El ítem ${item.codigo} requiere precio_maximo (tipo precio_variable_tope)`
-    }
-  }
-  return null
 }
 
 export async function POST(req: NextRequest) {
@@ -92,7 +56,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: errorOca?.message ?? 'Error al crear la OCA' }, { status: 500 })
     }
 
-    const items: ItemInput[] = body.items ?? []
+    const items: OcaItemInput[] = body.items ?? []
     if (items.length > 0) {
       await adminClient().from('oca_items').insert(
         items.map(it => ({
