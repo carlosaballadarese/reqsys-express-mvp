@@ -5,6 +5,7 @@ import { puedeVerPrecioNP } from '@/lib/np-precio'
 import {
   clasificarBadgeSLA,
   ocVivaDeLinea,
+  ocaVivaDeLinea,
   aplicarMaskingPrecio,
   calcularSlaDiasSigno,
   type SlaBadge,
@@ -142,6 +143,32 @@ export async function obtenerLineasPendientes(
     }
   }
 
+  // Spec: HU-019 CA-05 — mismo criterio "OCA viva" (RN-01), consultado junto a
+  // la de OC para excluir líneas cubiertas por cualquiera de los dos canales.
+  const ocasPorItem = new Map<string, { id: string; numero_oca: string; estado: string }[]>()
+  if (itemIds.length > 0) {
+    const { data: ocaItems } = await adminClient()
+      .from('oca_items')
+      .select('item_np_id, oca_id')
+      .in('item_np_id', itemIds)
+      .not('item_np_id', 'is', null)
+
+    const ocaIds = [...new Set((ocaItems ?? []).map((io: any) => io.oca_id))]
+    const { data: ocasData } = ocaIds.length > 0
+      ? await adminClient().from('oca').select('id, numero_oca, estado').in('id', ocaIds)
+      : { data: [] as { id: string; numero_oca: string; estado: string }[] }
+
+    const ocaPorId = new Map((ocasData ?? []).map((oca: any) => [oca.id, oca]))
+    for (const io of (ocaItems ?? [])) {
+      if (!io.item_np_id) continue
+      const oca = ocaPorId.get(io.oca_id)
+      if (!oca) continue
+      const lista = ocasPorItem.get(io.item_np_id) ?? []
+      lista.push({ id: oca.id, numero_oca: oca.numero_oca, estado: oca.estado })
+      ocasPorItem.set(io.item_np_id, lista)
+    }
+  }
+
   // Spec: nota de diseño (HU-011, reutilizada) — una sola consulta a feriados para todo el lote
   const conSla = npsBase.filter((np: any) => np.sla_iniciado_en)
   let feriados = new Set<string>()
@@ -159,6 +186,7 @@ export async function obtenerLineasPendientes(
     const np: any = npPorId.get(item.nota_pedido_id)
     if (!np) continue
     if (ocVivaDeLinea(item.id, ocsPorItem) !== null) continue
+    if (ocaVivaDeLinea(item.id, ocasPorItem) !== null) continue
 
     const verPrecio = puedeVerPrecioNP(rol, np.es_regularizacion ?? false, np.creado_por_id, userId)
     const masked = aplicarMaskingPrecio(item, verPrecio)

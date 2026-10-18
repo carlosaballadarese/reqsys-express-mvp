@@ -80,6 +80,10 @@ jest.mock('@/lib/oca-estado', () => ({
   ESTADOS_OCA_NO_TERMINALES: ['vigente', 'suspendida', 'agotada', 'vencida'],
   ESTADOS_OCA_ACTIVA: ['vigente'],
   ESTADOS_OCA_AUTOGESTIONADOS: ['vigente'],
+  // Spec: HU-019 — valor real, np-vista.ts/np-estado.ts lo usan como código
+  // de aplicación (no solo como argumento de query), igual criterio que las
+  // demás constantes de estado ya mockeadas con su valor real en este archivo.
+  ESTADOS_OCA_VIVAS: ['borrador', 'en_aprobacion', 'vigente', 'suspendida', 'agotada', 'vencida'],
 }))
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -4892,12 +4896,14 @@ describe('GET /api/compras/nps/lineas-pendientes', () => {
     itemsNp?: any[]
     itemsOc?: any[]
     ocs?: any[]
+    ocaItems?: any[]
+    ocas?: any[]
     acciones?: any[]
     compradores?: any[]
     feriados?: string[]
   }) {
     const {
-      rol, nps = [], itemsNp = [], itemsOc = [], ocs = [],
+      rol, nps = [], itemsNp = [], itemsOc = [], ocs = [], ocaItems = [], ocas = [],
       acciones = [], compradores = [], feriados = [],
     } = opts
 
@@ -4912,6 +4918,13 @@ describe('GET /api/compras/nps/lineas-pendientes', () => {
       if (table === 'items_np') return chainAwaitable(itemsNp)
       if (table === 'items_oc') return chainAwaitable(itemsOc)
       if (table === 'registro_compras') return chainAwaitable(ocs)
+      // Spec: HU-019 CA-05 — cobertura vía OCA, misma convención que items_oc/registro_compras
+      if (table === 'oca_items') {
+        const chain = chainAwaitable(ocaItems)
+        chain.not = jest.fn(() => Promise.resolve({ data: ocaItems, error: null }))
+        return chain
+      }
+      if (table === 'oca') return chainAwaitable(ocas)
       if (table === 'feriados') return chainAwaitable(feriados.map(fecha => ({ fecha })))
       throw new Error(`tabla no mockeada: ${table}`)
     })
@@ -4973,6 +4986,34 @@ describe('GET /api/compras/nps/lineas-pendientes', () => {
     const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
     const body = await res.json()
     expect(body.rows).toHaveLength(0)
+  })
+
+  it('HU-019 CA-05: excluye una línea que ya tiene una OCA viva', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [npBase],
+      itemsNp: [itemBase],
+      ocaItems: [{ item_np_id: 'item-1', oca_id: 'oca-1' }],
+      ocas: [{ id: 'oca-1', numero_oca: 'OCA-2026-0001', estado: 'vigente' }],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    const body = await res.json()
+    expect(body.rows).toHaveLength(0)
+  })
+
+  it('HU-019 RN-01: incluye una línea cuya única OCA está cerrada', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [npBase],
+      itemsNp: [itemBase],
+      ocaItems: [{ item_np_id: 'item-1', oca_id: 'oca-1' }],
+      ocas: [{ id: 'oca-1', numero_oca: 'OCA-2026-0001', estado: 'cerrada' }],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    const body = await res.json()
+    expect(body.rows).toHaveLength(1)
   })
 
   it('CA-01: incluye una línea cuya única OC fue cancelada (RN-02 de HU-011, mismo criterio ESTADOS_OC_VIVOS)', async () => {
