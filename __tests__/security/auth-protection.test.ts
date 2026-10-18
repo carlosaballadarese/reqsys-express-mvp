@@ -5875,3 +5875,81 @@ describe('PUT /api/compras/ocas/[id]', () => {
     expect(res.status).toBe(200)
   })
 })
+
+describe('POST /api/compras/ocas/[id]/enviar-aprobacion', () => {
+  const { POST } = require('@/app/api/compras/ocas/[id]/enviar-aprobacion/route')
+
+  function setupMock(opts: { rol?: string | null; estado?: string; items?: unknown[]; areas?: unknown[] } = {}) {
+    mockFrom.mockImplementation((table: string) => {
+      const chain = mockChainVacio()
+      if (table === 'perfiles') {
+        chain.single = jest.fn(() => Promise.resolve({ data: opts.rol ? { rol: opts.rol, email: 'c@test.com' } : null, error: null }))
+        return chain
+      }
+      if (table === 'oca') {
+        chain.single = jest.fn(() => Promise.resolve({ data: { id: 'oca-1', estado: opts.estado ?? 'borrador' }, error: null }))
+        chain.update = jest.fn(() => chain)
+        return chain
+      }
+      if (table === 'oca_items') {
+        chain.eq = jest.fn(() => Promise.resolve({ data: opts.items ?? [{ id: 'item-1' }], error: null }))
+        return chain
+      }
+      if (table === 'oca_areas_habilitadas') {
+        chain.eq = jest.fn(() => Promise.resolve({ data: opts.areas ?? [{ id: 'area-hab-1' }], error: null }))
+        return chain
+      }
+      return chain
+    })
+  }
+
+  function req() {
+    return makeRequest('http://localhost/api/compras/ocas/oca-1/enviar-aprobacion', { method: 'POST' })
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(req(), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'bodega', 'gerencia', 'consulta', 'asistente_compras'])(
+    'devuelve 403 para rol %s',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupMock({ rol })
+      const res = await POST(req(), { params: Promise.resolve({ id: 'oca-1' }) })
+      expect(res.status).toBe(403)
+    }
+  )
+
+  it('devuelve 409 si la OCA no está en borrador', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', estado: 'vigente' })
+    const res = await POST(req(), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(409)
+  })
+
+  it('devuelve 400 si no tiene ítems (RN-06)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', estado: 'borrador', items: [] })
+    const res = await POST(req(), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 400 si no tiene áreas habilitadas (RN-06)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', estado: 'borrador', areas: [] })
+    const res = await POST(req(), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 200 con al menos 1 ítem y 1 área', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', estado: 'borrador' })
+    const res = await POST(req(), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.estado).toBe('en_aprobacion')
+  })
+})
