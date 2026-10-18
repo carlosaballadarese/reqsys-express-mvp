@@ -4,6 +4,7 @@ import { adminClient } from '@/lib/supabase/clients'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { actualizarEstadoOca } from '@/lib/oca-estado'
 import { validarCabeceraEItems, type OcaItemInput } from '@/lib/oca-validaciones'
+import { actualizarEstadoNP } from '@/lib/np-estado'
 
 // Spec: HU-018 RN-01 — solo compras/admin crean OCA
 const ROLES_CREAR = ['compras', 'admin']
@@ -93,6 +94,16 @@ export async function POST(req: NextRequest) {
     })
 
     await registrarAuditoria({ accion: 'crear_oca', entidad: 'oca', entidad_id: oca.id, referencia: numero_oca })
+
+    // Spec: HU-019 CA-06 — recalcula el Estado de cada NP afectada por los
+    // ítems trasladados (mismo criterio que .../cerrar: no asume una sola NP).
+    const itemNpIds = [...new Set(items.map(it => it.item_np_id).filter(Boolean))] as string[]
+    if (itemNpIds.length > 0) {
+      const { data: itemsNpAfectados } = await adminClient()
+        .from('items_np').select('nota_pedido_id').in('id', itemNpIds)
+      const npIdsAfectadas = [...new Set((itemsNpAfectados ?? []).map((i: any) => i.nota_pedido_id))]
+      await Promise.all(npIdsAfectadas.map(npId => actualizarEstadoNP(npId)))
+    }
 
     return NextResponse.json({ id: oca.id, numero_oca: oca.numero_oca, estado: oca.estado }, { status: 201 })
   } catch (err) {

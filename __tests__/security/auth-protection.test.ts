@@ -5987,16 +5987,31 @@ describe('POST /api/compras/ocas', () => {
         chain.insert = jest.fn((payload: any) => { insertPayloadItems = payload; return Promise.resolve({ data: null, error: null }) })
         return chain
       }
+      if (table === 'items_np') {
+        chain.in = jest.fn(() => Promise.resolve({ data: [{ nota_pedido_id: 'np-1' }], error: null }))
+        return chain
+      }
       return chain
     })
+    mockActualizarEstadoNP.mockClear()
     const res = await POST(reqCrear({
       ...bodyValido,
       np_origen_id: 'np-1',
       items: [{ codigo: 'FER-001', descripcion: 'Tornillos', unidad: 'caja', precio_unitario: 10, item_np_id: 'item-1' }],
     }))
     expect(res.status).toBe(201)
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-1')
     expect(insertPayloadOca).toEqual(expect.objectContaining({ origen: 'desde_np', np_origen_id: 'np-1' }))
     expect(insertPayloadItems[0]).toEqual(expect.objectContaining({ item_np_id: 'item-1' }))
+  })
+
+  it('HU-019: no invoca actualizarEstadoNP() en una creación independiente (sin item_np_id)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockActualizarEstadoNP.mockClear()
+    setupMock({ rol: 'compras' })
+    const res = await POST(reqCrear(bodyValido))
+    expect(res.status).toBe(201)
+    expect(mockActualizarEstadoNP).not.toHaveBeenCalled()
   })
 })
 
@@ -6229,6 +6244,45 @@ describe('PUT /api/compras/ocas/[id]', () => {
     }), { params: Promise.resolve({ id: 'oca-1' }) })
     expect(res.status).toBe(200)
     expect(insertPayload[0]).toEqual(expect.objectContaining({ item_np_id: 'item-1' }))
+  })
+
+  it('HU-019 CA-06/CA-07: recalcula tanto la NP que pierde su línea como la que gana una nueva', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockActualizarEstadoNP.mockClear()
+    mockFrom.mockImplementation((table: string) => {
+      const chain = mockChainVacio()
+      if (table === 'perfiles') {
+        chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+        return chain
+      }
+      if (table === 'oca') {
+        chain.single = jest.fn(() => Promise.resolve({ data: { id: 'oca-1', estado: 'borrador' }, error: null }))
+        chain.update = jest.fn(() => chain)
+        return chain
+      }
+      if (table === 'oca_items') {
+        // "antes": item-viejo vinculado; tras el replace solo queda item-nuevo
+        chain.eq = jest.fn(() => ({ not: () => Promise.resolve({ data: [{ item_np_id: 'item-viejo' }], error: null }) }))
+        chain.delete = jest.fn(() => chain)
+        chain.insert = jest.fn(() => Promise.resolve({ data: null, error: null }))
+        return chain
+      }
+      if (table === 'items_np') {
+        chain.in = jest.fn(() => Promise.resolve({
+          data: [{ nota_pedido_id: 'np-viejo' }, { nota_pedido_id: 'np-nuevo' }], error: null,
+        }))
+        return chain
+      }
+      chain.delete = jest.fn(() => chain)
+      return chain
+    })
+    const res = await PUT(reqEditar({
+      ...bodyValido,
+      items: [{ codigo: 'FER-001', descripcion: 'Tornillos', unidad: 'caja', precio_unitario: 10, item_np_id: 'item-nuevo' }],
+    }), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(200)
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-viejo')
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-nuevo')
   })
 })
 

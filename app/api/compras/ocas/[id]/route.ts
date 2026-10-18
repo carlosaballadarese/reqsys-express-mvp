@@ -4,6 +4,7 @@ import { adminClient } from '@/lib/supabase/clients'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { actualizarEstadoOca } from '@/lib/oca-estado'
 import { validarCabeceraEItems, type OcaItemInput } from '@/lib/oca-validaciones'
+import { actualizarEstadoNP } from '@/lib/np-estado'
 
 // Spec: HU-018 CA-13 — detalle visible para los mismos roles del listado (CA-12)
 const ROLES_VER = ['solicitante', 'bodega', 'compras', 'admin', 'gerencia', 'consulta', 'asistente_compras']
@@ -106,6 +107,13 @@ export async function PUT(
       updated_at: new Date().toISOString(),
     }).eq('id', id)
 
+    // Spec: HU-019 CA-06/CA-07 — ítems "antes" de reemplazar (para recalcular
+    // también las NPs que pierden su vínculo en esta edición, mismo criterio
+    // que npsAfectadasPorEdicion de lib/np-multi-oc.ts para OC).
+    const { data: itemsAntes } = await adminClient()
+      .from('oca_items').select('item_np_id').eq('oca_id', id).not('item_np_id', 'is', null)
+    const itemNpIdsAntes = (itemsAntes ?? []).map((i: any) => i.item_np_id).filter(Boolean)
+
     // Spec: HU-018 Decisión de diseño #3 — reemplazo completo de items/áreas
     // (delete+insert), mismo patrón que PUT /api/compras/ordenes/[id]
     await adminClient().from('oca_items').delete().eq('oca_id', id)
@@ -146,6 +154,18 @@ export async function PUT(
     })
 
     await registrarAuditoria({ accion: 'editar_oca', entidad: 'oca', entidad_id: id })
+
+    // Spec: HU-019 CA-06/CA-07, RN-05 — recalcula la unión de NPs afectadas
+    // antes+después de la edición (una NP que pierde su línea en esta OCA
+    // debe poder revertir su Estado igual que al cerrar la OCA).
+    const itemNpIdsDespues = items.map(it => it.item_np_id).filter(Boolean) as string[]
+    const itemNpIdsUnion = [...new Set([...itemNpIdsAntes, ...itemNpIdsDespues])]
+    if (itemNpIdsUnion.length > 0) {
+      const { data: itemsNpAfectados } = await adminClient()
+        .from('items_np').select('nota_pedido_id').in('id', itemNpIdsUnion)
+      const npIdsAfectadas = [...new Set((itemsNpAfectados ?? []).map((i: any) => i.nota_pedido_id))]
+      await Promise.all(npIdsAfectadas.map(npId => actualizarEstadoNP(npId)))
+    }
 
     return NextResponse.json({ success: true })
   } catch (err) {
