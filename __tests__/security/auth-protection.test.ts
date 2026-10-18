@@ -109,6 +109,7 @@ function mockChainVacio() {
   chain.ilike  = noop
   chain.neq    = noop
   chain.in     = noop
+  chain.not    = noop
   chain.limit  = jest.fn(() => Promise.resolve(resolved))
   chain.single = jest.fn(() => Promise.resolve({ data: null, error: null }))
   chain.maybeSingle = jest.fn(() => Promise.resolve({ data: null, error: null }))
@@ -3289,6 +3290,10 @@ describe('GET /api/compras/dashboard/cobertura — HU-016 CA-10 (OC consolidada)
       if (table === 'registro_compras') {
         return { select: () => ({ in: () => ({ neq: () => ({ neq: () => Promise.resolve({ data: [{ id: 'oc-multi' }], error: null }) }) }) }) }
       }
+      // Spec: HU-019 — sin cobertura por OCA en este escenario (puramente OC)
+      if (table === 'oca_items') {
+        return { select: () => ({ in: () => ({ not: () => Promise.resolve({ data: [], error: null }) }) }) }
+      }
       throw new Error(`tabla no mockeada: ${table}`)
     })
 
@@ -3299,6 +3304,79 @@ describe('GET /api/compras/dashboard/cobertura — HU-016 CA-10 (OC consolidada)
     expect(body.nps[0].total_comprometido).toBe(5)
     expect(body.nps[0].porcentaje_global).toBe(100)
     expect(body.nps[0].np_cubierta).toBe(true)
+  })
+
+  it('HU-019 CA-09: una línea cubierta por OCA viva cuenta 100% de su propia cantidad (sin dato de cantidad en oca_items)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const npsMock = [
+      { id: 'np-b', numero: 'NP-2026-0600', area: 'Operaciones', estado: 'oca_generada',
+        prioridad: 'alta', solicitante_nombre: 'Ana', created_at: '2026-01-15T00:00:00Z' },
+    ]
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'compras' }, error: null }) }) }) }
+      }
+      if (table === 'notas_pedido') {
+        return { select: () => ({ in: () => Promise.resolve({ data: npsMock, error: null }) }) }
+      }
+      if (table === 'items_np') {
+        return { select: () => ({ in: () => Promise.resolve({ data: [{ id: 'item-b1', nota_pedido_id: 'np-b', cantidad: 8 }], error: null }) }) }
+      }
+      if (table === 'items_oc') {
+        return { select: () => ({ in: () => Promise.resolve({ data: [], error: null }) }) }
+      }
+      if (table === 'oca_items') {
+        return { select: () => ({ in: () => ({ not: () => Promise.resolve({ data: [{ item_np_id: 'item-b1', oca_id: 'oca-1' }], error: null }) }) }) }
+      }
+      if (table === 'oca') {
+        return { select: () => ({ in: () => Promise.resolve({ data: [{ id: 'oca-1', estado: 'vigente' }], error: null }) }) }
+      }
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+
+    const req = makeRequest('http://localhost/api/compras/dashboard/cobertura')
+    const res = await GET(req)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.nps[0].total_comprometido).toBe(8)
+    expect(body.nps[0].porcentaje_global).toBe(100)
+    expect(body.nps[0].np_cubierta).toBe(true)
+  })
+
+  it('HU-019 RN-01: una línea cuya única OCA está cerrada NO cuenta como comprometida', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const npsMock = [
+      { id: 'np-c', numero: 'NP-2026-0700', area: 'Operaciones', estado: 'en_gestion',
+        prioridad: 'alta', solicitante_nombre: 'Ana', created_at: '2026-01-15T00:00:00Z' },
+    ]
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'compras' }, error: null }) }) }) }
+      }
+      if (table === 'notas_pedido') {
+        return { select: () => ({ in: () => Promise.resolve({ data: npsMock, error: null }) }) }
+      }
+      if (table === 'items_np') {
+        return { select: () => ({ in: () => Promise.resolve({ data: [{ id: 'item-c1', nota_pedido_id: 'np-c', cantidad: 4 }], error: null }) }) }
+      }
+      if (table === 'items_oc') {
+        return { select: () => ({ in: () => Promise.resolve({ data: [], error: null }) }) }
+      }
+      if (table === 'oca_items') {
+        return { select: () => ({ in: () => ({ not: () => Promise.resolve({ data: [{ item_np_id: 'item-c1', oca_id: 'oca-1' }], error: null }) }) }) }
+      }
+      if (table === 'oca') {
+        return { select: () => ({ in: () => Promise.resolve({ data: [{ id: 'oca-1', estado: 'cerrada' }], error: null }) }) }
+      }
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+
+    const req = makeRequest('http://localhost/api/compras/dashboard/cobertura')
+    const res = await GET(req)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.nps[0].total_comprometido).toBe(0)
+    expect(body.nps[0].np_cubierta).toBe(false)
   })
 })
 
@@ -4181,6 +4259,33 @@ describe('PATCH /api/compras/nps/[id]/prioridad — HU-009 CA-16', () => {
     )
     expect(res.status).toBe(400)
   })
+
+  it.each(['oca_generada', 'oca_oc_generada'])(
+    'HU-019: devuelve 400 también en %s (mismo criterio que oc_aprobada)',
+    async (estado) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      let singleCalls = 0
+      const chain = mockChainVacio()
+      chain.single = jest.fn(() => {
+        singleCalls++
+        if (singleCalls === 1) return Promise.resolve({
+          data: { rol: 'compras', nombre: 'Compras', email: 'c@arlift.com' }, error: null,
+        })
+        return Promise.resolve({
+          data: { id: 'np-1', estado, numero: 'NP-2026-0001', prioridad: 'media' }, error: null,
+        })
+      })
+      mockFrom.mockReturnValue(chain)
+      const res = await PATCH(
+        makeRequest('http://localhost/api/compras/nps/np-1/prioridad', {
+          method: 'PATCH',
+          body: JSON.stringify({ prioridad: 'alta' }),
+        }),
+        { params: Promise.resolve({ id: 'np-1' }) }
+      )
+      expect(res.status).toBe(400)
+    }
+  )
 
   it('reclasifica correctamente en un estado permitido (en_gestion)', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)

@@ -70,6 +70,20 @@ describe('clasificarBadgeSLA (HU-011 CA-07)', () => {
     })).toBe('pausado')
   })
 
+  it('"Pausado" también aplica a oca_generada (HU-019 — sin esto caía en "No activo")', () => {
+    expect(clasificarBadgeSLA({
+      estado: 'oca_generada', slaIniciadoEn: '2026-07-13T00:00:00Z', slaPausadoDesde: '2026-07-14T00:00:00Z',
+      transcurridoMs: null, plazoMs: null,
+    })).toBe('pausado')
+  })
+
+  it('"Pausado" también aplica a oca_oc_generada (HU-019)', () => {
+    expect(clasificarBadgeSLA({
+      estado: 'oca_oc_generada', slaIniciadoEn: '2026-07-13T00:00:00Z', slaPausadoDesde: '2026-07-14T00:00:00Z',
+      transcurridoMs: null, plazoMs: null,
+    })).toBe('pausado')
+  })
+
   it('"A tiempo" cuando el Estado está activo y transcurrido <= plazo', () => {
     expect(clasificarBadgeSLA({
       estado: 'en_gestion', slaIniciadoEn: '2026-07-13T00:00:00Z', slaPausadoDesde: null,

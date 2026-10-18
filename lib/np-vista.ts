@@ -6,7 +6,11 @@ export type SlaBadge = 'no_activo' | 'pausado' | 'a_tiempo' | 'vencido'
 // Spec: HU-009 RN-02 — mismo criterio que actualizarEstadoNP()/calcularSLA().
 const ESTADOS_ACTIVOS_SLA: Estado[] = ['en_gestion', 'oc_directa']
 // Spec: HU-011 CA-07 — Estados en los que el badge puede leer "Pausado".
-const ESTADOS_PAUSABLES: Estado[] = ['oc_generada', 'oc_en_aprobacion', 'oc_aprobada', 'completada']
+// Spec: HU-019 — oca_generada/oca_oc_generada agregados; sin esto, una NP en
+// esos estados mostraba "No activo" en vez de "Pausado" (el SLA sí se pausa
+// vía actualizarEstadoNP(), pero este badge de solo-lectura no lo reflejaba).
+const ESTADOS_PAUSABLES: Estado[] =
+  ['oc_generada', 'oc_en_aprobacion', 'oc_aprobada', 'completada', 'oca_generada', 'oca_oc_generada']
 
 // Spec: HU-011 CA-07 — clasifica el badge de SLA a partir del Estado y los campos
 // ya resueltos (transcurridoMs/plazoMs se calculan antes con diasHabilesEntreSync

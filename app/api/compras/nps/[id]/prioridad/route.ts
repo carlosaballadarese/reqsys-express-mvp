@@ -5,8 +5,10 @@ import { registrarAuditoria } from '@/lib/auditoria'
 
 const PRIORIDADES = ['excepcional', 'alta', 'media', 'baja']
 
-// Spec: HU-009 RN-03 — Estados en los que ya no tiene sentido reclasificar Prioridad
-const ESTADOS_PROHIBIDOS = ['rechazada', 'devuelta', 'oc_aprobada', 'completada']
+// Spec: HU-009 RN-03 — Estados en los que ya no tiene sentido reclasificar Prioridad.
+// Spec: HU-019 — oca_generada/oca_oc_generada agregados, mismo criterio que
+// oc_aprobada (NP ya resuelta/comprometida, sin nada pendiente que priorizar).
+const ESTADOS_PROHIBIDOS = ['rechazada', 'devuelta', 'oc_aprobada', 'completada', 'oca_generada', 'oca_oc_generada']
 
 // Spec: HU-009 CA-16
 export async function PATCH(

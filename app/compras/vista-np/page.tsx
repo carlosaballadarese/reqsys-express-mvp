@@ -59,6 +59,9 @@ const ESTADO_BADGE: Record<string, string> = {
   oc_generada:      'bg-indigo-100 text-indigo-800',
   oc_en_aprobacion: 'bg-purple-100 text-purple-800',
   oc_aprobada:      'bg-teal-100 text-teal-800',
+  // Spec: HU-019 — cobertura vía OCA (100% u mixta con OC)
+  oca_generada:     'bg-fuchsia-100 text-fuchsia-800',
+  oca_oc_generada:  'bg-pink-100 text-pink-800',
   completada:       'bg-teal-100 text-teal-800',
 }
 
@@ -73,12 +76,15 @@ const ESTADO_LABEL: Record<string, string> = {
   oc_generada:      'OC generada',
   oc_en_aprobacion: 'OC en aprobación',
   oc_aprobada:      'OC aprobada',
+  oca_generada:     'OCA generada',
+  oca_oc_generada:  'OC + OCA generadas',
   completada:       'Completada',
 }
 
 const ESTADOS = [
   'todos', 'borrador', 'pendiente', 'aprobada', 'rechazada', 'devuelta',
-  'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada', 'completada',
+  'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada',
+  'oca_generada', 'oca_oc_generada', 'completada',
 ]
 
 const PRIORIDAD_LABEL: Record<string, string> = {

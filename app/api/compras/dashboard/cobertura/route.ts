@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { ESTADOS_OCA_VIVAS } from '@/lib/oca-estado'
 
 const ROLES_PERMITIDOS = ['compras', 'admin', 'gerencia', 'consulta', 'asistente_compras']
 
@@ -31,6 +32,9 @@ export async function GET(req: NextRequest) {
       .select('id, numero, area, estado, prioridad, solicitante_nombre, created_at, completado_manualmente')
       .in('estado', [
         'aprobada', 'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada',
+        // Spec: HU-019 CA-09 — sin esto, una NP cubierta (parcial o totalmente)
+        // por una OCA desaparecía por completo de este dashboard.
+        'oca_generada', 'oca_oc_generada',
         'completada',
       ])
 
@@ -111,6 +115,50 @@ export async function GET(req: NextRequest) {
           if (!ocIdsValidos.has(it.registro_compras_id)) continue
           comprometidoMap[it.item_np_id] =
             (comprometidoMap[it.item_np_id] ?? 0) + Number(it.cantidad)
+        }
+      }
+    }
+
+    // Spec: HU-019 CA-09 — cobertura vía OCA. A diferencia de items_oc, oca_items
+    // no tiene columna "cantidad" (HU-018 CA-03 — la cantidad se define en el
+    // release, Fase D futura): una línea vinculada a una OCA viva se trata como
+    // 100% comprometida para sí misma (mismo criterio que calcularEstadoDestino()
+    // en lib/np-estado.ts — la línea se considera cubierta sin importar volumen).
+    if (npItemIds.length > 0) {
+      const cantidadPorItemNp: Record<string, number> = {}
+      for (const item of (itemsNP ?? [])) cantidadPorItemNp[item.id] = Number(item.cantidad)
+
+      async function ocaItemsEnLotes(itemNpIds: string[]) {
+        const filas: { item_np_id: string | null; oca_id: string }[] = []
+        for (let i = 0; i < itemNpIds.length; i += LOTE) {
+          const lote = itemNpIds.slice(i, i + LOTE)
+          const { data, error } = await adminClient()
+            .from('oca_items')
+            .select('item_np_id, oca_id')
+            .in('item_np_id', lote)
+            .not('item_np_id', 'is', null)
+          if (error) { console.error('dashboard/cobertura — error en lote oca_items:', error); continue }
+          filas.push(...(data ?? []))
+        }
+        return filas
+      }
+
+      const ocaItemsTodos = await ocaItemsEnLotes(npItemIds)
+      const ocaIdsCandidatos = [...new Set(ocaItemsTodos.map(it => it.oca_id))]
+
+      if (ocaIdsCandidatos.length > 0) {
+        const { data: ocasValidas, error: errOcasValidas } = await adminClient()
+          .from('oca').select('id, estado').in('id', ocaIdsCandidatos)
+        if (errOcasValidas) console.error('dashboard/cobertura — error al validar OCAs:', errOcasValidas)
+
+        const ocaIdsVivos = new Set(
+          (ocasValidas ?? []).filter(oca => (ESTADOS_OCA_VIVAS as string[]).includes(oca.estado)).map(oca => oca.id)
+        )
+
+        for (const it of ocaItemsTodos) {
+          if (!it.item_np_id || !ocaIdsVivos.has(it.oca_id)) continue
+          comprometidoMap[it.item_np_id] =
+            (comprometidoMap[it.item_np_id] ?? 0) + (cantidadPorItemNp[it.item_np_id] ?? 0)
         }
       }
     }
