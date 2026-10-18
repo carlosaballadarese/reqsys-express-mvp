@@ -100,6 +100,8 @@ type ItemCobertura = {
   cantidad_comprometida: number
   saldo:                 number
   porcentaje:            number
+  // Spec: HU-019 CA-08
+  oca:                   { id: string; numero_oca: string } | null
 }
 
 type CoberturaResult = {
@@ -1258,7 +1260,15 @@ export default function DetalleNPPage() {
                       return (
                         <tr key={item.item_np_id} className="border-b last:border-0">
                           <td className="py-2 pr-3 text-slate-500">{item.linea}</td>
-                          <td className="py-2 pr-3 text-slate-700">{item.descripcion}</td>
+                          <td className="py-2 pr-3 text-slate-700">
+                            {item.descripcion}
+                            {item.oca && (
+                              <Link href={`/compras/ocas/${item.oca.id}`}
+                                className="block text-xs text-fuchsia-700 hover:underline font-mono">
+                                {item.oca.numero_oca}
+                              </Link>
+                            )}
+                          </td>
                           <td className="py-2 pr-3 text-right font-mono">{item.cantidad_solicitada}</td>
                           <td className="py-2 pr-3 text-right font-mono text-blue-700">{item.cantidad_comprometida}</td>
                           <td className={`py-2 pr-3 text-right font-mono font-semibold ${item.saldo === 0 ? 'text-teal-600' : 'text-slate-700'}`}>

@@ -3,7 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,12 +14,15 @@ type Proveedor = { id: string; nombre: string }
 type ItemForm = {
   codigo: string; descripcion: string; unidad: string; categoria: string
   precio_unitario: string; precio_maximo: string
+  // Spec: HU-019 CA-04 — vínculo a la línea de NP de origen, preservado hasta el POST
+  item_np_id?: string | null
 }
 
 const ITEM_VACIO: ItemForm = { codigo: '', descripcion: '', unidad: '', categoria: '', precio_unitario: '', precio_maximo: '' }
 
 export default function NuevaOcaPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [areas, setAreas]           = useState<Area[]>([])
   const [proveedores, setProveedores] = useState<Proveedor[]>([])
 
@@ -33,6 +36,10 @@ export default function NuevaOcaPage() {
   const [areasSeleccionadas, setAreasSeleccionadas] = useState<string[]>([])
   const [items, setItems]                 = useState<ItemForm[]>([{ ...ITEM_VACIO }])
 
+  // Spec: HU-019 CA-02/CA-03 — origen desde una NP (prellenado vía Líneas Pendientes de OC)
+  const [npOrigenId, setNpOrigenId]       = useState<string | null>(null)
+  const [npOrigenNumero, setNpOrigenNumero] = useState<string | null>(null)
+
   const [guardando, setGuardando] = useState(false)
   const [error, setError]         = useState('')
 
@@ -44,6 +51,46 @@ export default function NuevaOcaPage() {
       setAreas(Array.isArray(areasData) ? areasData : [])
       setProveedores((provData.proveedores ?? provData ?? []))
     })
+
+    // Spec: HU-019 CA-02 — prellenado desde Líneas Pendientes de OC
+    const desdeItems = searchParams.get('desde_items')
+    if (!desdeItems) return
+
+    fetch(`/api/compras/nps/lineas-pendientes/prellenado-oca?items=${encodeURIComponent(desdeItems)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: {
+        np_id: string; np_numero: string
+        items: { codigo: string; descripcion: string; unidad: string; precio_unitario: number | null; proveedor_sugerido: string | null; item_np_id: string }[]
+      } | null) => {
+        if (!data) { setError('No se pudo cargar el prellenado — las líneas ya no están disponibles'); return }
+        setNpOrigenId(data.np_id)
+        setNpOrigenNumero(data.np_numero)
+        setItems(data.items.map(it => ({
+          codigo: it.codigo, descripcion: it.descripcion, unidad: it.unidad,
+          categoria: '', precio_unitario: it.precio_unitario !== null ? String(it.precio_unitario) : '',
+          precio_maximo: '', item_np_id: it.item_np_id,
+        })))
+
+        // Spec: HU-019 CA-02, mismo patrón que ModalGenerarOC (HU-014 CA-07) —
+        // coincidencia exacta solo si TODAS las líneas comparten el mismo
+        // proveedor_sugerido no vacío.
+        const sugeridos = new Set(
+          data.items.map(it => (it.proveedor_sugerido ?? '').trim().toLowerCase()).filter(s => s !== '')
+        )
+        if (sugeridos.size !== 1) return
+        const sugerido = data.items[0].proveedor_sugerido!.trim()
+        if (sugerido.length < 2) return
+
+        fetch(`/api/compras/proveedores?q=${encodeURIComponent(sugerido)}`)
+          .then(r => r.ok ? r.json() : [])
+          .then((candidatos: Proveedor[]) => {
+            const exactos = candidatos.filter(p => p.nombre.trim().toLowerCase() === sugerido.toLowerCase())
+            if (exactos.length === 1) setProveedorId(exactos[0].id)
+          })
+          .catch(() => {})
+      })
+      .catch(() => setError('Error al cargar el prellenado desde Líneas Pendientes de OC'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function actualizarItem(idx: number, campo: keyof ItemForm, valor: string) {
@@ -86,6 +133,7 @@ export default function NuevaOcaPage() {
         presupuesto_total: Number(presupuesto),
         referencia_contractual: referencia,
         areas_habilitadas: areasSeleccionadas,
+        ...(npOrigenId ? { np_origen_id: npOrigenId } : {}),
         items: items.map(it => ({
           codigo: it.codigo,
           descripcion: it.descripcion,
@@ -93,6 +141,7 @@ export default function NuevaOcaPage() {
           categoria: it.categoria || undefined,
           precio_unitario: tipo === 'precio_fijo' ? Number(it.precio_unitario) : undefined,
           precio_maximo: tipo === 'precio_variable_tope' ? Number(it.precio_maximo) : undefined,
+          ...(it.item_np_id ? { item_np_id: it.item_np_id } : {}),
         })),
       }),
     })
@@ -112,6 +161,12 @@ export default function NuevaOcaPage() {
           <h1 className="text-2xl font-bold text-slate-800">Nueva Orden de Compra Abierta</h1>
           <p className="text-slate-500 text-sm mt-0.5">Se crea en estado Borrador — podrás editarla antes de enviarla a aprobación</p>
         </div>
+
+        {npOrigenNumero && (
+          <div className="bg-teal-50 border border-teal-200 rounded px-3 py-2 text-sm text-teal-800">
+            Lista de precios prellenada desde las líneas seleccionadas de <strong>{npOrigenNumero}</strong>
+          </div>
+        )}
 
         <Card>
           <CardHeader><CardTitle className="text-base">Datos del acuerdo</CardTitle></CardHeader>

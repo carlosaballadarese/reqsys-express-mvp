@@ -3466,6 +3466,7 @@ describe('PUT /api/compras/ordenes/[id] — HU-016 CA-13/RN-04 (edición multi-N
     chain.in     = noop
     chain.order  = noop
     chain.neq    = noop
+    chain.not    = noop
     chain.delete = noop
     chain.single = jest.fn(() => Promise.resolve({ data: singleData, error: null }))
     chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
@@ -3494,6 +3495,7 @@ describe('PUT /api/compras/ordenes/[id] — HU-016 CA-13/RN-04 (edición multi-N
       // items_oc "antes" de editar: solo NP-A tenía línea en esta OC
       if (table === 'items_oc')     return chainFor([{ item_np_id: 'item-a1', cantidad: 0, registro_compras_id: 'oc-edit-1' }])
       if (table === 'notas_pedido') return chainFor([{ id: 'np-a', estado: 'en_gestion' }, { id: 'np-c', estado: 'en_gestion' }])
+      if (table === 'oca_items' || table === 'oca') return chainFor([])
       throw new Error(`tabla no mockeada: ${table}`)
     })
 
@@ -3522,6 +3524,7 @@ describe('PUT /api/compras/ordenes/[id] — HU-016 CA-13/RN-04 (edición multi-N
       // items_oc "antes": solo NP-B tenía línea; la edición la reemplaza por NP-A
       if (table === 'items_oc')     return chainFor([{ item_np_id: 'item-b1', cantidad: 0, registro_compras_id: 'oc-edit-2' }])
       if (table === 'notas_pedido') return chainFor([{ id: 'np-a', estado: 'en_gestion' }, { id: 'np-b', estado: 'en_gestion' }])
+      if (table === 'oca_items' || table === 'oca') return chainFor([])
       throw new Error(`tabla no mockeada: ${table}`)
     })
 
@@ -3567,6 +3570,7 @@ describe('PUT /api/compras/ordenes/[id] — HU-016 CA-13/RN-04 (edición multi-N
         return c
       }
       if (table === 'historial_np') { const c = chainFor([]); c.insert = insertHistorialSpy; return c }
+      if (table === 'oca_items' || table === 'oca') return chainFor([])
       throw new Error(`tabla no mockeada: ${table}`)
     })
 
@@ -3589,6 +3593,7 @@ describe('PUT /api/compras/ordenes/[id] — HU-016 CA-13/RN-04 (edición multi-N
       if (table === 'items_np')         return chainFor([{ id: 'item-a1', nota_pedido_id: 'np-a', cantidad: 5, linea: 1, descripcion: 'A' }])
       // comprometido previo por OTRA OC (oc-other, no excluida por excluirOcId)
       if (table === 'items_oc')         return chainFor([{ item_np_id: 'item-a1', cantidad: 4, registro_compras_id: 'oc-other' }])
+      if (table === 'oca_items' || table === 'oca') return chainFor([])
       throw new Error(`tabla no mockeada: ${table}`)
     })
 
@@ -4485,6 +4490,7 @@ describe('actualizarEstadoNP() se invoca en los 6 puntos de mutación de OC/NP',
       chain.in     = noop
       chain.order  = noop
       chain.neq    = noop
+      chain.not    = noop
       chain.delete = noop
       chain.single = jest.fn(() => Promise.resolve({ data: singleData, error: null }))
       chain.update = jest.fn(() => chain)
@@ -4508,6 +4514,7 @@ describe('actualizarEstadoNP() se invoca en los 6 puntos de mutación de OC/NP',
       }
       if (table === 'items_oc') return chainFor([]) // sin comprometido previo, sin líneas "antes" de la edición
       if (table === 'notas_pedido') return chainFor([{ id: 'np-put-1', estado: 'en_gestion' }])
+      if (table === 'oca_items' || table === 'oca') return chainFor([])
       throw new Error(`tabla no mockeada: ${table}`)
     })
 
@@ -5680,6 +5687,7 @@ describe('POST /api/compras/ordenes/consolidar', () => {
     chain.in     = noop
     chain.order  = noop
     chain.neq    = noop
+    chain.not    = noop
     chain.single = jest.fn(() => Promise.resolve({ data: singleData, error: null }))
     chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
     chain.insert = jest.fn(() => Promise.resolve({ data: null, error: null }))
@@ -5727,6 +5735,7 @@ describe('POST /api/compras/ordenes/consolidar', () => {
         rc.insert = jest.fn(() => ({ select: () => ({ single: () => Promise.resolve({ data: ocRow, error: null }) }) }))
         return rc
       }
+      if (table === 'oca_items' || table === 'oca') return chainFor([])
       throw new Error(`tabla no mockeada: ${table}`)
     })
   }
