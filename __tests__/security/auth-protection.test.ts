@@ -5298,6 +5298,143 @@ describe('GET /api/compras/nps/lineas-pendientes', () => {
   })
 })
 
+describe('GET /api/compras/nps/lineas-pendientes/prellenado-oca', () => {
+  const { GET } = require('@/app/api/compras/nps/lineas-pendientes/prellenado-oca/route')
+
+  function setupMock(opts: {
+    rol?: string | null
+    items?: { id: string; nota_pedido_id: string; codigo: string; descripcion: string; unidad: string; precio_unitario: number; proveedor_sugerido: string | null }[]
+    np?: { id: string; numero: string; estado: string; asignado_a: string | null } | null
+    itemsOc?: { item_np_id: string; registro_compras_id: string }[]
+    ocs?: { id: string; estado_oc: string }[]
+    ocaItems?: { item_np_id: string; oca_id: string }[]
+    ocas?: { id: string; estado: string }[]
+  } = {}) {
+    const { rol, items = [], np = null, itemsOc = [], ocs = [], ocaItems = [], ocas = [] } = opts
+    mockFrom.mockImplementation((table: string) => {
+      const chain = mockChainVacio()
+      if (table === 'perfiles') {
+        chain.single = jest.fn(() => Promise.resolve({ data: rol ? { rol } : null, error: null }))
+        return chain
+      }
+      if (table === 'items_np') {
+        chain.in = jest.fn(() => Promise.resolve({ data: items, error: null }))
+        return chain
+      }
+      if (table === 'notas_pedido') {
+        chain.single = jest.fn(() => Promise.resolve({ data: np, error: null }))
+        return chain
+      }
+      if (table === 'items_oc') {
+        chain.in = jest.fn(() => Promise.resolve({ data: itemsOc, error: null }))
+        return chain
+      }
+      if (table === 'registro_compras') {
+        chain.in = jest.fn(() => Promise.resolve({ data: ocs, error: null }))
+        return chain
+      }
+      if (table === 'oca_items') {
+        chain.in = jest.fn(() => ({ not: () => Promise.resolve({ data: ocaItems, error: null }) }))
+        return chain
+      }
+      if (table === 'oca') {
+        chain.in = jest.fn(() => Promise.resolve({ data: ocas, error: null }))
+        return chain
+      }
+      return chain
+    })
+  }
+
+  const itemA = { id: 'item-1', nota_pedido_id: 'np-1', codigo: 'A', descripcion: 'Tornillos', unidad: 'caja', precio_unitario: 5, proveedor_sugerido: 'Ferretería X' }
+  const itemB = { id: 'item-2', nota_pedido_id: 'np-1', codigo: 'B', descripcion: 'Tuercas', unidad: 'caja', precio_unitario: 3, proveedor_sugerido: 'Ferretería X' }
+  const npElegible = { id: 'np-1', numero: 'NP-2026-0010', estado: 'en_gestion', asignado_a: null }
+
+  function req(items: string) {
+    return makeRequest(`http://localhost/api/compras/nps/lineas-pendientes/prellenado-oca?items=${items}`)
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(req('item-1'))
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'bodega', 'gerencia', 'consulta'])('devuelve 403 para rol %s', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol })
+    const res = await GET(req('item-1'))
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 404 si alguna línea no existe', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', items: [itemA] })
+    const res = await GET(req('item-1,item-2'))
+    expect(res.status).toBe(404)
+  })
+
+  it('devuelve 400 si las líneas pertenecen a NPs distintas', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', items: [itemA, { ...itemB, nota_pedido_id: 'np-2' }] })
+    const res = await GET(req('item-1,item-2'))
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 409 si la NP ya no está en ESTADOS_LINEAS_PENDIENTES', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', items: [itemA], np: { ...npElegible, estado: 'completada' } })
+    const res = await GET(req('item-1'))
+    expect(res.status).toBe(409)
+  })
+
+  it('devuelve 403 para asistente_compras si la NP no está asignada a él', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'asistente_compras', items: [itemA], np: { ...npElegible, asignado_a: 'otro-user' } })
+    const res = await GET(req('item-1'))
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 200 para asistente_compras si la NP sí está asignada a él', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'asistente_compras', items: [itemA], np: { ...npElegible, asignado_a: 'user-123' } })
+    const res = await GET(req('item-1'))
+    expect(res.status).toBe(200)
+  })
+
+  it('devuelve 409 si alguna línea ya tiene una OC viva (condición de carrera)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({
+      rol: 'compras', items: [itemA], np: npElegible,
+      itemsOc: [{ item_np_id: 'item-1', registro_compras_id: 'oc-1' }],
+      ocs: [{ id: 'oc-1', estado_oc: 'aprobada' }],
+    })
+    const res = await GET(req('item-1'))
+    expect(res.status).toBe(409)
+  })
+
+  it('devuelve 409 si alguna línea ya tiene una OCA viva (condición de carrera)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({
+      rol: 'compras', items: [itemA], np: npElegible,
+      ocaItems: [{ item_np_id: 'item-1', oca_id: 'oca-1' }],
+      ocas: [{ id: 'oca-1', estado: 'vigente' }],
+    })
+    const res = await GET(req('item-1'))
+    expect(res.status).toBe(409)
+  })
+
+  it('devuelve 200 con los ítems y el número de NP cuando todo es elegible', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', items: [itemA, itemB], np: npElegible })
+    const res = await GET(req('item-1,item-2'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.np_numero).toBe('NP-2026-0010')
+    expect(body.items).toHaveLength(2)
+    expect(body.items[0]).toEqual(expect.objectContaining({ codigo: 'A', proveedor_sugerido: 'Ferretería X' }))
+  })
+})
+
 describe('PATCH /api/compras/nps/lineas-pendientes/[itemId]', () => {
   const { PATCH } = require('@/app/api/compras/nps/lineas-pendientes/[itemId]/route')
 
