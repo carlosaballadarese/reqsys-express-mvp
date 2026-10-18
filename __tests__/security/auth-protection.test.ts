@@ -6405,7 +6405,7 @@ describe('POST /api/compras/ocas/[id]/reactivar', () => {
 describe('POST /api/compras/ocas/[id]/cerrar', () => {
   const { POST } = require('@/app/api/compras/ocas/[id]/cerrar/route')
 
-  function setupMock(opts: { rol?: string | null; estado?: string } = {}) {
+  function setupMock(opts: { rol?: string | null; estado?: string; ocaItems?: { item_np_id: string }[]; itemsNp?: { nota_pedido_id: string }[] } = {}) {
     mockFrom.mockImplementation((table: string) => {
       const chain = mockChainVacio()
       if (table === 'perfiles') {
@@ -6415,6 +6415,15 @@ describe('POST /api/compras/ocas/[id]/cerrar', () => {
       if (table === 'oca') {
         chain.single = jest.fn(() => Promise.resolve({ data: { id: 'oca-1', estado: opts.estado ?? 'vigente' }, error: null }))
         chain.update = jest.fn(() => chain)
+        return chain
+      }
+      // Spec: HU-019 CA-07 — NPs afectadas por el cierre
+      if (table === 'oca_items') {
+        chain.eq = jest.fn(() => ({ not: () => Promise.resolve({ data: opts.ocaItems ?? [], error: null }) }))
+        return chain
+      }
+      if (table === 'items_np') {
+        chain.in = jest.fn(() => Promise.resolve({ data: opts.itemsNp ?? [], error: null }))
         return chain
       }
       return chain
@@ -6474,5 +6483,28 @@ describe('POST /api/compras/ocas/[id]/cerrar', () => {
     setupMock({ rol: 'gerencia' })
     const res = await POST(req({ motivo: 'Fin del acuerdo' }), { params: Promise.resolve({ id: 'oca-1' }) })
     expect(res.status).toBe(200)
+  })
+
+  it('HU-019 CA-07: invoca actualizarEstadoNP() para cada NP afectada por el cierre', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockActualizarEstadoNP.mockClear()
+    setupMock({
+      rol: 'compras',
+      ocaItems: [{ item_np_id: 'item-1' }, { item_np_id: 'item-2' }],
+      itemsNp: [{ nota_pedido_id: 'np-1' }, { nota_pedido_id: 'np-2' }],
+    })
+    const res = await POST(req({ motivo: 'Fin del acuerdo' }), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(200)
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-1')
+    expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-2')
+  })
+
+  it('HU-019: no invoca actualizarEstadoNP() si la OCA no tiene ítems vinculados a ninguna NP', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockActualizarEstadoNP.mockClear()
+    setupMock({ rol: 'compras', ocaItems: [] })
+    const res = await POST(req({ motivo: 'Fin del acuerdo' }), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(200)
+    expect(mockActualizarEstadoNP).not.toHaveBeenCalled()
   })
 })
