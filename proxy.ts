@@ -126,7 +126,14 @@ export async function proxy(req: NextRequest) {
     // solicitante: solo sus NPs y dashboard
     if (rol === 'solicitante') {
       const permitidasSolicitante = ['/compras', '/compras/dashboard']
-      const permitida = permitidasSolicitante.includes(pathname) || /^\/compras\/[^/]+$/.test(pathname)
+      // Spec: HU-018 CA-12 — el listado de OCA (/compras/ocas, un solo segmento)
+      // ya calza con el patrón de abajo; el detalle (/compras/ocas/[id], dos
+      // segmentos) necesita esta excepción explícita, sin abrir también la
+      // creación (/compras/ocas/nueva — RN-01 restringe la creación a compras/admin).
+      const esDetalleOca = /^\/compras\/ocas\/[^/]+$/.test(pathname) && pathname !== '/compras/ocas/nueva'
+      const permitida = permitidasSolicitante.includes(pathname)
+        || /^\/compras\/[^/]+$/.test(pathname)
+        || esDetalleOca
       if (!permitida) {
         return NextResponse.redirect(new URL('/compras', req.url))
       }
