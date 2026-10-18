@@ -120,6 +120,11 @@ export async function PUT(
           categoria: it.categoria ?? null,
           precio_unitario: it.precio_unitario ?? null,
           precio_maximo: it.precio_maximo ?? null,
+          // Spec: HU-019 RN-05 — preserva el vínculo a la línea de NP si el
+          // ítem entrante lo trae; un ítem removido en la edición simplemente
+          // no vuelve a insertarse (el delete de arriba ya lo eliminó), así
+          // que su vínculo se pierde sin código adicional.
+          item_np_id: it.item_np_id ?? null,
         }))
       )
     }

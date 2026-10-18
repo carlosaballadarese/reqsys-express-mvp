@@ -6086,6 +6086,36 @@ describe('PUT /api/compras/ocas/[id]', () => {
     const res = await PUT(reqEditar(bodyValido), { params: Promise.resolve({ id: 'oca-1' }) })
     expect(res.status).toBe(200)
   })
+
+  it('HU-019 RN-05: preserva item_np_id de los ítems que lo traen en la edición', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let insertPayload: any = null
+    mockFrom.mockImplementation((table: string) => {
+      const chain = mockChainVacio()
+      if (table === 'perfiles') {
+        chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+        return chain
+      }
+      if (table === 'oca') {
+        chain.single = jest.fn(() => Promise.resolve({ data: { id: 'oca-1', estado: 'borrador' }, error: null }))
+        chain.update = jest.fn(() => chain)
+        return chain
+      }
+      if (table === 'oca_items') {
+        chain.delete = jest.fn(() => chain)
+        chain.insert = jest.fn((payload: any) => { insertPayload = payload; return Promise.resolve({ data: null, error: null }) })
+        return chain
+      }
+      chain.delete = jest.fn(() => chain)
+      return chain
+    })
+    const res = await PUT(reqEditar({
+      ...bodyValido,
+      items: [{ codigo: 'FER-001', descripcion: 'Tornillos', unidad: 'caja', precio_unitario: 10, item_np_id: 'item-1' }],
+    }), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(200)
+    expect(insertPayload[0]).toEqual(expect.objectContaining({ item_np_id: 'item-1' }))
+  })
 })
 
 describe('POST /api/compras/ocas/[id]/enviar-aprobacion', () => {
