@@ -6159,3 +6159,78 @@ describe('POST /api/compras/ocas/[id]/reactivar', () => {
     expect((await res.json()).estado).toBe('vigente')
   })
 })
+
+describe('POST /api/compras/ocas/[id]/cerrar', () => {
+  const { POST } = require('@/app/api/compras/ocas/[id]/cerrar/route')
+
+  function setupMock(opts: { rol?: string | null; estado?: string } = {}) {
+    mockFrom.mockImplementation((table: string) => {
+      const chain = mockChainVacio()
+      if (table === 'perfiles') {
+        chain.single = jest.fn(() => Promise.resolve({ data: opts.rol ? { rol: opts.rol, nombre: 'G', email: 'g@test.com' } : null, error: null }))
+        return chain
+      }
+      if (table === 'oca') {
+        chain.single = jest.fn(() => Promise.resolve({ data: { id: 'oca-1', estado: opts.estado ?? 'vigente' }, error: null }))
+        chain.update = jest.fn(() => chain)
+        return chain
+      }
+      return chain
+    })
+  }
+
+  function req(body: Record<string, unknown>) {
+    return makeRequest('http://localhost/api/compras/ocas/oca-1/cerrar', { method: 'POST', body: JSON.stringify(body) })
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(req({ motivo: 'x' }), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'bodega', 'consulta', 'asistente_compras'])(
+    'devuelve 403 para rol %s',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupMock({ rol })
+      const res = await POST(req({ motivo: 'x' }), { params: Promise.resolve({ id: 'oca-1' }) })
+      expect(res.status).toBe(403)
+    }
+  )
+
+  it('devuelve 400 sin motivo', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras' })
+    const res = await POST(req({}), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(400)
+  })
+
+  it.each(['borrador', 'en_aprobacion', 'cerrada'])(
+    'devuelve 409 si el estado es %s (no está en ESTADOS_OCA_NO_TERMINALES)',
+    async (estado) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupMock({ rol: 'compras', estado })
+      const res = await POST(req({ motivo: 'Fin del acuerdo' }), { params: Promise.resolve({ id: 'oca-1' }) })
+      expect(res.status).toBe(409)
+    }
+  )
+
+  it.each(['vigente', 'suspendida', 'agotada', 'vencida'])(
+    'devuelve 200 desde %s (ESTADOS_OCA_NO_TERMINALES) con rol compras',
+    async (estado) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupMock({ rol: 'compras', estado })
+      const res = await POST(req({ motivo: 'Fin del acuerdo' }), { params: Promise.resolve({ id: 'oca-1' }) })
+      expect(res.status).toBe(200)
+      expect((await res.json()).estado).toBe('cerrada')
+    }
+  )
+
+  it('rol gerencia también puede cerrar (RN-02)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'gerencia' })
+    const res = await POST(req({ motivo: 'Fin del acuerdo' }), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(200)
+  })
+})
