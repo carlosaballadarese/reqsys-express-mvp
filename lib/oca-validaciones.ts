@@ -8,6 +8,9 @@ export type OcaItemInput = {
   categoria?: string
   precio_unitario?: number
   precio_maximo?: number
+  // Spec: HU-019 CA-04 — vínculo a la línea de NP de origen (trazabilidad,
+  // igual patrón que items_oc.item_np_id). Ausente/null en OCA independiente.
+  item_np_id?: string | null
 }
 
 export type OcaCabeceraInput = {

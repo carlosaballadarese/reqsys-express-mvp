@@ -36,10 +36,15 @@ export async function POST(req: NextRequest) {
 
     const numero_oca = await generarNumeroOca()
 
+    // Spec: HU-019 CA-03 — origen='desde_np' cuando viene np_origen_id (creación
+    // independiente de HU-018 sigue sin enviarlo, queda en 'independiente' por default).
+    const np_origen_id: string | null = body.np_origen_id ?? null
+
     const { data: oca, error: errorOca } = await adminClient()
       .from('oca')
       .insert({
         numero_oca,
+        ...(np_origen_id ? { origen: 'desde_np', np_origen_id } : {}),
         proveedor_id: body.proveedor_id,
         tipo: body.tipo,
         descripcion: body.descripcion,
@@ -67,6 +72,7 @@ export async function POST(req: NextRequest) {
           categoria: it.categoria ?? null,
           precio_unitario: it.precio_unitario ?? null,
           precio_maximo: it.precio_maximo ?? null,
+          item_np_id: it.item_np_id ?? null,
         }))
       )
     }

@@ -5850,6 +5850,40 @@ describe('POST /api/compras/ocas', () => {
     const res = await POST(reqCrear(bodyValido))
     expect(res.status).toBe(201)
   })
+
+  it('HU-019 CA-03/CA-04: persiste origen=desde_np, np_origen_id e item_np_id cuando vienen en el body', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let insertPayloadOca: any = null
+    let insertPayloadItems: any = null
+    mockFrom.mockImplementation((table: string) => {
+      const chain = mockChainVacio()
+      if (table === 'perfiles') {
+        chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+        return chain
+      }
+      if (table === 'oca') {
+        chain.insert = jest.fn((payload: any) => { insertPayloadOca = payload; return chain })
+        chain.select = jest.fn(() => chain)
+        chain.single = jest.fn(() =>
+          Promise.resolve({ data: { id: 'oca-1', numero_oca: 'OCA-2026-0001', estado: 'borrador' }, error: null })
+        )
+        return chain
+      }
+      if (table === 'oca_items') {
+        chain.insert = jest.fn((payload: any) => { insertPayloadItems = payload; return Promise.resolve({ data: null, error: null }) })
+        return chain
+      }
+      return chain
+    })
+    const res = await POST(reqCrear({
+      ...bodyValido,
+      np_origen_id: 'np-1',
+      items: [{ codigo: 'FER-001', descripcion: 'Tornillos', unidad: 'caja', precio_unitario: 10, item_np_id: 'item-1' }],
+    }))
+    expect(res.status).toBe(201)
+    expect(insertPayloadOca).toEqual(expect.objectContaining({ origen: 'desde_np', np_origen_id: 'np-1' }))
+    expect(insertPayloadItems[0]).toEqual(expect.objectContaining({ item_np_id: 'item-1' }))
+  })
 })
 
 describe('GET /api/compras/ocas', () => {
