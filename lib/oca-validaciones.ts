@@ -21,6 +21,20 @@ export type OcaCabeceraInput = {
   items?: OcaItemInput[]
 }
 
+// Spec: HU-018 RN-05 — extraída para que HU-020 (modificación de lista de
+// precios vía enmienda) la reutilice sin duplicar la regla de negocio.
+export function validarItemsSegunTipo(tipo: string | undefined, items: OcaItemInput[]): string | null {
+  for (const item of items) {
+    if (tipo === 'precio_fijo' && (item.precio_unitario === undefined || item.precio_unitario === null)) {
+      return `El ítem ${item.codigo} requiere precio_unitario (tipo precio_fijo)`
+    }
+    if (tipo === 'precio_variable_tope' && (item.precio_maximo === undefined || item.precio_maximo === null)) {
+      return `El ítem ${item.codigo} requiere precio_maximo (tipo precio_variable_tope)`
+    }
+  }
+  return null
+}
+
 export function validarCabeceraEItems(body: OcaCabeceraInput): string | null {
   if (!['precio_fijo', 'precio_variable_tope'].includes(body.tipo ?? '')) {
     return 'Tipo de OCA inválido'
@@ -31,13 +45,5 @@ export function validarCabeceraEItems(body: OcaCabeceraInput): string | null {
   if (!body.presupuesto_total || body.presupuesto_total <= 0) {
     return 'El presupuesto total debe ser un monto positivo'
   }
-  for (const item of body.items ?? []) {
-    if (body.tipo === 'precio_fijo' && (item.precio_unitario === undefined || item.precio_unitario === null)) {
-      return `El ítem ${item.codigo} requiere precio_unitario (tipo precio_fijo)`
-    }
-    if (body.tipo === 'precio_variable_tope' && (item.precio_maximo === undefined || item.precio_maximo === null)) {
-      return `El ítem ${item.codigo} requiere precio_maximo (tipo precio_variable_tope)`
-    }
-  }
-  return null
+  return validarItemsSegunTipo(body.tipo, body.items ?? [])
 }
