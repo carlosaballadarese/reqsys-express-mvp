@@ -29,11 +29,30 @@ type ItemForm = {
 }
 const ITEM_VACIO: ItemForm = { codigo: '', descripcion: '', unidad: '', categoria: '', precio_unitario: '', precio_maximo: '' }
 
+// Spec: HU-020 — tipos de enmienda y su campo propio
+type TipoEnmienda = 'incremento_presupuesto' | 'extension_plazo' | 'modificacion_precios'
+type Enmienda = {
+  id: string; tipo: TipoEnmienda; estado: 'pendiente' | 'aprobada' | 'rechazada'
+  justificacion: string; referencia_contractual: string
+  monto_adicional: number | null; fecha_fin_nueva: string | null
+  items_nuevos: { codigo: string; descripcion: string; unidad: string; precio_unitario?: number | null; precio_maximo?: number | null }[] | null
+  solicitado_en: string; aprobado_en: string | null; motivo_rechazo: string | null
+}
+
 const ESTADO_LABEL: Record<string, string> = {
   borrador: 'Borrador', en_aprobacion: 'En aprobación', vigente: 'Vigente',
   suspendida: 'Suspendida', agotada: 'Agotada', vencida: 'Vencida', cerrada: 'Cerrada',
 }
 const ESTADOS_NO_TERMINALES = ['vigente', 'suspendida', 'agotada', 'vencida']
+
+const TIPO_ENMIENDA_LABEL: Record<TipoEnmienda, string> = {
+  incremento_presupuesto: 'Incremento de presupuesto',
+  extension_plazo: 'Extensión de plazo',
+  modificacion_precios: 'Modificación de lista de precios',
+}
+const ESTADO_ENMIENDA_LABEL: Record<Enmienda['estado'], string> = {
+  pendiente: 'Pendiente', aprobada: 'Aprobada', rechazada: 'Rechazada',
+}
 
 function usd(n: number) {
   return `$${(n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -71,6 +90,21 @@ export default function DetalleOcaPage() {
   const [editItems, setEditItems]     = useState<ItemForm[]>([{ ...ITEM_VACIO }])
   const [guardandoEdicion, setGuardandoEdicion] = useState(false)
   const [errorEdicion, setErrorEdicion] = useState('')
+
+  // Spec: HU-020 — enmiendas de la OCA
+  const [enmiendas, setEnmiendas] = useState<Enmienda[]>([])
+  const [modalSolicitar, setModalSolicitar] = useState(false)
+  const [tipoEnmienda, setTipoEnmienda] = useState<TipoEnmienda>('incremento_presupuesto')
+  const [enmJustificacion, setEnmJustificacion] = useState('')
+  const [enmReferencia, setEnmReferencia] = useState('')
+  const [enmMontoAdicional, setEnmMontoAdicional] = useState('')
+  const [enmFechaFinNueva, setEnmFechaFinNueva] = useState('')
+  const [enmItems, setEnmItems] = useState<ItemForm[]>([{ ...ITEM_VACIO }])
+  const [enviandoEnmienda, setEnviandoEnmienda] = useState(false)
+  const [errorEnmienda, setErrorEnmienda] = useState('')
+  const [modalResolver, setModalResolver] = useState<{ enmienda: Enmienda; decision: 'aprobar' | 'rechazar' } | null>(null)
+  const [motivoResolver, setMotivoResolver] = useState('')
+  const [resolviendo, setResolviendo] = useState(false)
 
   useEffect(() => {
     fetch('/api/auth/perfil').then(r => r.ok ? r.json() : null).then(p => setRol(p?.rol ?? null))
@@ -151,6 +185,10 @@ export default function DetalleOcaPage() {
         setCargando(false)
       })
       .catch(() => setCargando(false))
+    fetch(`/api/compras/ocas/${id}/enmiendas`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setEnmiendas(Array.isArray(data) ? data : []))
+      .catch(() => {})
   }
 
   useEffect(() => { cargar() }, [id])
@@ -173,6 +211,64 @@ export default function DetalleOcaPage() {
     } else {
       setError(data.error || 'Error al ejecutar la acción')
     }
+  }
+
+  // Spec: HU-020 RN-04/05/06 — tipos elegibles según el estado actual de la OCA
+  const tiposDisponibles: TipoEnmienda[] = oca
+    ? [
+        ...(['vigente', 'agotada'].includes(oca.estado) ? ['incremento_presupuesto' as const] : []),
+        ...(['vigente', 'vencida'].includes(oca.estado) ? ['extension_plazo' as const] : []),
+        ...(oca.estado === 'vigente' ? ['modificacion_precios' as const] : []),
+      ]
+    : []
+  const enmiendaPendiente = enmiendas.find(e => e.estado === 'pendiente') ?? null
+
+  function abrirModalSolicitar() {
+    setTipoEnmienda(tiposDisponibles[0] ?? 'incremento_presupuesto')
+    setEnmJustificacion(''); setEnmReferencia(''); setEnmMontoAdicional(''); setEnmFechaFinNueva('')
+    setEnmItems([{ ...ITEM_VACIO }])
+    setErrorEnmienda('')
+    setModalSolicitar(true)
+  }
+
+  async function handleSolicitarEnmienda() {
+    setErrorEnmienda('')
+    if (!enmJustificacion.trim() || !enmReferencia.trim()) {
+      setErrorEnmienda('Justificación y referencia contractual son obligatorias'); return
+    }
+    const body: Record<string, unknown> = {
+      tipo: tipoEnmienda, justificacion: enmJustificacion, referencia_contractual: enmReferencia,
+    }
+    if (tipoEnmienda === 'incremento_presupuesto') body.monto_adicional = Number(enmMontoAdicional)
+    if (tipoEnmienda === 'extension_plazo') body.fecha_fin_nueva = enmFechaFinNueva
+    if (tipoEnmienda === 'modificacion_precios') {
+      body.items = enmItems.map(it => ({
+        codigo: it.codigo, descripcion: it.descripcion, unidad: it.unidad,
+        categoria: it.categoria || undefined,
+        precio_unitario: oca?.tipo === 'precio_fijo' ? Number(it.precio_unitario) : undefined,
+        precio_maximo: oca?.tipo === 'precio_variable_tope' ? Number(it.precio_maximo) : undefined,
+      }))
+    }
+
+    setEnviandoEnmienda(true)
+    const res = await fetch(`/api/compras/ocas/${id}/enmiendas`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })
+    const data = await res.json()
+    setEnviandoEnmienda(false)
+    if (res.ok) { setModalSolicitar(false); cargar() } else { setErrorEnmienda(data.error || 'Error al solicitar la enmienda') }
+  }
+
+  async function handleResolverEnmienda() {
+    if (!modalResolver) return
+    if (modalResolver.decision === 'rechazar' && !motivoResolver.trim()) return
+    setResolviendo(true)
+    const res = await fetch(`/api/compras/ocas/${id}/enmiendas/${modalResolver.enmienda.id}/resolver`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision: modalResolver.decision, motivo: motivoResolver }),
+    })
+    setResolviendo(false)
+    if (res.ok) { setModalResolver(null); setMotivoResolver(''); cargar() }
   }
 
   if (cargando) return <div className="text-center py-20 text-slate-400">Cargando...</div>
@@ -419,6 +515,61 @@ export default function DetalleOcaPage() {
         </Card>
 
         <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Enmiendas</CardTitle>
+              {esComprasAdmin && !enmiendaPendiente && tiposDisponibles.length > 0 && (
+                <Button variant="outline" className="text-xs h-7" onClick={abrirModalSolicitar}>
+                  + Solicitar enmienda
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3 text-sm">
+              {enmiendas.length === 0 && <p className="text-slate-400">Sin enmiendas registradas.</p>}
+              {enmiendas.map(e => (
+                <div key={e.id} className="border-b last:border-0 pb-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <span className="font-medium text-slate-700">{TIPO_ENMIENDA_LABEL[e.tipo]}</span>
+                      <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
+                        e.estado === 'pendiente' ? 'bg-amber-100 text-amber-700'
+                        : e.estado === 'aprobada' ? 'bg-green-100 text-green-700'
+                        : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {ESTADO_ENMIENDA_LABEL[e.estado]}
+                      </span>
+                    </div>
+                    {esGerenciaAdmin && e.estado === 'pendiente' && (
+                      <div className="flex gap-2">
+                        <Button className="btn-primary text-xs h-7" onClick={() => setModalResolver({ enmienda: e, decision: 'aprobar' })}>
+                          ✓ Aprobar
+                        </Button>
+                        <Button variant="outline" className="text-xs h-7 text-red-600" onClick={() => setModalResolver({ enmienda: e, decision: 'rechazar' })}>
+                          ✕ Rechazar
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-slate-500 text-xs mt-1">
+                    {e.tipo === 'incremento_presupuesto' && `Monto adicional: ${usd(e.monto_adicional ?? 0)}`}
+                    {e.tipo === 'extension_plazo' && `Nueva fecha de fin: ${e.fecha_fin_nueva}`}
+                    {e.tipo === 'modificacion_precios' && `${e.items_nuevos?.length ?? 0} ítem(s) propuestos`}
+                  </p>
+                  <p className="text-slate-500 text-xs">Justificación: {e.justificacion}</p>
+                  <p className="text-slate-500 text-xs">Referencia contractual: {e.referencia_contractual}</p>
+                  {e.estado === 'rechazada' && e.motivo_rechazo && (
+                    <p className="text-red-600 text-xs">Motivo de rechazo: {e.motivo_rechazo}</p>
+                  )}
+                  <p className="text-slate-400 text-xs mt-1">Solicitada: {new Date(e.solicitado_en).toLocaleString('es-EC')}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
           <CardHeader><CardTitle className="text-base">Historial</CardTitle></CardHeader>
           <CardContent>
             <div className="space-y-2 text-sm">
@@ -461,6 +612,108 @@ export default function DetalleOcaPage() {
                 {procesando ? 'Procesando...' : 'Confirmar'}
               </Button>
               <Button variant="outline" className="text-sm" onClick={() => { setModalAccion(null); setMotivo('') }}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalSolicitar && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-lg shadow-lg max-w-lg w-full p-5 max-h-[90vh] overflow-y-auto">
+            <h3 className="font-semibold text-slate-800 mb-3">Solicitar enmienda</h3>
+
+            <Label className="text-xs">Tipo de enmienda *</Label>
+            <select value={tipoEnmienda} onChange={e => setTipoEnmienda(e.target.value as TipoEnmienda)}
+              className="w-full border rounded px-3 py-1.5 text-sm mt-1 mb-3">
+              {tiposDisponibles.map(t => <option key={t} value={t}>{TIPO_ENMIENDA_LABEL[t]}</option>)}
+            </select>
+
+            {tipoEnmienda === 'incremento_presupuesto' && (
+              <div className="mb-3">
+                <Label className="text-xs">Monto adicional (USD) *</Label>
+                <Input type="number" min="0" step="0.01" value={enmMontoAdicional}
+                  onChange={e => setEnmMontoAdicional(e.target.value)} className="mt-1 h-8 text-sm" />
+              </div>
+            )}
+
+            {tipoEnmienda === 'extension_plazo' && (
+              <div className="mb-3">
+                <Label className="text-xs">Nueva fecha de fin *</Label>
+                <Input type="date" value={enmFechaFinNueva}
+                  onChange={e => setEnmFechaFinNueva(e.target.value)} className="mt-1 h-8 text-sm" />
+              </div>
+            )}
+
+            {tipoEnmienda === 'modificacion_precios' && (
+              <div className="mb-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">Nueva lista de precios *</Label>
+                  <Button variant="outline" className="text-xs h-7"
+                    onClick={() => setEnmItems(prev => [...prev, { ...ITEM_VACIO }])}>
+                    + Agregar ítem
+                  </Button>
+                </div>
+                {enmItems.map((it, idx) => (
+                  <div key={idx} className="grid grid-cols-1 sm:grid-cols-5 gap-2 items-end border-b pb-3 last:border-0">
+                    <Input placeholder="Código" value={it.codigo} onChange={e => setEnmItems(prev => prev.map((p, i) => i === idx ? { ...p, codigo: e.target.value } : p))} className="h-8 text-sm" />
+                    <Input placeholder="Descripción" value={it.descripcion} onChange={e => setEnmItems(prev => prev.map((p, i) => i === idx ? { ...p, descripcion: e.target.value } : p))} className="h-8 text-sm sm:col-span-2" />
+                    <Input placeholder="Unidad" value={it.unidad} onChange={e => setEnmItems(prev => prev.map((p, i) => i === idx ? { ...p, unidad: e.target.value } : p))} className="h-8 text-sm" />
+                    {oca.tipo === 'precio_fijo' ? (
+                      <Input type="number" min="0" step="0.01" placeholder="Precio" value={it.precio_unitario}
+                        onChange={e => setEnmItems(prev => prev.map((p, i) => i === idx ? { ...p, precio_unitario: e.target.value } : p))} className="h-8 text-sm" />
+                    ) : (
+                      <Input type="number" min="0" step="0.01" placeholder="Precio máx." value={it.precio_maximo}
+                        onChange={e => setEnmItems(prev => prev.map((p, i) => i === idx ? { ...p, precio_maximo: e.target.value } : p))} className="h-8 text-sm" />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <Label className="text-xs">Justificación *</Label>
+            <textarea value={enmJustificacion} onChange={e => setEnmJustificacion(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1 mb-3" rows={2} />
+
+            <Label className="text-xs">Referencia contractual *</Label>
+            <Input value={enmReferencia} onChange={e => setEnmReferencia(e.target.value)} className="mt-1 h-8 text-sm" />
+
+            {errorEnmienda && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2 mt-3">{errorEnmienda}</p>}
+
+            <div className="flex gap-3 mt-4">
+              <Button className="btn-primary text-sm" disabled={enviandoEnmienda} onClick={handleSolicitarEnmienda}>
+                {enviandoEnmienda ? 'Enviando...' : 'Solicitar'}
+              </Button>
+              <Button variant="outline" className="text-sm" onClick={() => setModalSolicitar(false)}>Cancelar</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalResolver && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-lg shadow-lg max-w-md w-full p-5">
+            <h3 className="font-semibold text-slate-800 mb-3">
+              {modalResolver.decision === 'aprobar' ? 'Aprobar enmienda' : 'Rechazar enmienda'}
+            </h3>
+            <p className="text-slate-500 text-sm mb-3">{TIPO_ENMIENDA_LABEL[modalResolver.enmienda.tipo]}</p>
+            {modalResolver.decision === 'rechazar' && (
+              <>
+                <Label className="text-xs">Motivo *</Label>
+                <textarea value={motivoResolver} onChange={e => setMotivoResolver(e.target.value)}
+                  className="w-full border rounded px-3 py-2 text-sm mt-1" rows={3} />
+              </>
+            )}
+            <div className="flex gap-3 mt-4">
+              <Button
+                className="btn-primary text-sm"
+                disabled={resolviendo || (modalResolver.decision === 'rechazar' && !motivoResolver.trim())}
+                onClick={handleResolverEnmienda}
+              >
+                {resolviendo ? 'Procesando...' : 'Confirmar'}
+              </Button>
+              <Button variant="outline" className="text-sm" onClick={() => { setModalResolver(null); setMotivoResolver('') }}>
                 Cancelar
               </Button>
             </div>
