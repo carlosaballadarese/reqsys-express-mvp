@@ -6676,3 +6676,310 @@ describe('POST /api/compras/ocas/[id]/cerrar', () => {
     expect(mockActualizarEstadoNP).not.toHaveBeenCalled()
   })
 })
+
+// ── 46. Enmiendas de OCA — HU-020 ────────────────────────────────────────────
+
+function chainForEnmiendas(data: unknown, singleData: unknown = null, maybeSingleData: unknown = null) {
+  const chain = mockChainVacio()
+  chain.single = jest.fn(() => Promise.resolve({ data: singleData, error: null }))
+  chain.maybeSingle = jest.fn(() => Promise.resolve({ data: maybeSingleData, error: null }))
+  // insert(...).select(...).single() debe permanecer encadenable
+  chain.insert = jest.fn(() => chain)
+  chain.then = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve)
+  return chain
+}
+
+describe('POST /api/compras/ocas/[id]/enmiendas', () => {
+  const { POST } = require('@/app/api/compras/ocas/[id]/enmiendas/route')
+
+  const ocaVigente = { id: 'oca-1', numero_oca: 'OCA-2026-0001', estado: 'vigente', fecha_fin: '2026-12-31', presupuesto_total: 1000, tipo: 'precio_fijo' }
+  const ocaAgotada = { ...ocaVigente, estado: 'agotada' }
+
+  function setupMock(opts: { rol?: string | null; oca?: unknown; pendiente?: unknown } = {}) {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return chainForEnmiendas([], opts.rol ? { rol: opts.rol, nombre: 'G', email: 'g@a.com' } : null)
+      if (table === 'oca') return chainForEnmiendas([], 'oca' in opts ? opts.oca : ocaVigente)
+      if (table === 'oca_enmiendas') {
+        return chainForEnmiendas([], { id: 'enm-1', tipo: 'incremento_presupuesto', estado: 'pendiente' }, 'pendiente' in opts ? opts.pendiente : null)
+      }
+      return chainForEnmiendas([])
+    })
+  }
+
+  function req(body: Record<string, unknown>) {
+    return makeRequest('http://localhost/api/compras/ocas/oca-1/enmiendas', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+  }
+  const ctx = { params: Promise.resolve({ id: 'oca-1' }) }
+
+  const bodyIncremento = { tipo: 'incremento_presupuesto', justificacion: 'Justificación', referencia_contractual: 'CONTRATO-001', monto_adicional: 500 }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(req(bodyIncremento), ctx)
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'bodega', 'gerencia', 'consulta', 'asistente_compras', 'coordinador'])(
+    'devuelve 403 para rol %s (RN-01: solo compras/admin solicitan)',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupMock({ rol })
+      const res = await POST(req(bodyIncremento), ctx)
+      expect(res.status).toBe(403)
+    }
+  )
+
+  it('devuelve 404 si la OCA no existe', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', oca: null })
+    const res = await POST(req(bodyIncremento), ctx)
+    expect(res.status).toBe(404)
+  })
+
+  it('devuelve 409 si ya existe una enmienda pendiente para la OCA (RN-07)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', pendiente: { id: 'enm-0' } })
+    const res = await POST(req(bodyIncremento), ctx)
+    expect(res.status).toBe(409)
+  })
+
+  it('devuelve 400 sin justificación (RN-03)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras' })
+    const res = await POST(req({ ...bodyIncremento, justificacion: '' }), ctx)
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 400 si incremento_presupuesto se solicita desde vencida (RN-04)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', oca: { ...ocaVigente, estado: 'vencida' } })
+    const res = await POST(req(bodyIncremento), ctx)
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 201 con incremento_presupuesto válido desde vigente (rol compras)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras' })
+    const res = await POST(req(bodyIncremento), ctx)
+    expect(res.status).toBe(201)
+  })
+
+  it('devuelve 201 con incremento_presupuesto válido desde agotada (RN-04, rol admin)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'admin', oca: ocaAgotada })
+    const res = await POST(req(bodyIncremento), ctx)
+    expect(res.status).toBe(201)
+  })
+
+  it('devuelve 201 con extension_plazo válido desde vencida (RN-05)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', oca: { ...ocaVigente, estado: 'vencida' } })
+    const res = await POST(req({
+      tipo: 'extension_plazo', justificacion: 'J', referencia_contractual: 'C-1', fecha_fin_nueva: '2027-06-30',
+    }), ctx)
+    expect(res.status).toBe(201)
+  })
+
+  it('devuelve 201 con modificacion_precios válido desde vigente (RN-06)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras' })
+    const res = await POST(req({
+      tipo: 'modificacion_precios', justificacion: 'J', referencia_contractual: 'C-1',
+      items: [{ codigo: 'X', descripcion: 'X', unidad: 'EA', precio_unitario: 20 }],
+    }), ctx)
+    expect(res.status).toBe(201)
+  })
+})
+
+describe('GET /api/compras/ocas/[id]/enmiendas', () => {
+  const { GET } = require('@/app/api/compras/ocas/[id]/enmiendas/route')
+  const ctx = { params: Promise.resolve({ id: 'oca-1' }) }
+
+  function setupMock(opts: { rol?: string | null } = {}) {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return chainForEnmiendas([], opts.rol ? { rol: opts.rol } : null)
+      if (table === 'oca_enmiendas') return chainForEnmiendas([{ id: 'enm-1', estado: 'aprobada' }])
+      return chainForEnmiendas([])
+    })
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1/enmiendas'), ctx)
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol coordinador (fuera de los 7 roles de CA-13/HU-018)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'coordinador' })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1/enmiendas'), ctx)
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 200 con el histórico para rol solicitante', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'solicitante' })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1/enmiendas'), ctx)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual([{ id: 'enm-1', estado: 'aprobada' }])
+  })
+})
+
+describe('POST /api/compras/ocas/[id]/enmiendas/[enmiendaId]/resolver', () => {
+  const { POST } = require('@/app/api/compras/ocas/[id]/enmiendas/[enmiendaId]/resolver/route')
+  const ctx = { params: Promise.resolve({ id: 'oca-1', enmiendaId: 'enm-1' }) }
+
+  const ocaVigente = { id: 'oca-1', numero_oca: 'OCA-2026-0001', estado: 'vigente', fecha_fin: '2026-12-31', presupuesto_total: 1000 }
+  const enmiendaIncremento = { id: 'enm-1', oca_id: 'oca-1', tipo: 'incremento_presupuesto', estado: 'pendiente', monto_adicional: 500 }
+  const enmiendaExtension  = { id: 'enm-1', oca_id: 'oca-1', tipo: 'extension_plazo', estado: 'pendiente', fecha_fin_nueva: '2027-06-30' }
+  const enmiendaPrecios    = { id: 'enm-1', oca_id: 'oca-1', tipo: 'modificacion_precios', estado: 'pendiente', items_nuevos: [{ codigo: 'X', descripcion: 'X', unidad: 'EA', precio_unitario: 30 }] }
+
+  let updateOcaSpy: jest.Mock
+  let updateEnmiendaSpy: jest.Mock
+
+  function setupMock(opts: { rol?: string | null; oca?: unknown; enmienda?: unknown } = {}) {
+    updateOcaSpy = jest.fn(() => Promise.resolve({ data: null, error: null }))
+    updateEnmiendaSpy = jest.fn(() => Promise.resolve({ data: null, error: null }))
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return chainForEnmiendas([], opts.rol ? { rol: opts.rol, nombre: 'G', email: 'g@a.com' } : null)
+      if (table === 'oca_enmiendas') {
+        const chain = chainForEnmiendas([], 'enmienda' in opts ? opts.enmienda : enmiendaIncremento)
+        chain.update = jest.fn((payload: unknown) => { updateEnmiendaSpy(payload); return chain })
+        chain.eq = jest.fn(() => chain)
+        return chain
+      }
+      if (table === 'oca') {
+        const chain = chainForEnmiendas([], opts.oca ?? ocaVigente)
+        chain.update = jest.fn((payload: unknown) => { updateOcaSpy(payload); return chain })
+        chain.eq = jest.fn(() => chain)
+        return chain
+      }
+      return chainForEnmiendas([])
+    })
+  }
+
+  function req(body: Record<string, unknown>) {
+    return makeRequest('http://localhost/api/compras/ocas/oca-1/enmiendas/enm-1/resolver', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(req({ decision: 'aprobar' }), ctx)
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'bodega', 'compras', 'asistente_compras', 'consulta', 'coordinador'])(
+    'devuelve 403 para rol %s (RN-02: solo gerencia/admin resuelven)',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupMock({ rol })
+      const res = await POST(req({ decision: 'aprobar' }), ctx)
+      expect(res.status).toBe(403)
+    }
+  )
+
+  it('devuelve 400 con decision inválida', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'gerencia' })
+    const res = await POST(req({ decision: 'otra' }), ctx)
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 400 al rechazar sin motivo', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'gerencia' })
+    const res = await POST(req({ decision: 'rechazar' }), ctx)
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 404 si la enmienda no existe', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'gerencia', enmienda: null })
+    const res = await POST(req({ decision: 'aprobar' }), ctx)
+    expect(res.status).toBe(404)
+  })
+
+  it('devuelve 409 si la enmienda ya fue resuelta', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'gerencia', enmienda: { ...enmiendaIncremento, estado: 'aprobada' } })
+    const res = await POST(req({ decision: 'aprobar' }), ctx)
+    expect(res.status).toBe(409)
+  })
+
+  it('aprueba incremento_presupuesto: suma el monto y reactiva agotada -> vigente', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'gerencia', enmienda: enmiendaIncremento, oca: { ...ocaVigente, estado: 'agotada', presupuesto_total: 1000 } })
+    const res = await POST(req({ decision: 'aprobar' }), ctx)
+    expect(res.status).toBe(200)
+    expect(updateOcaSpy).toHaveBeenCalledWith(expect.objectContaining({ presupuesto_total: 1500, estado: 'vigente' }))
+    expect(updateEnmiendaSpy).toHaveBeenCalledWith(expect.objectContaining({ estado: 'aprobada' }))
+  })
+
+  it('aprueba incremento_presupuesto desde vigente sin tocar el estado', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'admin', enmienda: enmiendaIncremento, oca: ocaVigente })
+    const res = await POST(req({ decision: 'aprobar' }), ctx)
+    expect(res.status).toBe(200)
+    const payload = updateOcaSpy.mock.calls[0][0]
+    expect(payload.presupuesto_total).toBe(1500)
+    expect(payload.estado).toBeUndefined()
+  })
+
+  it('aprueba extension_plazo: actualiza fecha_fin y reactiva vencida -> vigente', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'gerencia', enmienda: enmiendaExtension, oca: { ...ocaVigente, estado: 'vencida' } })
+    const res = await POST(req({ decision: 'aprobar' }), ctx)
+    expect(res.status).toBe(200)
+    expect(updateOcaSpy).toHaveBeenCalledWith(expect.objectContaining({ fecha_fin: '2027-06-30', estado: 'vigente' }))
+  })
+
+  it('aprueba modificacion_precios: reemplaza oca_items', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const insertItemsSpy = jest.fn(() => Promise.resolve({ data: null, error: null }))
+    const deleteItemsSpy = jest.fn(() => Promise.resolve({ data: null, error: null }))
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return chainForEnmiendas([], { rol: 'gerencia', nombre: 'G', email: 'g@a.com' })
+      if (table === 'oca_enmiendas') {
+        const chain = chainForEnmiendas([], enmiendaPrecios)
+        chain.update = jest.fn(() => chain)
+        chain.eq = jest.fn(() => chain)
+        return chain
+      }
+      if (table === 'oca') {
+        const chain = chainForEnmiendas([], ocaVigente)
+        chain.update = jest.fn(() => chain)
+        chain.eq = jest.fn(() => chain)
+        return chain
+      }
+      if (table === 'oca_items') {
+        const chain = chainForEnmiendas([])
+        chain.delete = jest.fn(() => { deleteItemsSpy(); return chain })
+        chain.insert = jest.fn((payload: unknown) => { insertItemsSpy(payload); return Promise.resolve({ data: null, error: null }) })
+        chain.eq = jest.fn(() => Promise.resolve({ data: null, error: null }))
+        return chain
+      }
+      return chainForEnmiendas([])
+    })
+    const res = await POST(req({ decision: 'aprobar' }), ctx)
+    expect(res.status).toBe(200)
+    expect(deleteItemsSpy).toHaveBeenCalled()
+    expect(insertItemsSpy).toHaveBeenCalledWith([
+      expect.objectContaining({ codigo: 'X', precio_unitario: 30 }),
+    ])
+  })
+
+  it('rechaza con motivo: persiste motivo_rechazo, OCA sin cambios', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'gerencia', enmienda: enmiendaIncremento, oca: ocaVigente })
+    const res = await POST(req({ decision: 'rechazar', motivo: 'Presupuesto insuficiente' }), ctx)
+    expect(res.status).toBe(200)
+    expect(updateEnmiendaSpy).toHaveBeenCalledWith(expect.objectContaining({ estado: 'rechazada', motivo_rechazo: 'Presupuesto insuficiente' }))
+    expect(updateOcaSpy).not.toHaveBeenCalled()
+  })
+})
