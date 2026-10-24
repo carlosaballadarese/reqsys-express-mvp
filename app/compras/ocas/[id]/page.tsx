@@ -54,6 +54,21 @@ const ESTADO_ENMIENDA_LABEL: Record<Enmienda['estado'], string> = {
   pendiente: 'Pendiente', aprobada: 'Aprobada', rechazada: 'Rechazada',
 }
 
+// Spec: HU-021 — releases (descargos) contra una OCA vigente
+type Release = {
+  id: string; numero_release: string; area_id: string
+  monto_total: number; observaciones: string | null
+  estado: 'pendiente_aprobacion' | 'aprobado' | 'rechazado' | 'anulado'
+  motivo_rechazo: string | null; motivo_anulacion: string | null
+  created_at: string
+}
+type ReleaseItemForm = { oca_item_id: string; seleccionado: boolean; cantidad: string; precio_unitario: string }
+const RELEASE_ESTADO_LABEL: Record<Release['estado'], string> = {
+  pendiente_aprobacion: 'Pendiente de aprobación', aprobado: 'Aprobado', rechazado: 'Rechazado', anulado: 'Anulado',
+}
+// Spec: HU-021 RN-01 — roles que generan release
+const ROLES_GENERAR_RELEASE = ['solicitante', 'bodega', 'compras', 'admin', 'asistente_compras']
+
 function usd(n: number) {
   return `$${(n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
@@ -105,6 +120,21 @@ export default function DetalleOcaPage() {
   const [modalResolver, setModalResolver] = useState<{ enmienda: Enmienda; decision: 'aprobar' | 'rechazar' } | null>(null)
   const [motivoResolver, setMotivoResolver] = useState('')
   const [resolviendo, setResolviendo] = useState(false)
+
+  // Spec: HU-021 — releases de la OCA
+  const [releases, setReleases] = useState<Release[]>([])
+  const [modalGenerarRelease, setModalGenerarRelease] = useState(false)
+  const [relAreaId, setRelAreaId] = useState('')
+  const [relObservaciones, setRelObservaciones] = useState('')
+  const [relItems, setRelItems] = useState<ReleaseItemForm[]>([])
+  const [generandoRelease, setGenerandoRelease] = useState(false)
+  const [errorRelease, setErrorRelease] = useState('')
+  const [modalResolverRelease, setModalResolverRelease] = useState<{ release: Release; decision: 'aprobar' | 'rechazar' } | null>(null)
+  const [motivoResolverRelease, setMotivoResolverRelease] = useState('')
+  const [resolviendoRelease, setResolviendoRelease] = useState(false)
+  const [modalAnularRelease, setModalAnularRelease] = useState<Release | null>(null)
+  const [motivoAnular, setMotivoAnular] = useState('')
+  const [anulando, setAnulando] = useState(false)
 
   useEffect(() => {
     fetch('/api/auth/perfil').then(r => r.ok ? r.json() : null).then(p => setRol(p?.rol ?? null))
@@ -189,6 +219,10 @@ export default function DetalleOcaPage() {
       .then(r => r.ok ? r.json() : [])
       .then(data => setEnmiendas(Array.isArray(data) ? data : []))
       .catch(() => {})
+    fetch(`/api/compras/ocas/${id}/releases`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setReleases(Array.isArray(data) ? data : []))
+      .catch(() => {})
   }
 
   useEffect(() => { cargar() }, [id])
@@ -271,8 +305,84 @@ export default function DetalleOcaPage() {
     if (res.ok) { setModalResolver(null); setMotivoResolver(''); cargar() }
   }
 
+  // Spec: HU-021 RN-01/CA-01/CA-02 — generación de release
+  function abrirModalGenerarRelease() {
+    setRelAreaId(areasHab[0]?.id ?? '')
+    setRelObservaciones('')
+    setRelItems(items.map(it => ({ oca_item_id: it.id, seleccionado: false, cantidad: '', precio_unitario: '' })))
+    setErrorRelease('')
+    setModalGenerarRelease(true)
+  }
+
+  function actualizarRelItem(ocaItemId: string, campo: keyof ReleaseItemForm, valor: string | boolean) {
+    setRelItems(prev => prev.map(it => it.oca_item_id === ocaItemId ? { ...it, [campo]: valor } : it))
+  }
+
+  // Spec: CA-03 — preview informativo de monto_total (el cálculo real/autoritativo lo hace el backend)
+  const relItemsSeleccionados = relItems.filter(it => it.seleccionado)
+  const relMontoPreview = relItemsSeleccionados.reduce((sum, it) => {
+    const itemCatalogo = items.find(i => i.id === it.oca_item_id)
+    const precio = oca?.tipo === 'precio_fijo' ? (itemCatalogo?.precio_unitario ?? 0) : Number(it.precio_unitario || 0)
+    return sum + precio * Number(it.cantidad || 0)
+  }, 0)
+
+  async function handleGenerarRelease() {
+    setErrorRelease('')
+    if (!relAreaId) { setErrorRelease('Selecciona un centro de costo'); return }
+    if (relItemsSeleccionados.length === 0) { setErrorRelease('Selecciona al menos un ítem'); return }
+    const body = {
+      area_id: relAreaId,
+      observaciones: relObservaciones || undefined,
+      items: relItemsSeleccionados.map(it => ({
+        oca_item_id: it.oca_item_id,
+        cantidad: Number(it.cantidad),
+        precio_unitario: oca?.tipo === 'precio_variable_tope' ? Number(it.precio_unitario) : undefined,
+      })),
+    }
+    setGenerandoRelease(true)
+    const res = await fetch(`/api/compras/ocas/${id}/releases`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })
+    const data = await res.json()
+    setGenerandoRelease(false)
+    if (res.ok) { setModalGenerarRelease(false); cargar() } else { setErrorRelease(data.error || 'Error al generar el release') }
+  }
+
+  async function handleResolverRelease() {
+    if (!modalResolverRelease) return
+    if (modalResolverRelease.decision === 'rechazar' && !motivoResolverRelease.trim()) return
+    setResolviendoRelease(true)
+    const res = await fetch(`/api/compras/ocas/${id}/releases/${modalResolverRelease.release.id}/resolver`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision: modalResolverRelease.decision, motivo: motivoResolverRelease }),
+    })
+    const data = await res.json()
+    setResolviendoRelease(false)
+    if (res.ok) { setModalResolverRelease(null); setMotivoResolverRelease(''); cargar() }
+    else { setError(data.error || 'Error al resolver el release') }
+  }
+
+  async function handleAnularRelease() {
+    if (!modalAnularRelease || !motivoAnular.trim()) return
+    setAnulando(true)
+    const res = await fetch(`/api/compras/ocas/${id}/releases/${modalAnularRelease.id}/anular`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motivo: motivoAnular }),
+    })
+    const data = await res.json()
+    setAnulando(false)
+    if (res.ok) { setModalAnularRelease(null); setMotivoAnular(''); cargar() }
+    else { setError(data.error || 'Error al anular el release') }
+  }
+
   if (cargando) return <div className="text-center py-20 text-slate-400">Cargando...</div>
   if (!oca) return <div className="text-center py-20 text-slate-400">OCA no encontrada</div>
+
+  // Spec: HU-021 — visibilidad de botones Aprobar/Rechazar/Anular en el cliente
+  // es informativa (RN-02 real lo enforcea el backend por área/compras/admin);
+  // se oculta solo para los roles explícitamente de solo lectura en todo el
+  // sistema (gerencia/consulta) para no sugerir una acción que nunca procede.
+  const puedeIntentarResolverRelease = rol !== null && !['gerencia', 'consulta'].includes(rol)
+  const puedeGenerarRelease = rol !== null && ROLES_GENERAR_RELEASE.includes(rol)
 
   return (
     <div className="bg-slate-50 py-8 px-4">
@@ -570,6 +680,72 @@ export default function DetalleOcaPage() {
         </Card>
 
         <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Releases</CardTitle>
+              {puedeGenerarRelease && oca.estado === 'vigente' && (
+                <Button variant="outline" className="text-xs h-7" onClick={abrirModalGenerarRelease}>
+                  + Generar release
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3 text-sm">
+              {releases.length === 0 && <p className="text-slate-400">Sin releases generados.</p>}
+              {releases.map(r => (
+                <div key={r.id} className="border-b last:border-0 pb-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <span className="font-medium text-slate-700">{r.numero_release}</span>
+                      <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
+                        r.estado === 'pendiente_aprobacion' ? 'bg-amber-100 text-amber-700'
+                        : r.estado === 'aprobado' ? 'bg-green-100 text-green-700'
+                        : r.estado === 'anulado' ? 'bg-slate-200 text-slate-600'
+                        : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {RELEASE_ESTADO_LABEL[r.estado]}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      {puedeIntentarResolverRelease && r.estado === 'pendiente_aprobacion' && (
+                        <>
+                          <Button className="btn-primary text-xs h-7" onClick={() => setModalResolverRelease({ release: r, decision: 'aprobar' })}>
+                            ✓ Aprobar
+                          </Button>
+                          <Button variant="outline" className="text-xs h-7 text-red-600" onClick={() => setModalResolverRelease({ release: r, decision: 'rechazar' })}>
+                            ✕ Rechazar
+                          </Button>
+                        </>
+                      )}
+                      {puedeIntentarResolverRelease && r.estado === 'aprobado' && (
+                        <Button variant="outline" className="text-xs h-7 text-slate-600" onClick={() => setModalAnularRelease(r)}>
+                          Anular
+                        </Button>
+                      )}
+                      {r.estado === 'aprobado' && (
+                        <a href={`/api/compras/ocas/${id}/releases/${r.id}/pdf`} target="_blank" rel="noreferrer">
+                          <Button variant="outline" className="text-xs h-7">⬇ PDF</Button>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-slate-500 text-xs mt-1">Monto: {usd(r.monto_total)}</p>
+                  {r.observaciones && <p className="text-slate-500 text-xs">Observaciones: {r.observaciones}</p>}
+                  {r.estado === 'rechazado' && r.motivo_rechazo && (
+                    <p className="text-red-600 text-xs">Motivo de rechazo: {r.motivo_rechazo}</p>
+                  )}
+                  {r.estado === 'anulado' && r.motivo_anulacion && (
+                    <p className="text-slate-600 text-xs">Motivo de anulación: {r.motivo_anulacion}</p>
+                  )}
+                  <p className="text-slate-400 text-xs mt-1">Generado: {new Date(r.created_at).toLocaleString('es-EC')}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
           <CardHeader><CardTitle className="text-base">Historial</CardTitle></CardHeader>
           <CardContent>
             <div className="space-y-2 text-sm">
@@ -714,6 +890,116 @@ export default function DetalleOcaPage() {
                 {resolviendo ? 'Procesando...' : 'Confirmar'}
               </Button>
               <Button variant="outline" className="text-sm" onClick={() => { setModalResolver(null); setMotivoResolver('') }}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalGenerarRelease && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full p-5 max-h-[90vh] overflow-y-auto">
+            <h3 className="font-semibold text-slate-800 mb-3">Generar release</h3>
+
+            <Label className="text-xs">Centro de costo *</Label>
+            <select value={relAreaId} onChange={e => setRelAreaId(e.target.value)}
+              className="w-full border rounded px-3 py-1.5 text-sm mt-1 mb-3">
+              <option value="">Seleccionar...</option>
+              {areasHab.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+            </select>
+
+            <Label className="text-xs">Ítems *</Label>
+            <div className="space-y-2 mt-1 mb-3">
+              {relItems.map(it => {
+                const itemCatalogo = items.find(i => i.id === it.oca_item_id)
+                if (!itemCatalogo) return null
+                return (
+                  <div key={it.oca_item_id} className="grid grid-cols-1 sm:grid-cols-6 gap-2 items-center border-b pb-2 last:border-0">
+                    <div className="sm:col-span-3 flex items-center gap-2">
+                      <input type="checkbox" checked={it.seleccionado}
+                        onChange={e => actualizarRelItem(it.oca_item_id, 'seleccionado', e.target.checked)} />
+                      <span className="text-sm">{itemCatalogo.codigo} — {itemCatalogo.descripcion} ({itemCatalogo.unidad})</span>
+                    </div>
+                    <Input type="number" min="0" step="0.01" placeholder="Cantidad" disabled={!it.seleccionado}
+                      value={it.cantidad} onChange={e => actualizarRelItem(it.oca_item_id, 'cantidad', e.target.value)}
+                      className="h-8 text-sm" />
+                    {oca.tipo === 'precio_variable_tope' ? (
+                      <Input type="number" min="0" step="0.01" placeholder={`Precio (≤ ${itemCatalogo.precio_maximo ?? '—'})`} disabled={!it.seleccionado}
+                        value={it.precio_unitario} onChange={e => actualizarRelItem(it.oca_item_id, 'precio_unitario', e.target.value)}
+                        className="h-8 text-sm" />
+                    ) : (
+                      <span className="text-sm text-slate-500">{usd(itemCatalogo.precio_unitario ?? 0)} c/u</span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <Label className="text-xs">Observaciones</Label>
+            <textarea value={relObservaciones} onChange={e => setRelObservaciones(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1 mb-3" rows={2} />
+
+            <div className="bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm mb-3">
+              <span className="text-slate-500">Monto estimado del release:</span> <strong>{usd(relMontoPreview)}</strong>
+              <span className="text-slate-400 text-xs ml-2">(informativo — el presupuesto se verifica al aprobar)</span>
+            </div>
+
+            {errorRelease && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2 mb-3">{errorRelease}</p>}
+
+            <div className="flex gap-3">
+              <Button className="btn-primary text-sm" disabled={generandoRelease} onClick={handleGenerarRelease}>
+                {generandoRelease ? 'Generando...' : 'Generar'}
+              </Button>
+              <Button variant="outline" className="text-sm" onClick={() => setModalGenerarRelease(false)}>Cancelar</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalResolverRelease && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-lg shadow-lg max-w-md w-full p-5">
+            <h3 className="font-semibold text-slate-800 mb-3">
+              {modalResolverRelease.decision === 'aprobar' ? 'Aprobar release' : 'Rechazar release'}
+            </h3>
+            <p className="text-slate-500 text-sm mb-3">{modalResolverRelease.release.numero_release} — {usd(modalResolverRelease.release.monto_total)}</p>
+            {modalResolverRelease.decision === 'rechazar' && (
+              <>
+                <Label className="text-xs">Motivo *</Label>
+                <textarea value={motivoResolverRelease} onChange={e => setMotivoResolverRelease(e.target.value)}
+                  className="w-full border rounded px-3 py-2 text-sm mt-1" rows={3} />
+              </>
+            )}
+            <div className="flex gap-3 mt-4">
+              <Button
+                className="btn-primary text-sm"
+                disabled={resolviendoRelease || (modalResolverRelease.decision === 'rechazar' && !motivoResolverRelease.trim())}
+                onClick={handleResolverRelease}
+              >
+                {resolviendoRelease ? 'Procesando...' : 'Confirmar'}
+              </Button>
+              <Button variant="outline" className="text-sm" onClick={() => { setModalResolverRelease(null); setMotivoResolverRelease('') }}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalAnularRelease && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-lg shadow-lg max-w-md w-full p-5">
+            <h3 className="font-semibold text-slate-800 mb-3">Anular release</h3>
+            <p className="text-slate-500 text-sm mb-3">{modalAnularRelease.numero_release} — {usd(modalAnularRelease.monto_total)}</p>
+            <Label className="text-xs">Motivo *</Label>
+            <textarea value={motivoAnular} onChange={e => setMotivoAnular(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1" rows={3} />
+            <div className="flex gap-3 mt-4">
+              <Button className="btn-primary text-sm" disabled={anulando || !motivoAnular.trim()} onClick={handleAnularRelease}>
+                {anulando ? 'Procesando...' : 'Confirmar'}
+              </Button>
+              <Button variant="outline" className="text-sm" onClick={() => { setModalAnularRelease(null); setMotivoAnular('') }}>
                 Cancelar
               </Button>
             </div>
