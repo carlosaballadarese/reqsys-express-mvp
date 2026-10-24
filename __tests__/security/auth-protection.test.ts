@@ -7126,3 +7126,128 @@ describe('GET /api/compras/ocas/[id]/releases', () => {
     expect(await res.json()).toEqual([{ id: 'release-1', estado: 'aprobado' }])
   })
 })
+
+describe('POST /api/compras/ocas/[id]/releases/[releaseId]/resolver', () => {
+  const { POST } = require('@/app/api/compras/ocas/[id]/releases/[releaseId]/resolver/route')
+  const ctx = { params: Promise.resolve({ id: 'oca-1', releaseId: 'release-1' }) }
+
+  const releasePendiente = {
+    id: 'release-1', oca_id: 'oca-1', estado: 'pendiente_aprobacion', monto_total: 300,
+    numero_release: 'OCA-2026-0001-R001', aprobador_asignado_id: 'coord-1',
+  }
+
+  let updateReleaseSpy: jest.Mock
+
+  function setupMock(opts: {
+    rol?: string | null; email?: string; release?: unknown
+    coordinadorMatch?: { email: string } | null; presupuestoTotal?: number
+  } = {}) {
+    updateReleaseSpy = jest.fn(() => Promise.resolve({ data: null, error: null }))
+    mockCalcularPresupuestoConsumido.mockReset()
+    mockCalcularPresupuestoConsumido.mockResolvedValue(0)
+    mockActualizarEstadoOca.mockClear()
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return chainForEnmiendas([], opts.rol ? { rol: opts.rol, nombre: 'G', email: opts.email ?? 'g@a.com' } : null)
+      if (table === 'oca_releases') {
+        const chain = chainForEnmiendas([], 'release' in opts ? opts.release : releasePendiente)
+        chain.update = jest.fn((payload: unknown) => { updateReleaseSpy(payload); return chain })
+        return chain
+      }
+      if (table === 'coordinadores_area') return chainForEnmiendas([], null, 'coordinadorMatch' in opts ? opts.coordinadorMatch : null)
+      if (table === 'oca') return chainForEnmiendas([], { presupuesto_total: opts.presupuestoTotal ?? 1000 })
+      return chainForEnmiendas([])
+    })
+  }
+
+  function req(body: Record<string, unknown>) {
+    return makeRequest('http://localhost/api/compras/ocas/oca-1/releases/release-1/resolver', {
+      method: 'POST', body: JSON.stringify(body),
+    })
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(req({ decision: 'aprobar' }), ctx)
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 400 con decision inválida', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras' })
+    const res = await POST(req({ decision: 'otra' }), ctx)
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 400 al rechazar sin motivo', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras' })
+    const res = await POST(req({ decision: 'rechazar' }), ctx)
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 404 si el release no existe', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', release: null })
+    const res = await POST(req({ decision: 'aprobar' }), ctx)
+    expect(res.status).toBe(404)
+  })
+
+  it('devuelve 409 si el release ya fue resuelto', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', release: { ...releasePendiente, estado: 'aprobado' } })
+    const res = await POST(req({ decision: 'aprobar' }), ctx)
+    expect(res.status).toBe(409)
+  })
+
+  it('devuelve 403 para rol no privilegiado sin coincidencia de coordinador del área (RN-02)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'asistente_compras', email: 'otro@arlift.com', coordinadorMatch: null })
+    const res = await POST(req({ decision: 'aprobar' }), ctx)
+    expect(res.status).toBe(403)
+  })
+
+  it('autoriza al coordinador del área resuelto (RN-02) aunque no tenga rol privilegiado', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'coordinador', email: 'coord@arlift.com', coordinadorMatch: { email: 'coord@arlift.com' } })
+    const res = await POST(req({ decision: 'rechazar', motivo: 'No corresponde' }), ctx)
+    expect(res.status).toBe(200)
+  })
+
+  it('autoriza a compras/admin sin importar coincidencia de coordinador', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'admin', email: 'admin@arlift.com', coordinadorMatch: null })
+    const res = await POST(req({ decision: 'rechazar', motivo: 'No corresponde' }), ctx)
+    expect(res.status).toBe(200)
+  })
+
+  it('rechaza con motivo: persiste motivo_rechazo, sin tocar actualizarEstadoOca', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras' })
+    const res = await POST(req({ decision: 'rechazar', motivo: 'Fuera de alcance' }), ctx)
+    expect(res.status).toBe(200)
+    expect(updateReleaseSpy).toHaveBeenCalledWith(expect.objectContaining({ estado: 'rechazado', motivo_rechazo: 'Fuera de alcance' }))
+    expect(mockActualizarEstadoOca).not.toHaveBeenCalled()
+  })
+
+  it('aprueba con presupuesto suficiente: descuenta y re-deriva el estado de la OCA', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', presupuestoTotal: 1000 })
+    mockCalcularPresupuestoConsumido.mockResolvedValue(200) // disponible=800, monto_total=300 -> alcanza
+    const res = await POST(req({ decision: 'aprobar' }), ctx)
+    expect(res.status).toBe(200)
+    expect(updateReleaseSpy).toHaveBeenCalledWith(expect.objectContaining({ estado: 'aprobado' }))
+    expect(mockActualizarEstadoOca).toHaveBeenCalledWith('oca-1')
+  })
+
+  it('RN-04: bloquea la aprobación si el presupuesto disponible no alcanza (modelo optimista)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', presupuestoTotal: 1000 })
+    mockCalcularPresupuestoConsumido.mockResolvedValue(800) // disponible=200, monto_total=300 -> no alcanza
+    const res = await POST(req({ decision: 'aprobar' }), ctx)
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.disponible).toBe(200)
+    expect(body.monto_total).toBe(300)
+    expect(updateReleaseSpy).not.toHaveBeenCalled()
+  })
+})
