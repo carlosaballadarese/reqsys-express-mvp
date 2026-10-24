@@ -7338,3 +7338,54 @@ describe('POST /api/compras/ocas/[id]/releases/[releaseId]/anular', () => {
     expect(res.status).toBe(200)
   })
 })
+
+describe('GET /api/compras/ocas/releases/pendientes', () => {
+  const { GET } = require('@/app/api/compras/ocas/releases/pendientes/route')
+
+  const releasesPendientes = [
+    { id: 'r-1', estado: 'pendiente_aprobacion', aprobador_asignado_id: 'coord-1' },
+    { id: 'r-2', estado: 'pendiente_aprobacion', aprobador_asignado_id: 'coord-2' },
+    { id: 'r-3', estado: 'pendiente_aprobacion', aprobador_asignado_id: null },
+  ]
+
+  function setupMock(opts: { rol?: string | null; email?: string; misCoordinaciones?: unknown[] } = {}) {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return chainForEnmiendas([], opts.rol ? { rol: opts.rol, email: opts.email ?? 'x@a.com' } : null)
+      if (table === 'oca_releases') return chainForEnmiendas(releasesPendientes)
+      if (table === 'coordinadores_area') return chainForEnmiendas('misCoordinaciones' in opts ? opts.misCoordinaciones : [])
+      return chainForEnmiendas([])
+    })
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/releases/pendientes'))
+    expect(res.status).toBe(401)
+  })
+
+  it('rol compras ve todos los pendientes sin scoping por coordinador', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras' })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/releases/pendientes'))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toHaveLength(3)
+  })
+
+  it('rol no privilegiado ve solo los releases cuyo aprobador coincide con sus coordinaciones activas', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'coordinador', email: 'coord@arlift.com', misCoordinaciones: [{ id: 'coord-1' }] })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/releases/pendientes'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toHaveLength(1)
+    expect(body[0].id).toBe('r-1')
+  })
+
+  it('rol no privilegiado sin ninguna coordinación coincidente -> 200 con lista vacía, no 403', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'asistente_compras', email: 'nadie@arlift.com', misCoordinaciones: [] })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/releases/pendientes'))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual([])
+  })
+})
