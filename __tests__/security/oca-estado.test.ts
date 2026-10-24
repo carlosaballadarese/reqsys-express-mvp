@@ -26,8 +26,13 @@ type Oca = {
   presupuesto_total: number
 }
 
-function setupMock(opts: { oca: Oca; updateSpy?: jest.Mock; insertSpy?: jest.Mock }) {
-  const { oca, updateSpy, insertSpy } = opts
+function setupMock(opts: {
+  oca: Oca
+  updateSpy?: jest.Mock
+  insertSpy?: jest.Mock
+  releasesAprobados?: { monto_total: number }[]
+}) {
+  const { oca, updateSpy, insertSpy, releasesAprobados = [] } = opts
 
   mockFrom.mockImplementation((table: string) => {
     if (table === 'oca') {
@@ -41,6 +46,9 @@ function setupMock(opts: { oca: Oca; updateSpy?: jest.Mock; insertSpy?: jest.Moc
     }
     if (table === 'historial_oca') {
       return { insert: (payload: unknown) => { insertSpy?.(payload); return Promise.resolve({ data: {}, error: null }) } }
+    }
+    if (table === 'oca_releases') {
+      return { select: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: releasesAprobados, error: null }) }) }) }
     }
     throw new Error(`tabla no mockeada: ${table}`)
   })
@@ -77,9 +85,22 @@ describe('ESTADOS_OCA_* — constantes (CA-07, CA-09, CA-11)', () => {
   })
 })
 
-describe('calcularPresupuestoConsumido — placeholder (CA-09)', () => {
-  it('retorna siempre 0 en esta HU (no existen releases todavía)', async () => {
-    expect(await calcularPresupuestoConsumido('cualquier-id')).toBe(0)
+describe('calcularPresupuestoConsumido — HU-021 CA-10 (conectado a releases reales)', () => {
+  it('retorna 0 sin releases aprobados', async () => {
+    setupMock({ oca: ocaBase, releasesAprobados: [] })
+    expect(await calcularPresupuestoConsumido('oca-1')).toBe(0)
+  })
+
+  it('suma monto_total de los releases en estado aprobado', async () => {
+    setupMock({ oca: ocaBase, releasesAprobados: [{ monto_total: 300 }, { monto_total: 150.5 }] })
+    expect(await calcularPresupuestoConsumido('oca-1')).toBe(450.5)
+  })
+
+  it('la consulta filtra por estado=aprobado — releases pendientes/rechazados/anulados no llegan a este resultado (filtrado en BD, no en JS)', async () => {
+    // El mock de oca_releases ya simula el filtro .eq('estado','aprobado') hecho
+    // por la propia query — este test documenta la expectativa de contrato.
+    setupMock({ oca: ocaBase, releasesAprobados: [{ monto_total: 100 }] })
+    expect(await calcularPresupuestoConsumido('oca-1')).toBe(100)
   })
 })
 
@@ -116,13 +137,6 @@ describe('actualizarEstadoOca — CA-08 (derivación de vencida)', () => {
 })
 
 describe('actualizarEstadoOca — RN-08 (agotada prevalece sobre vencida en empate)', () => {
-  // calcularPresupuestoConsumido() está fijo en 0 en esta HU (no hay releases
-  // todavía) — la única forma de ejercitar la rama "agotada" a nivel unitario
-  // es con presupuesto_total <= 0 (consumido >= presupuesto_total). RN-04
-  // prohíbe ese valor a nivel de API/BD, así que esto solo valida el ORDEN
-  // de las comparaciones dentro de calcularEstadoDestino(); la Fase D
-  // (Releases, que le da contenido real a calcularPresupuestoConsumido) debe
-  // re-verificar RN-08 con un consumo real distinto de cero.
   it('si presupuesto_total<=0 Y fecha_fin ya pasó, el destino es agotada (no vencida)', async () => {
     const updateSpy = jest.fn()
     setupMock({
@@ -131,5 +145,31 @@ describe('actualizarEstadoOca — RN-08 (agotada prevalece sobre vencida en empa
     })
     await actualizarEstadoOca('oca-1')
     expect(updateSpy).toHaveBeenCalledWith({ estado: 'agotada' })
+  })
+
+  // Spec: HU-021 CA-10 — primera verificación de RN-08 con consumo real
+  // distinto de cero, ahora que calcularPresupuestoConsumido() está
+  // conectado a releases reales (antes solo se podía probar con
+  // presupuesto_total<=0, ver historial de este archivo).
+  it('deriva agotada cuando la suma de releases aprobados alcanza el presupuesto_total (dato real, fecha_fin futura)', async () => {
+    const updateSpy = jest.fn()
+    setupMock({
+      oca: { ...ocaBase, fecha_fin: fechaFutura(), presupuesto_total: 500 },
+      updateSpy,
+      releasesAprobados: [{ monto_total: 300 }, { monto_total: 200 }],
+    })
+    await actualizarEstadoOca('oca-1')
+    expect(updateSpy).toHaveBeenCalledWith({ estado: 'agotada' })
+  })
+
+  it('permanece vigente si la suma de releases aprobados no alcanza el presupuesto_total', async () => {
+    const updateSpy = jest.fn()
+    setupMock({
+      oca: { ...ocaBase, fecha_fin: fechaFutura(), presupuesto_total: 500 },
+      updateSpy,
+      releasesAprobados: [{ monto_total: 300 }],
+    })
+    await actualizarEstadoOca('oca-1')
+    expect(updateSpy).not.toHaveBeenCalled()
   })
 })

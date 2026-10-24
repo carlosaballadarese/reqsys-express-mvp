@@ -29,11 +29,18 @@ type OcaResumen = {
   presupuesto_total: number
 }
 
-// Spec: HU-018 CA-09 — placeholder hasta la HU de Releases (Fase D). Siempre
-// 0 en esta HU porque no existe ningún mecanismo de consumo todavía.
-// TODO(Fase D — Releases): sumar releases aprobados menos anulados de esta OCA.
-export async function calcularPresupuestoConsumido(_ocaId: string): Promise<number> {
-  return 0
+// Spec: HU-021 CA-10 — deja de ser placeholder. Suma monto_total de los
+// releases en estado 'aprobado' de esta OCA. 'anulado' queda fuera
+// automáticamente con el filtro de estado — no requiere lógica de resta
+// aparte (RN-09: anular restituye presupuesto simplemente dejando de contar).
+export async function calcularPresupuestoConsumido(ocaId: string): Promise<number> {
+  const { data } = await adminClient()
+    .from('oca_releases')
+    .select('monto_total')
+    .eq('oca_id', ocaId)
+    .eq('estado', 'aprobado')
+
+  return (data ?? []).reduce((sum: number, r: { monto_total: number }) => sum + Number(r.monto_total), 0)
 }
 
 // Spec: HU-018 CA-08, CA-09, RN-08 — deriva el estado destino sin persistir.
