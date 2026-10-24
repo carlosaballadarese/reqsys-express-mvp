@@ -172,7 +172,18 @@ export async function proxy(req: NextRequest) {
 
     // coordinador: solo lista de NPs y detalle de NP individual
     if (rol === 'coordinador') {
-      const permitida = pathname === '/compras' || /^\/compras\/[^/]+$/.test(pathname)
+      // Spec: HU-021 — hallazgo real al revisar la visibilidad de la bandeja
+      // de releases: los coordinadores de área reales (verificado contra
+      // datos reales de dev:local) tienen roles solicitante/coordinador/
+      // gerencia/admin, no un único rol de sistema — pero el allowlist de
+      // 'coordinador' de 1 solo segmento nunca permitió abrir el detalle de
+      // OCA (/compras/ocas/[id], 2 segmentos), donde vive la acción de
+      // aprobar Enmiendas (HU-020). Mismo patrón que la excepción ya
+      // existente para 'solicitante' — sin abrir /compras/ocas/nueva. Esto
+      // también habilita /compras/ocas/releases-pendientes (HU-021), que
+      // calza con el mismo patrón de 2 segmentos.
+      const esDetalleOca = /^\/compras\/ocas\/[^/]+$/.test(pathname) && pathname !== '/compras/ocas/nueva'
+      const permitida = pathname === '/compras' || /^\/compras\/[^/]+$/.test(pathname) || esDetalleOca
       if (!permitida) {
         return NextResponse.redirect(new URL('/compras', req.url))
       }

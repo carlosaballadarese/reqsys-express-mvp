@@ -77,10 +77,20 @@ const NAV: NavGroup[] = [
   // que excluye solicitante/bodega), ya que esos 2 roles podrán generar
   // releases contra una OCA vigente (RN-07, Fase D futura). Excluye
   // 'coordinador' a propósito — no está en la lista de roles de la HU.
+  // Spec: HU-021 — "Releases pendientes" visible para los MISMOS 7 roles que
+  // "Mis OCAs", no restringido a compras/admin/coordinador: verificado contra
+  // datos reales que los coordinadores de área activos hoy tienen roles
+  // solicitante/coordinador/gerencia/admin (coordinadores_area se matchea por
+  // email, no por rol de sistema) — cualquiera de los 7 roles puede terminar
+  // teniendo un release pendiente propio. El backend ya devuelve lista vacía
+  // sin error cuando no hay nada que aprobar.
   {
     label: 'OCA',
-    href: '/compras/ocas',
     roles: ['solicitante','bodega','compras','admin','gerencia','consulta','asistente_compras'],
+    children: [
+      { label: 'Mis OCAs', href: '/compras/ocas', exact: true },
+      { label: 'Releases pendientes', href: '/compras/ocas/releases-pendientes' },
+    ],
   },
   {
     label: 'Dashboard',
