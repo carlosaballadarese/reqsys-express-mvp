@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { adminClient } from '@/lib/supabase/clients'
 import { registrarAuditoria } from '@/lib/auditoria'
-import { actualizarEstadoOca } from '@/lib/oca-estado'
+import { actualizarEstadoOca, calcularPresupuestoConsumido } from '@/lib/oca-estado'
 import { validarCabeceraEItems, type OcaItemInput } from '@/lib/oca-validaciones'
 import { actualizarEstadoNP } from '@/lib/np-estado'
 
@@ -51,7 +51,8 @@ export async function GET(
     const { data: historial } = await adminClient()
       .from('historial_oca').select('*').eq('oca_id', id).order('created_at', { ascending: false })
 
-    const consumido = 0 // Spec: HU-018 CA-09 — placeholder hasta Fase D (Releases)
+    // Spec: HU-021 CA-10 — calcularPresupuestoConsumido() ya no es un placeholder
+    const consumido = await calcularPresupuestoConsumido(id)
     const total = Number(oca?.presupuesto_total ?? 0)
     const disponible = total - consumido
     const porcentaje_ejecucion = total > 0 ? Math.round((consumido / total) * 100) : 0

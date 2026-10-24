@@ -7262,12 +7262,17 @@ describe('POST /api/compras/ocas/[id]/releases/[releaseId]/anular', () => {
   }
 
   let updateReleaseSpy: jest.Mock
+  let updateOcaSpy: jest.Mock
 
   function setupMock(opts: {
     rol?: string | null; email?: string; release?: unknown; coordinadorMatch?: { email: string } | null
+    ocaEstado?: string; presupuestoTotal?: number
   } = {}) {
     updateReleaseSpy = jest.fn(() => Promise.resolve({ data: null, error: null }))
+    updateOcaSpy = jest.fn(() => Promise.resolve({ data: null, error: null }))
     mockActualizarEstadoOca.mockClear()
+    mockCalcularPresupuestoConsumido.mockReset()
+    mockCalcularPresupuestoConsumido.mockResolvedValue(0)
     mockFrom.mockImplementation((table: string) => {
       if (table === 'perfiles') return chainForEnmiendas([], opts.rol ? { rol: opts.rol, nombre: 'G', email: opts.email ?? 'g@a.com' } : null)
       if (table === 'oca_releases') {
@@ -7276,6 +7281,11 @@ describe('POST /api/compras/ocas/[id]/releases/[releaseId]/anular', () => {
         return chain
       }
       if (table === 'coordinadores_area') return chainForEnmiendas([], null, 'coordinadorMatch' in opts ? opts.coordinadorMatch : null)
+      if (table === 'oca') {
+        const chain = chainForEnmiendas([], opts.ocaEstado ? { estado: opts.ocaEstado, presupuesto_total: opts.presupuestoTotal ?? 1000 } : null)
+        chain.update = jest.fn((payload: unknown) => { updateOcaSpy(payload); return chain })
+        return chain
+      }
       return chainForEnmiendas([])
     })
   }
@@ -7320,15 +7330,40 @@ describe('POST /api/compras/ocas/[id]/releases/[releaseId]/anular', () => {
     expect(res.status).toBe(403)
   })
 
-  it('anula con éxito: persiste motivo_anulacion y re-deriva el estado de la OCA (RN-09)', async () => {
+  it('anula con éxito: persiste motivo_anulacion y delega a actualizarEstadoOca() cuando la OCA no está agotada', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
-    setupMock({ rol: 'compras' })
+    setupMock({ rol: 'compras', ocaEstado: 'vigente' })
     const res = await POST(req({ motivo: 'Pedido cancelado por el proveedor' }), ctx)
     expect(res.status).toBe(200)
     expect(updateReleaseSpy).toHaveBeenCalledWith(expect.objectContaining({
       estado: 'anulado', motivo_anulacion: 'Pedido cancelado por el proveedor',
     }))
     expect(mockActualizarEstadoOca).toHaveBeenCalledWith('oca-1')
+    expect(updateOcaSpy).not.toHaveBeenCalled()
+  })
+
+  // Spec: HU-021 — hallazgo real de la validación contra dev:local:
+  // actualizarEstadoOca() no reactiva por sí sola una OCA 'agotada' (su
+  // guard solo recalcula desde 'vigente', ESTADOS_OCA_AUTOGESTIONADOS) —
+  // mismo motivo por el que HU-020 ya reactiva sus enmiendas de forma
+  // inline. El anular debe hacer lo mismo cuando corresponde.
+  it('reactiva agotada->vigente de forma inline cuando el nuevo consumido ya no alcanza el presupuesto', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', ocaEstado: 'agotada', presupuestoTotal: 100 })
+    mockCalcularPresupuestoConsumido.mockResolvedValue(50) // tras anular, consumido=50 < 100
+    const res = await POST(req({ motivo: 'Pedido cancelado por el proveedor' }), ctx)
+    expect(res.status).toBe(200)
+    expect(updateOcaSpy).toHaveBeenCalledWith({ estado: 'vigente' })
+    expect(mockActualizarEstadoOca).not.toHaveBeenCalled()
+  })
+
+  it('NO reactiva si la OCA sigue agotada tras anular (el resto de releases aprobados aún cubren el presupuesto)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', ocaEstado: 'agotada', presupuestoTotal: 100 })
+    mockCalcularPresupuestoConsumido.mockResolvedValue(100) // sigue en el tope
+    const res = await POST(req({ motivo: 'Pedido cancelado por el proveedor' }), ctx)
+    expect(res.status).toBe(200)
+    expect(updateOcaSpy).not.toHaveBeenCalled()
   })
 
   it('autoriza al coordinador del área resuelto aunque no tenga rol privilegiado', async () => {

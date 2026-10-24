@@ -154,8 +154,18 @@ export async function GET(req: NextRequest) {
     const estadoActualPorId: Record<string, string> = {}
     for (const o of ocasActualizadas ?? []) estadoActualPorId[o.id] = o.estado
 
+    // Spec: HU-021 CA-10 — bulk (1 query), en vez de calcularPresupuestoConsumido()
+    // por OCA dentro de un .map() síncrono; evita el patrón N+1.
+    const { data: releasesAprobados } = ocaIds.length > 0
+      ? await adminClient().from('oca_releases').select('oca_id, monto_total').in('oca_id', ocaIds).eq('estado', 'aprobado')
+      : { data: [] as { oca_id: string; monto_total: number }[] }
+    const consumidoPorOca: Record<string, number> = {}
+    for (const r of releasesAprobados ?? []) {
+      consumidoPorOca[r.oca_id] = (consumidoPorOca[r.oca_id] ?? 0) + Number(r.monto_total)
+    }
+
     const resultado = (ocas ?? []).map(o => {
-      const consumido = 0 // Spec: HU-018 CA-09 — placeholder hasta Fase D (Releases)
+      const consumido = consumidoPorOca[o.id] ?? 0
       const disponible = Number(o.presupuesto_total) - consumido
       const porcentaje_ejecucion = Number(o.presupuesto_total) > 0
         ? Math.round((consumido / Number(o.presupuesto_total)) * 100)

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { adminClient } from '@/lib/supabase/clients'
 import { registrarAuditoria } from '@/lib/auditoria'
-import { actualizarEstadoOca } from '@/lib/oca-estado'
+import { actualizarEstadoOca, calcularPresupuestoConsumido } from '@/lib/oca-estado'
 import { esAutorizadoParaResolverRelease } from '@/lib/oca-release-autorizacion'
 
 export async function POST(
@@ -47,9 +47,27 @@ export async function POST(
     }).eq('id', releaseId)
 
     // Spec: RN-09 — calcularPresupuestoConsumido() ya excluye 'anulado' (solo
-    // suma 'aprobado'), así que el presupuesto se restituye automáticamente;
-    // esto puede derivar agotada->vigente por primera vez con datos reales.
-    await actualizarEstadoOca(id)
+    // suma 'aprobado'), así que el presupuesto se restituye automáticamente.
+    // Hallazgo real de validación: actualizarEstadoOca() NO reactiva por sí
+    // sola — su guard solo recalcula cuando el estado actual ya es 'vigente'
+    // (ESTADOS_OCA_AUTOGESTIONADOS), el mismo motivo por el que HU-020 ya
+    // tuvo que reactivar sus enmiendas de forma inline en vez de reutilizarla.
+    // Se replica aquí ese mismo patrón para agotada->vigente; cualquier otro
+    // caso (la OCA seguía vigente, o está vencida/suspendida/cerrada) se
+    // delega sin cambios a actualizarEstadoOca().
+    const { data: ocaActual } = await adminClient().from('oca').select('estado, presupuesto_total').eq('id', id).single()
+    if (ocaActual?.estado === 'agotada') {
+      const nuevoConsumido = await calcularPresupuestoConsumido(id)
+      if (nuevoConsumido < Number(ocaActual.presupuesto_total)) {
+        await adminClient().from('oca').update({ estado: 'vigente' }).eq('id', id)
+        await adminClient().from('historial_oca').insert({
+          oca_id: id, estado: 'vigente', actor_nombre: 'Sistema', actor_email: 'sistema@reqsys',
+          notas: `Estado actualizado automáticamente a 'vigente' (presupuesto liberado por anulación de release)`,
+        })
+      }
+    } else {
+      await actualizarEstadoOca(id)
+    }
 
     await adminClient().from('historial_oca').insert({
       oca_id: id, estado: 'vigente', actor_email: perfil.email, actor_nombre: perfil.nombre,
