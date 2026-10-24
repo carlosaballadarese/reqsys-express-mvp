@@ -7251,3 +7251,90 @@ describe('POST /api/compras/ocas/[id]/releases/[releaseId]/resolver', () => {
     expect(updateReleaseSpy).not.toHaveBeenCalled()
   })
 })
+
+describe('POST /api/compras/ocas/[id]/releases/[releaseId]/anular', () => {
+  const { POST } = require('@/app/api/compras/ocas/[id]/releases/[releaseId]/anular/route')
+  const ctx = { params: Promise.resolve({ id: 'oca-1', releaseId: 'release-1' }) }
+
+  const releaseAprobado = {
+    id: 'release-1', oca_id: 'oca-1', estado: 'aprobado', monto_total: 300,
+    numero_release: 'OCA-2026-0001-R001', aprobador_asignado_id: 'coord-1',
+  }
+
+  let updateReleaseSpy: jest.Mock
+
+  function setupMock(opts: {
+    rol?: string | null; email?: string; release?: unknown; coordinadorMatch?: { email: string } | null
+  } = {}) {
+    updateReleaseSpy = jest.fn(() => Promise.resolve({ data: null, error: null }))
+    mockActualizarEstadoOca.mockClear()
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return chainForEnmiendas([], opts.rol ? { rol: opts.rol, nombre: 'G', email: opts.email ?? 'g@a.com' } : null)
+      if (table === 'oca_releases') {
+        const chain = chainForEnmiendas([], 'release' in opts ? opts.release : releaseAprobado)
+        chain.update = jest.fn((payload: unknown) => { updateReleaseSpy(payload); return chain })
+        return chain
+      }
+      if (table === 'coordinadores_area') return chainForEnmiendas([], null, 'coordinadorMatch' in opts ? opts.coordinadorMatch : null)
+      return chainForEnmiendas([])
+    })
+  }
+
+  function req(body: Record<string, unknown>) {
+    return makeRequest('http://localhost/api/compras/ocas/oca-1/releases/release-1/anular', {
+      method: 'POST', body: JSON.stringify(body),
+    })
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(req({ motivo: 'Error de carga' }), ctx)
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 400 sin motivo', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras' })
+    const res = await POST(req({}), ctx)
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 404 si el release no existe', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', release: null })
+    const res = await POST(req({ motivo: 'Error de carga' }), ctx)
+    expect(res.status).toBe(404)
+  })
+
+  it('devuelve 409 si el release no está en estado aprobado (CA-08)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', release: { ...releaseAprobado, estado: 'pendiente_aprobacion' } })
+    const res = await POST(req({ motivo: 'Error de carga' }), ctx)
+    expect(res.status).toBe(409)
+  })
+
+  it('devuelve 403 para rol no privilegiado sin coincidencia de coordinador del área', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'asistente_compras', email: 'otro@arlift.com', coordinadorMatch: null })
+    const res = await POST(req({ motivo: 'Error de carga' }), ctx)
+    expect(res.status).toBe(403)
+  })
+
+  it('anula con éxito: persiste motivo_anulacion y re-deriva el estado de la OCA (RN-09)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras' })
+    const res = await POST(req({ motivo: 'Pedido cancelado por el proveedor' }), ctx)
+    expect(res.status).toBe(200)
+    expect(updateReleaseSpy).toHaveBeenCalledWith(expect.objectContaining({
+      estado: 'anulado', motivo_anulacion: 'Pedido cancelado por el proveedor',
+    }))
+    expect(mockActualizarEstadoOca).toHaveBeenCalledWith('oca-1')
+  })
+
+  it('autoriza al coordinador del área resuelto aunque no tenga rol privilegiado', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'coordinador', email: 'coord@arlift.com', coordinadorMatch: { email: 'coord@arlift.com' } })
+    const res = await POST(req({ motivo: 'Error de carga' }), ctx)
+    expect(res.status).toBe(200)
+  })
+})
