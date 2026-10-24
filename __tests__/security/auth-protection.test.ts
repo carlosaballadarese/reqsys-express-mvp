@@ -7389,3 +7389,62 @@ describe('GET /api/compras/ocas/releases/pendientes', () => {
     expect(await res.json()).toEqual([])
   })
 })
+
+describe('GET /api/compras/ocas/[id]/releases/[releaseId]/pdf', () => {
+  const { GET } = require('@/app/api/compras/ocas/[id]/releases/[releaseId]/pdf/route')
+  const ctx = { params: Promise.resolve({ id: 'oca-1', releaseId: 'release-1' }) }
+
+  const releaseAprobado = {
+    id: 'release-1', oca_id: 'oca-1', estado: 'aprobado', monto_total: 300,
+    numero_release: 'OCA-2026-0001-R001', area_id: 'area-1', solicitante_id: 'user-sol',
+    resuelto_por_id: 'user-aprob', resuelto_en: '2026-10-20T00:00:00Z', created_at: '2026-10-19T00:00:00Z',
+  }
+
+  function setupMock(opts: { rol?: string | null; release?: unknown } = {}) {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return chainForEnmiendas([], opts.rol ? { rol: opts.rol, nombre: 'Juan Pérez' } : null)
+      if (table === 'oca_releases') return chainForEnmiendas([], 'release' in opts ? opts.release : releaseAprobado)
+      if (table === 'oca_release_items') return chainForEnmiendas([{ id: 'ri-1', codigo: 'FER-001', descripcion: 'Tornillos', unidad: 'caja', cantidad: 2, precio_unitario: 10, subtotal: 20 }])
+      if (table === 'oca') return chainForEnmiendas([], { numero_oca: 'OCA-2026-0001', proveedor_id: 'prov-1' })
+      if (table === 'areas') return chainForEnmiendas([], { nombre: 'TI' })
+      if (table === 'proveedores') return chainForEnmiendas([], { nombre: 'ACME' })
+      return chainForEnmiendas([])
+    })
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1/releases/release-1/pdf'), ctx)
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol coordinador (fuera de los 7 roles de CA-12)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'coordinador' })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1/releases/release-1/pdf'), ctx)
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 404 si el release no existe', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', release: null })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1/releases/release-1/pdf'), ctx)
+    expect(res.status).toBe(404)
+  })
+
+  it('devuelve 409 si el release no está aprobado', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', release: { ...releaseAprobado, estado: 'pendiente_aprobacion' } })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1/releases/release-1/pdf'), ctx)
+    expect(res.status).toBe(409)
+  })
+
+  it('devuelve 200 con Content-Type application/pdf cuando el release está aprobado', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'solicitante' })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1/releases/release-1/pdf'), ctx)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toBe('application/pdf')
+    expect(res.headers.get('Content-Disposition')).toContain('OCA-2026-0001-R001.pdf')
+  })
+})
