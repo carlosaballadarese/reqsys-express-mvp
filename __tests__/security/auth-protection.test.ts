@@ -7388,6 +7388,28 @@ describe('GET /api/compras/ocas/releases/pendientes', () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual([])
   })
+
+  it('enriquece cada release con numero_oca, area_nombre y solicitante_nombre', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles' ) {
+        // primera llamada es el chequeo de auth (.single via rol); la de
+        // enriquecimiento usa .in() y espera un array — chainForEnmiendas
+        // ya resuelve ambos desde el mismo chain (data=array, singleData=rol)
+        return chainForEnmiendas([{ id: 'user-sol', nombre: 'Juan Pérez' }], { rol: 'compras', email: 'c@a.com' })
+      }
+      if (table === 'oca_releases') return chainForEnmiendas([
+        { id: 'r-1', estado: 'pendiente_aprobacion', aprobador_asignado_id: 'coord-1', oca_id: 'oca-1', area_id: 'area-1', solicitante_id: 'user-sol' },
+      ])
+      if (table === 'oca') return chainForEnmiendas([{ id: 'oca-1', numero_oca: 'OCA-2026-0001' }])
+      if (table === 'areas') return chainForEnmiendas([{ id: 'area-1', nombre: 'TI' }])
+      return chainForEnmiendas([])
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/releases/pendientes'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body[0]).toMatchObject({ numero_oca: 'OCA-2026-0001', area_nombre: 'TI', solicitante_nombre: 'Juan Pérez' })
+  })
 })
 
 describe('GET /api/compras/ocas/[id]/releases/[releaseId]/pdf', () => {

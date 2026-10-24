@@ -32,20 +32,45 @@ export async function GET(req: NextRequest) {
     const { data: releases, error } = await query
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    if (ROLES_PRIVILEGIADOS.includes(perfil.rol)) {
-      return NextResponse.json(releases ?? [])
+    let resultado = releases ?? []
+
+    if (!ROLES_PRIVILEGIADOS.includes(perfil.rol)) {
+      // Scope por coordinador: solo los releases cuyo aprobador_asignado_id
+      // resuelva a una fila de coordinadores_area con el email de esta sesión.
+      const { data: misCoordinaciones } = await adminClient()
+        .from('coordinadores_area').select('id').eq('email', perfil.email).eq('activo', true)
+      const idsPermitidos = new Set((misCoordinaciones ?? []).map((c: { id: string }) => c.id))
+
+      resultado = resultado.filter((r: { aprobador_asignado_id: string | null }) =>
+        r.aprobador_asignado_id !== null && idsPermitidos.has(r.aprobador_asignado_id)
+      )
     }
 
-    // Scope por coordinador: solo los releases cuyo aprobador_asignado_id
-    // resuelva a una fila de coordinadores_area con el email de esta sesión.
-    const { data: misCoordinaciones } = await adminClient()
-      .from('coordinadores_area').select('id').eq('email', perfil.email).eq('activo', true)
-    const idsPermitidos = new Set((misCoordinaciones ?? []).map((c: { id: string }) => c.id))
+    // Enriquecimiento para la bandeja (CA-05) — nombres en vez de solo ids.
+    const ocaIds = [...new Set(resultado.map((r: { oca_id: string }) => r.oca_id))]
+    const areaIds = [...new Set(resultado.map((r: { area_id: string }) => r.area_id))]
+    const solicitanteIds = [...new Set(resultado.map((r: { solicitante_id: string }) => r.solicitante_id))]
 
-    const scoped = (releases ?? []).filter((r: { aprobador_asignado_id: string | null }) =>
-      r.aprobador_asignado_id !== null && idsPermitidos.has(r.aprobador_asignado_id)
-    )
-    return NextResponse.json(scoped)
+    const [{ data: ocas }, { data: areas }, { data: solicitantes }] = await Promise.all([
+      ocaIds.length > 0 ? adminClient().from('oca').select('id, numero_oca').in('id', ocaIds) : Promise.resolve({ data: [] }),
+      areaIds.length > 0 ? adminClient().from('areas').select('id, nombre').in('id', areaIds) : Promise.resolve({ data: [] }),
+      solicitanteIds.length > 0 ? adminClient().from('perfiles').select('id, nombre').in('id', solicitanteIds) : Promise.resolve({ data: [] }),
+    ])
+    const numeroOcaPorId: Record<string, string> = {}
+    for (const o of ocas ?? []) numeroOcaPorId[o.id] = o.numero_oca
+    const nombreAreaPorId: Record<string, string> = {}
+    for (const a of areas ?? []) nombreAreaPorId[a.id] = a.nombre
+    const nombreSolicitantePorId: Record<string, string> = {}
+    for (const s of solicitantes ?? []) nombreSolicitantePorId[s.id] = s.nombre
+
+    const enriquecido = resultado.map((r: { oca_id: string; area_id: string; solicitante_id: string }) => ({
+      ...r,
+      numero_oca: numeroOcaPorId[r.oca_id] ?? null,
+      area_nombre: nombreAreaPorId[r.area_id] ?? null,
+      solicitante_nombre: nombreSolicitantePorId[r.solicitante_id] ?? null,
+    }))
+
+    return NextResponse.json(enriquecido)
   } catch (err) {
     console.error(err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })
