@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { adminClient } from '@/lib/supabase/clients'
+import { calcularAlertaReleasePendiente } from '@/lib/oca-alertas'
 
 // Spec: HU-021 CA-05 — bandeja transversal a todas las OCAs, scopeada a lo
 // que el usuario en sesión puede resolver (mismo criterio de autorización
@@ -63,11 +64,14 @@ export async function GET(req: NextRequest) {
     const nombreSolicitantePorId: Record<string, string> = {}
     for (const s of solicitantes ?? []) nombreSolicitantePorId[s.id] = s.nombre
 
-    const enriquecido = resultado.map((r: { oca_id: string; area_id: string; solicitante_id: string }) => ({
+    // Spec: HU-024 CA-03 — todos los releases de esta bandeja ya están
+    // pendiente_aprobacion (filtrado arriba), así que solo depende de la antigüedad.
+    const enriquecido = resultado.map((r: { oca_id: string; area_id: string; solicitante_id: string; created_at: string; estado: string }) => ({
       ...r,
       numero_oca: numeroOcaPorId[r.oca_id] ?? null,
       area_nombre: nombreAreaPorId[r.area_id] ?? null,
       solicitante_nombre: nombreSolicitantePorId[r.solicitante_id] ?? null,
+      alerta_antiguedad: calcularAlertaReleasePendiente(r.created_at, r.estado),
     }))
 
     return NextResponse.json(enriquecido)

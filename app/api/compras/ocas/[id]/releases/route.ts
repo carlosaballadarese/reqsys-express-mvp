@@ -5,6 +5,7 @@ import { registrarAuditoria } from '@/lib/auditoria'
 import { calcularPresupuestoConsumido, ESTADOS_OCA_ACTIVA } from '@/lib/oca-estado'
 import { validarGenerarRelease, type ReleaseItemInput } from '@/lib/oca-release-validaciones'
 import { calcularAprobadorAsignado } from '@/lib/np-area'
+import { calcularAlertaReleasePendiente } from '@/lib/oca-alertas'
 
 // Spec: HU-021 RN-01 — quién genera un release
 const ROLES_GENERAR = ['solicitante', 'bodega', 'compras', 'admin', 'asistente_compras']
@@ -147,7 +148,13 @@ export async function GET(
       .from('oca_releases').select('*').eq('oca_id', id).order('created_at', { ascending: false })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    return NextResponse.json(releases ?? [])
+    // Spec: HU-024 CA-03
+    const resultado = (releases ?? []).map((r: { created_at: string; estado: string }) => ({
+      ...r,
+      alerta_antiguedad: calcularAlertaReleasePendiente(r.created_at, r.estado),
+    }))
+
+    return NextResponse.json(resultado)
   } catch (err) {
     console.error(err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })

@@ -7280,10 +7280,10 @@ describe('GET /api/compras/ocas/[id]/releases', () => {
   const { GET } = require('@/app/api/compras/ocas/[id]/releases/route')
   const ctx = { params: Promise.resolve({ id: 'oca-1' }) }
 
-  function setupMock(opts: { rol?: string | null } = {}) {
+  function setupMock(opts: { rol?: string | null; releases?: unknown[] } = {}) {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'perfiles') return chainForEnmiendas([], opts.rol ? { rol: opts.rol } : null)
-      if (table === 'oca_releases') return chainForEnmiendas([{ id: 'release-1', estado: 'aprobado' }])
+      if (table === 'oca_releases') return chainForEnmiendas(opts.releases ?? [{ id: 'release-1', estado: 'aprobado', created_at: '2026-01-01T00:00:00Z' }])
       return chainForEnmiendas([])
     })
   }
@@ -7306,7 +7306,25 @@ describe('GET /api/compras/ocas/[id]/releases', () => {
     setupMock({ rol: 'gerencia' })
     const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1/releases'), ctx)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual([{ id: 'release-1', estado: 'aprobado' }])
+    expect(await res.json()).toEqual([expect.objectContaining({ id: 'release-1', estado: 'aprobado' })])
+  })
+
+  it('HU-024 CA-03: alerta_antiguedad=true para un release pendiente_aprobacion de hace más de 24h', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const hace48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+    setupMock({ rol: 'compras', releases: [{ id: 'release-1', estado: 'pendiente_aprobacion', created_at: hace48h }] })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1/releases'), ctx)
+    const body = await res.json()
+    expect(body[0].alerta_antiguedad).toBe(true)
+  })
+
+  it('HU-024 CA-03: alerta_antiguedad=false para un release ya aprobado aunque tenga más de 24h', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const hace48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+    setupMock({ rol: 'compras', releases: [{ id: 'release-1', estado: 'aprobado', created_at: hace48h }] })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1/releases'), ctx)
+    const body = await res.json()
+    expect(body[0].alerta_antiguedad).toBe(false)
   })
 })
 
@@ -7723,6 +7741,24 @@ describe('GET /api/compras/ocas/releases/pendientes', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body[0]).toMatchObject({ numero_oca: 'OCA-2026-0001', area_nombre: 'TI', solicitante_nombre: 'Juan Pérez' })
+  })
+
+  it('HU-024 CA-03: expone alerta_antiguedad por release (todos ya son pendiente_aprobacion en esta bandeja)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const hace48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+    const hace2h = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return chainForEnmiendas([], { rol: 'compras', email: 'c@a.com' })
+      if (table === 'oca_releases') return chainForEnmiendas([
+        { id: 'r-1', estado: 'pendiente_aprobacion', aprobador_asignado_id: null, created_at: hace48h },
+        { id: 'r-2', estado: 'pendiente_aprobacion', aprobador_asignado_id: null, created_at: hace2h },
+      ])
+      return chainForEnmiendas([])
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/releases/pendientes'))
+    const body = await res.json()
+    expect(body.find((r: { id: string }) => r.id === 'r-1').alerta_antiguedad).toBe(true)
+    expect(body.find((r: { id: string }) => r.id === 'r-2').alerta_antiguedad).toBe(false)
   })
 })
 
