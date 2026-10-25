@@ -7499,6 +7499,102 @@ describe('POST /api/compras/ocas/[id]/releases/[releaseId]/anular', () => {
   })
 })
 
+// ── HU-022 — Facturación de releases ────────────────────────────────────────
+
+describe('POST /api/compras/ocas/[id]/releases/[releaseId]/facturar', () => {
+  const { POST } = require('@/app/api/compras/ocas/[id]/releases/[releaseId]/facturar/route')
+  const ctx = { params: Promise.resolve({ id: 'oca-1', releaseId: 'release-1' }) }
+
+  const releaseAprobado = {
+    id: 'release-1', oca_id: 'oca-1', estado: 'aprobado', facturado: false, numero_factura: null,
+    numero_release: 'OCA-2026-0001-R001',
+  }
+  const releaseFacturado = { ...releaseAprobado, facturado: true, numero_factura: 'FAC-001' }
+
+  let updateReleaseSpy: jest.Mock
+
+  function setupMock(opts: { rol?: string | null; release?: unknown } = {}) {
+    updateReleaseSpy = jest.fn(() => Promise.resolve({ data: null, error: null }))
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return chainForEnmiendas([], opts.rol ? { rol: opts.rol, nombre: 'G', email: 'g@a.com' } : null)
+      if (table === 'oca_releases') {
+        const chain = chainForEnmiendas([], 'release' in opts ? opts.release : releaseAprobado)
+        chain.update = jest.fn((payload: unknown) => { updateReleaseSpy(payload); return chain })
+        return chain
+      }
+      return chainForEnmiendas([])
+    })
+  }
+
+  function req(body: Record<string, unknown>) {
+    return makeRequest('http://localhost/api/compras/ocas/oca-1/releases/release-1/facturar', {
+      method: 'POST', body: JSON.stringify(body),
+    })
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(req({ numero_factura: 'FAC-001' }), ctx)
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'bodega', 'gerencia', 'consulta', 'asistente_compras', 'coordinador'])(
+    'devuelve 403 para rol %s (RN-04: solo compras/admin, ni siquiera el coordinador del área)',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupMock({ rol })
+      const res = await POST(req({ numero_factura: 'FAC-001' }), ctx)
+      expect(res.status).toBe(403)
+    }
+  )
+
+  it('devuelve 404 si el release no existe', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', release: null })
+    const res = await POST(req({ numero_factura: 'FAC-001' }), ctx)
+    expect(res.status).toBe(404)
+  })
+
+  it('devuelve 400 al marcar sin numero_factura (CA-05)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras' })
+    const res = await POST(req({}), ctx)
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 409 al marcar un release no aprobado (CA-04)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', release: { ...releaseAprobado, estado: 'pendiente_aprobacion' } })
+    const res = await POST(req({ numero_factura: 'FAC-001' }), ctx)
+    expect(res.status).toBe(409)
+  })
+
+  it('devuelve 200 y marca facturado=true con numero_factura (admin)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'admin' })
+    const res = await POST(req({ numero_factura: 'FAC-001' }), ctx)
+    expect(res.status).toBe(200)
+    expect(updateReleaseSpy).toHaveBeenCalledWith({ facturado: true, numero_factura: 'FAC-001' })
+    expect(await res.json()).toEqual({ facturado: true, numero_factura: 'FAC-001' })
+  })
+
+  it('devuelve 409 al desmarcar un release que no está facturado', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', release: releaseAprobado })
+    const res = await POST(req({ facturado: false }), ctx)
+    expect(res.status).toBe(409)
+  })
+
+  it('devuelve 200 y desmarca facturado=false limpiando numero_factura (CA-06)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', release: releaseFacturado })
+    const res = await POST(req({ facturado: false }), ctx)
+    expect(res.status).toBe(200)
+    expect(updateReleaseSpy).toHaveBeenCalledWith({ facturado: false, numero_factura: null })
+    expect(await res.json()).toEqual({ facturado: false, numero_factura: null })
+  })
+})
+
 describe('GET /api/compras/ocas/releases/pendientes', () => {
   const { GET } = require('@/app/api/compras/ocas/releases/pendientes/route')
 
