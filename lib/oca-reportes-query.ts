@@ -36,7 +36,7 @@ async function mapaNombres(tabla: string, columnaNombre: string, ids: string[]):
   if (ids.length === 0) return {}
   const { data } = await adminClient().from(tabla).select(`id, ${columnaNombre}`).in('id', ids)
   const mapa: NombrePorId = {}
-  for (const fila of (data ?? []) as Record<string, string>[]) mapa[fila.id] = fila[columnaNombre]
+  for (const fila of (data ?? []) as unknown as Record<string, string>[]) mapa[fila.id] = fila[columnaNombre]
   return mapa
 }
 

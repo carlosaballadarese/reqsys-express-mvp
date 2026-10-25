@@ -112,6 +112,18 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL('/compras/dashboard', req.url))
   }
 
+  // Spec: HU-023 RN-03 — Reportes de OCA, mismos roles que Dashboard OCs
+  // (DASHBOARD_OCS_ROLES). Chequeo explícito porque de lo contrario calzaría
+  // con la excepción genérica esDetalleOca de solicitante/coordinador
+  // (2 segmentos tras /compras/ocas/) y bodega no tiene ningún bloqueo que
+  // lo frene — la página cargaría pero cada descarga fallaría con 403.
+  if (
+    (pathname === '/compras/ocas/reportes' || pathname.startsWith('/compras/ocas/reportes/')) &&
+    !DASHBOARD_OCS_ROLES.includes(rol)
+  ) {
+    return NextResponse.redirect(new URL('/compras/ocas', req.url))
+  }
+
   // Admin only
   if (requiresAdmin(pathname) && rol !== 'admin') {
     return NextResponse.redirect(new URL('/compras/dashboard', req.url))

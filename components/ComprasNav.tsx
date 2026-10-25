@@ -90,6 +90,9 @@ const NAV: NavGroup[] = [
     children: [
       { label: 'Mis OCAs', href: '/compras/ocas', exact: true },
       { label: 'Releases pendientes', href: '/compras/ocas/releases-pendientes' },
+      // Spec: HU-023 RN-03 — mismos roles que Dashboard OCs, más restringido
+      // que el resto del grupo "OCA" (reportes administrativo-financieros).
+      { label: 'Reportes', href: '/compras/ocas/reportes', roles: ['compras', 'admin', 'asistente_compras', 'gerencia'] },
     ],
   },
   {
