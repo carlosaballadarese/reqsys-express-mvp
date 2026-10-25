@@ -1,4 +1,5 @@
 // Spec: HU-020-v2.md — CA-01 a CA-05, RN-03, RN-04, RN-05, RN-06
+// Spec: HU-022-v2.md — 4to tipo cambio_modalidad_facturacion, RN-03
 
 import { validarEnmienda, TIPOS_ENMIENDA } from '@/lib/oca-enmiendas'
 
@@ -14,8 +15,10 @@ describe('validarEnmienda — tipo inválido y campos comunes (RN-03)', () => {
   it('rechaza un tipo fuera del dominio', () => {
     expect(validarEnmienda({ ...base, tipo: 'otro' }, ocaVigente)).not.toBeNull()
   })
-  it('exporta los 3 tipos válidos', () => {
-    expect(TIPOS_ENMIENDA.sort()).toEqual(['extension_plazo', 'incremento_presupuesto', 'modificacion_precios'].sort())
+  it('exporta los 4 tipos válidos', () => {
+    expect(TIPOS_ENMIENDA.sort()).toEqual(
+      ['cambio_modalidad_facturacion', 'extension_plazo', 'incremento_presupuesto', 'modificacion_precios'].sort()
+    )
   })
   it('rechaza sin justificación', () => {
     const r = validarEnmienda({ tipo: 'incremento_presupuesto', referencia_contractual: 'X', monto_adicional: 100 }, ocaVigente)
@@ -85,5 +88,31 @@ describe('validarEnmienda — modificacion_precios (RN-06)', () => {
     const ocaVariable = { ...ocaVigente, tipo: 'precio_variable_tope' }
     const r = validarEnmienda({ ...base, tipo: 'modificacion_precios', items: [{ codigo: 'X', descripcion: 'X', unidad: 'EA' }] }, ocaVariable)
     expect(r).not.toBeNull()
+  })
+})
+
+describe('validarEnmienda — cambio_modalidad_facturacion (HU-022 RN-03)', () => {
+  it('válido desde vigente con modalidad_facturacion_nueva válida', () => {
+    expect(
+      validarEnmienda({ ...base, tipo: 'cambio_modalidad_facturacion', modalidad_facturacion_nueva: 'mensual_consolidada' }, ocaVigente)
+    ).toBeNull()
+    expect(
+      validarEnmienda({ ...base, tipo: 'cambio_modalidad_facturacion', modalidad_facturacion_nueva: 'por_release' }, ocaVigente)
+    ).toBeNull()
+  })
+  it('rechaza desde borrador/suspendida/agotada/vencida', () => {
+    for (const oca of [ocaBorrador, ocaSuspendida, ocaAgotada, ocaVencida]) {
+      expect(
+        validarEnmienda({ ...base, tipo: 'cambio_modalidad_facturacion', modalidad_facturacion_nueva: 'por_release' }, oca)
+      ).not.toBeNull()
+    }
+  })
+  it('rechaza modalidad_facturacion_nueva ausente', () => {
+    expect(validarEnmienda({ ...base, tipo: 'cambio_modalidad_facturacion' }, ocaVigente)).not.toBeNull()
+  })
+  it('rechaza modalidad_facturacion_nueva con valor fuera del dominio', () => {
+    expect(
+      validarEnmienda({ ...base, tipo: 'cambio_modalidad_facturacion', modalidad_facturacion_nueva: 'otra' }, ocaVigente)
+    ).not.toBeNull()
   })
 })
