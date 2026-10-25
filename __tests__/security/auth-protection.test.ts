@@ -6078,7 +6078,7 @@ describe('POST /api/compras/ocas', () => {
 describe('GET /api/compras/ocas', () => {
   const { GET } = require('@/app/api/compras/ocas/route')
 
-  function setupMock(opts: { rol?: string | null; ocas?: unknown[] } = {}) {
+  function setupMock(opts: { rol?: string | null; ocas?: unknown[]; releases?: { oca_id: string; monto_total: number }[] } = {}) {
     mockFrom.mockImplementation((table: string) => {
       const chain = mockChainVacio()
       if (table === 'perfiles') {
@@ -6095,6 +6095,10 @@ describe('GET /api/compras/ocas', () => {
       }
       if (table === 'proveedores') {
         chain.in = jest.fn(() => Promise.resolve({ data: [], error: null }))
+        return chain
+      }
+      if (table === 'oca_releases') {
+        chain.eq = jest.fn(() => Promise.resolve({ data: opts.releases ?? [], error: null }))
         return chain
       }
       return chain
@@ -6138,6 +6142,38 @@ describe('GET /api/compras/ocas', () => {
     expect(res.status).toBe(200)
     expect(mockActualizarEstadoOca).toHaveBeenCalledTimes(1)
     expect(mockActualizarEstadoOca).toHaveBeenCalledWith('oca-1')
+  })
+
+  it('HU-024 CA-01/CA-02: expone alerta_presupuesto/alerta_vigencia por fila', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const fechaFinCercana = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    setupMock({
+      rol: 'compras',
+      ocas: [{
+        id: 'oca-1', estado: 'vigente', proveedor_id: 'p1', presupuesto_total: 100,
+        fecha_inicio: '2026-01-01', fecha_fin: fechaFinCercana, numero_oca: 'OCA-2026-0001', tipo: 'precio_fijo',
+      }],
+      releases: [{ oca_id: 'oca-1', monto_total: 85 }],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas'))
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body[0]).toEqual(expect.objectContaining({ alerta_presupuesto: '80', alerta_vigencia: true }))
+  })
+
+  it('HU-024: alerta_presupuesto=null y alerta_vigencia=false para una OCA en borrador', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const fechaFinCercana = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    setupMock({
+      rol: 'compras',
+      ocas: [{
+        id: 'oca-1', estado: 'borrador', proveedor_id: 'p1', presupuesto_total: 100,
+        fecha_inicio: '2026-01-01', fecha_fin: fechaFinCercana, numero_oca: 'OCA-2026-0001', tipo: 'precio_fijo',
+      }],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas'))
+    const body = await res.json()
+    expect(body[0]).toEqual(expect.objectContaining({ alerta_presupuesto: null, alerta_vigencia: false }))
   })
 })
 
@@ -6205,6 +6241,28 @@ describe('GET /api/compras/ocas/[id]', () => {
     setupMock({ rol: 'compras', oca: { ...ocaBase, estado: 'vigente' } })
     await GET(makeRequest('http://localhost/api/compras/ocas/oca-1'), { params: Promise.resolve({ id: 'oca-1' }) })
     expect(mockActualizarEstadoOca).toHaveBeenCalledWith('oca-1')
+  })
+
+  it('HU-024 CA-01/CA-02: expone alerta_presupuesto/alerta_vigencia en oca', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockCalcularPresupuestoConsumido.mockReset()
+    mockCalcularPresupuestoConsumido.mockResolvedValue(950)
+    const fechaFinCercana = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    setupMock({ rol: 'compras', oca: { ...ocaBase, estado: 'vigente', presupuesto_total: 1000, fecha_fin: fechaFinCercana } })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1'), { params: Promise.resolve({ id: 'oca-1' }) })
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.oca).toEqual(expect.objectContaining({ alerta_presupuesto: '90', alerta_vigencia: true }))
+  })
+
+  it('HU-024: alerta_presupuesto=null y alerta_vigencia=false en borrador', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockCalcularPresupuestoConsumido.mockReset()
+    mockCalcularPresupuestoConsumido.mockResolvedValue(0)
+    setupMock({ rol: 'compras', oca: { ...ocaBase, estado: 'borrador' } })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1'), { params: Promise.resolve({ id: 'oca-1' }) })
+    const body = await res.json()
+    expect(body.oca).toEqual(expect.objectContaining({ alerta_presupuesto: null, alerta_vigencia: false }))
   })
 })
 

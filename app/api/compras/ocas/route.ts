@@ -5,6 +5,7 @@ import { registrarAuditoria } from '@/lib/auditoria'
 import { actualizarEstadoOca } from '@/lib/oca-estado'
 import { validarCabeceraEItems, type OcaItemInput } from '@/lib/oca-validaciones'
 import { actualizarEstadoNP } from '@/lib/np-estado'
+import { calcularAlertaPresupuesto, calcularAlertaVigencia } from '@/lib/oca-alertas'
 
 // Spec: HU-018 RN-01 — solo compras/admin crean OCA
 const ROLES_CREAR = ['compras', 'admin']
@@ -173,6 +174,7 @@ export async function GET(req: NextRequest) {
       const porcentaje_ejecucion = Number(o.presupuesto_total) > 0
         ? Math.round((consumido / Number(o.presupuesto_total)) * 100)
         : 0
+      const estado = estadoActualPorId[o.id] ?? o.estado
       return {
         id: o.id,
         numero_oca: o.numero_oca,
@@ -185,7 +187,10 @@ export async function GET(req: NextRequest) {
         consumido,
         disponible,
         porcentaje_ejecucion,
-        estado: estadoActualPorId[o.id] ?? o.estado,
+        estado,
+        // Spec: HU-024 CA-01/CA-02 — calculadas con lo ya obtenido arriba, sin queries adicionales
+        alerta_presupuesto: calcularAlertaPresupuesto(porcentaje_ejecucion, estado),
+        alerta_vigencia: calcularAlertaVigencia(o.fecha_fin, estado),
       }
     })
 

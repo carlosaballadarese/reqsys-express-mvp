@@ -5,6 +5,7 @@ import { registrarAuditoria } from '@/lib/auditoria'
 import { actualizarEstadoOca, calcularPresupuestoConsumido } from '@/lib/oca-estado'
 import { validarCabeceraEItems, type OcaItemInput } from '@/lib/oca-validaciones'
 import { actualizarEstadoNP } from '@/lib/np-estado'
+import { calcularAlertaPresupuesto, calcularAlertaVigencia } from '@/lib/oca-alertas'
 
 // Spec: HU-018 CA-13 — detalle visible para los mismos roles del listado (CA-12)
 const ROLES_VER = ['solicitante', 'bodega', 'compras', 'admin', 'gerencia', 'consulta', 'asistente_compras']
@@ -57,8 +58,12 @@ export async function GET(
     const disponible = total - consumido
     const porcentaje_ejecucion = total > 0 ? Math.round((consumido / total) * 100) : 0
 
+    // Spec: HU-024 CA-01/CA-02
+    const alerta_presupuesto = calcularAlertaPresupuesto(porcentaje_ejecucion, oca?.estado ?? '')
+    const alerta_vigencia = calcularAlertaVigencia(oca?.fecha_fin ?? '', oca?.estado ?? '')
+
     return NextResponse.json({
-      oca: { ...oca, consumido, disponible, porcentaje_ejecucion },
+      oca: { ...oca, consumido, disponible, porcentaje_ejecucion, alerta_presupuesto, alerta_vigencia },
       items: items ?? [],
       areas_habilitadas: areas ?? [],
       historial: historial ?? [],
