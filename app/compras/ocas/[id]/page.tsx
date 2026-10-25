@@ -15,12 +15,14 @@ type OcaItem = {
 }
 type Area = { id: string; nombre: string }
 type Historial = { id: string; estado: string; actor_nombre: string | null; actor_email: string | null; notas: string | null; created_at: string }
+type ModalidadFacturacion = 'mensual_consolidada' | 'por_release'
 type Oca = {
   id: string; numero_oca: string; proveedor_id: string; tipo: string
   descripcion: string; fecha_inicio: string; fecha_fin: string
   presupuesto_total: number; referencia_contractual: string; estado: string
   consumido: number; disponible: number; porcentaje_ejecucion: number
   motivo_rechazo: string | null; motivo_suspension: string | null; motivo_cierre: string | null
+  modalidad_facturacion: ModalidadFacturacion
 }
 type Proveedor = { id: string; nombre: string }
 type ItemForm = {
@@ -30,12 +32,14 @@ type ItemForm = {
 const ITEM_VACIO: ItemForm = { codigo: '', descripcion: '', unidad: '', categoria: '', precio_unitario: '', precio_maximo: '' }
 
 // Spec: HU-020 — tipos de enmienda y su campo propio
-type TipoEnmienda = 'incremento_presupuesto' | 'extension_plazo' | 'modificacion_precios'
+// Spec: HU-022 — 4to tipo, cambio_modalidad_facturacion
+type TipoEnmienda = 'incremento_presupuesto' | 'extension_plazo' | 'modificacion_precios' | 'cambio_modalidad_facturacion'
 type Enmienda = {
   id: string; tipo: TipoEnmienda; estado: 'pendiente' | 'aprobada' | 'rechazada'
   justificacion: string; referencia_contractual: string
   monto_adicional: number | null; fecha_fin_nueva: string | null
   items_nuevos: { codigo: string; descripcion: string; unidad: string; precio_unitario?: number | null; precio_maximo?: number | null }[] | null
+  modalidad_facturacion_nueva: ModalidadFacturacion | null
   solicitado_en: string; aprobado_en: string | null; motivo_rechazo: string | null
 }
 
@@ -49,9 +53,14 @@ const TIPO_ENMIENDA_LABEL: Record<TipoEnmienda, string> = {
   incremento_presupuesto: 'Incremento de presupuesto',
   extension_plazo: 'Extensión de plazo',
   modificacion_precios: 'Modificación de lista de precios',
+  cambio_modalidad_facturacion: 'Cambio de modalidad de facturación',
 }
 const ESTADO_ENMIENDA_LABEL: Record<Enmienda['estado'], string> = {
   pendiente: 'Pendiente', aprobada: 'Aprobada', rechazada: 'Rechazada',
+}
+const MODALIDAD_FACTURACION_LABEL: Record<ModalidadFacturacion, string> = {
+  mensual_consolidada: 'Mensual consolidada',
+  por_release: 'Por release',
 }
 
 // Spec: HU-021 — releases (descargos) contra una OCA vigente
@@ -61,6 +70,8 @@ type Release = {
   estado: 'pendiente_aprobacion' | 'aprobado' | 'rechazado' | 'anulado'
   motivo_rechazo: string | null; motivo_anulacion: string | null
   created_at: string
+  // Spec: HU-022 CA-08
+  facturado: boolean; numero_factura: string | null
 }
 type ReleaseItemForm = { oca_item_id: string; seleccionado: boolean; cantidad: string; precio_unitario: string }
 const RELEASE_ESTADO_LABEL: Record<Release['estado'], string> = {
@@ -101,6 +112,8 @@ export default function DetalleOcaPage() {
   const [editFechaFin, setEditFechaFin]       = useState('')
   const [editPresupuesto, setEditPresupuesto] = useState('')
   const [editReferencia, setEditReferencia]   = useState('')
+  // Spec: HU-022 CA-02 — editable mientras la OCA está en borrador
+  const [editModalidadFacturacion, setEditModalidadFacturacion] = useState<ModalidadFacturacion>('por_release')
   const [editAreas, setEditAreas]     = useState<string[]>([])
   const [editItems, setEditItems]     = useState<ItemForm[]>([{ ...ITEM_VACIO }])
   const [guardandoEdicion, setGuardandoEdicion] = useState(false)
@@ -114,6 +127,7 @@ export default function DetalleOcaPage() {
   const [enmReferencia, setEnmReferencia] = useState('')
   const [enmMontoAdicional, setEnmMontoAdicional] = useState('')
   const [enmFechaFinNueva, setEnmFechaFinNueva] = useState('')
+  const [enmModalidadNueva, setEnmModalidadNueva] = useState<ModalidadFacturacion>('por_release')
   const [enmItems, setEnmItems] = useState<ItemForm[]>([{ ...ITEM_VACIO }])
   const [enviandoEnmienda, setEnviandoEnmienda] = useState(false)
   const [errorEnmienda, setErrorEnmienda] = useState('')
@@ -136,6 +150,11 @@ export default function DetalleOcaPage() {
   const [motivoAnular, setMotivoAnular] = useState('')
   const [anulando, setAnulando] = useState(false)
 
+  // Spec: HU-022 CA-04/CA-05/CA-06 — marcar/desmarcar un release como facturado
+  const [modalFacturar, setModalFacturar] = useState<Release | null>(null)
+  const [numeroFactura, setNumeroFactura] = useState('')
+  const [facturando, setFacturando] = useState(false)
+
   useEffect(() => {
     fetch('/api/auth/perfil').then(r => r.ok ? r.json() : null).then(p => setRol(p?.rol ?? null))
     fetch('/api/compras/areas').then(r => r.ok ? r.json() : []).then(data => setTodasLasAreas(Array.isArray(data) ? data : []))
@@ -152,6 +171,7 @@ export default function DetalleOcaPage() {
     setEditFechaFin(oca.fecha_fin)
     setEditPresupuesto(String(oca.presupuesto_total))
     setEditReferencia(oca.referencia_contractual)
+    setEditModalidadFacturacion(oca.modalidad_facturacion)
     setEditAreas(areasHab.map(a => a.id))
     setEditItems(items.length > 0
       ? items.map(it => ({
@@ -190,6 +210,7 @@ export default function DetalleOcaPage() {
         fecha_fin: editFechaFin,
         presupuesto_total: Number(editPresupuesto),
         referencia_contractual: editReferencia,
+        modalidad_facturacion: editModalidadFacturacion,
         areas_habilitadas: editAreas,
         items: editItems.map(it => ({
           codigo: it.codigo,
@@ -247,12 +268,13 @@ export default function DetalleOcaPage() {
     }
   }
 
-  // Spec: HU-020 RN-04/05/06 — tipos elegibles según el estado actual de la OCA
+  // Spec: HU-020 RN-04/05/06 + HU-022 RN-03 — tipos elegibles según el estado actual de la OCA
   const tiposDisponibles: TipoEnmienda[] = oca
     ? [
         ...(['vigente', 'agotada'].includes(oca.estado) ? ['incremento_presupuesto' as const] : []),
         ...(['vigente', 'vencida'].includes(oca.estado) ? ['extension_plazo' as const] : []),
         ...(oca.estado === 'vigente' ? ['modificacion_precios' as const] : []),
+        ...(oca.estado === 'vigente' ? ['cambio_modalidad_facturacion' as const] : []),
       ]
     : []
   const enmiendaPendiente = enmiendas.find(e => e.estado === 'pendiente') ?? null
@@ -260,6 +282,7 @@ export default function DetalleOcaPage() {
   function abrirModalSolicitar() {
     setTipoEnmienda(tiposDisponibles[0] ?? 'incremento_presupuesto')
     setEnmJustificacion(''); setEnmReferencia(''); setEnmMontoAdicional(''); setEnmFechaFinNueva('')
+    setEnmModalidadNueva('por_release')
     setEnmItems([{ ...ITEM_VACIO }])
     setErrorEnmienda('')
     setModalSolicitar(true)
@@ -283,6 +306,7 @@ export default function DetalleOcaPage() {
         precio_maximo: oca?.tipo === 'precio_variable_tope' ? Number(it.precio_maximo) : undefined,
       }))
     }
+    if (tipoEnmienda === 'cambio_modalidad_facturacion') body.modalidad_facturacion_nueva = enmModalidadNueva
 
     setEnviandoEnmienda(true)
     const res = await fetch(`/api/compras/ocas/${id}/enmiendas`, {
@@ -374,6 +398,30 @@ export default function DetalleOcaPage() {
     else { setError(data.error || 'Error al anular el release') }
   }
 
+  // Spec: HU-022 CA-04/CA-05 — marcar un release aprobado como facturado
+  async function handleFacturar() {
+    if (!modalFacturar || !numeroFactura.trim()) return
+    setFacturando(true)
+    const res = await fetch(`/api/compras/ocas/${id}/releases/${modalFacturar.id}/facturar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ numero_factura: numeroFactura }),
+    })
+    const data = await res.json()
+    setFacturando(false)
+    if (res.ok) { setModalFacturar(null); setNumeroFactura(''); cargar() }
+    else { setError(data.error || 'Error al facturar el release') }
+  }
+
+  // Spec: HU-022 CA-06 — desmarcar un release facturado (corrección administrativa)
+  async function handleDesfacturar(release: Release) {
+    setError('')
+    const res = await fetch(`/api/compras/ocas/${id}/releases/${release.id}/facturar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ facturado: false }),
+    })
+    const data = await res.json()
+    if (res.ok) cargar()
+    else setError(data.error || 'Error al desmarcar el release')
+  }
+
   if (cargando) return <div className="text-center py-20 text-slate-400">Cargando...</div>
   if (!oca) return <div className="text-center py-20 text-slate-400">OCA no encontrada</div>
 
@@ -462,6 +510,14 @@ export default function DetalleOcaPage() {
                   <Input value={editReferencia} onChange={e => setEditReferencia(e.target.value)} className="mt-1 h-8 text-sm" />
                 </div>
                 <div>
+                  <Label className="text-xs">Modalidad de facturación</Label>
+                  <select value={editModalidadFacturacion} onChange={e => setEditModalidadFacturacion(e.target.value as ModalidadFacturacion)}
+                    className="w-full border rounded px-3 py-1.5 text-sm mt-1">
+                    <option value="por_release">Por release</option>
+                    <option value="mensual_consolidada">Mensual consolidada</option>
+                  </select>
+                </div>
+                <div>
                   <Label className="text-xs">Áreas habilitadas</Label>
                   <div className="flex flex-wrap gap-2 mt-1">
                     {todasLasAreas.map(a => (
@@ -543,6 +599,7 @@ export default function DetalleOcaPage() {
                 <div><span className="text-slate-500">Tipo:</span> {oca.tipo === 'precio_fijo' ? 'Precio fijo' : 'Precio variable (tope)'}</div>
                 <div><span className="text-slate-500">Período:</span> {oca.fecha_inicio} – {oca.fecha_fin}</div>
                 <div><span className="text-slate-500">Referencia contractual:</span> {oca.referencia_contractual}</div>
+                <div><span className="text-slate-500">Modalidad de facturación:</span> {MODALIDAD_FACTURACION_LABEL[oca.modalidad_facturacion]}</div>
                 <div><span className="text-slate-500">Áreas habilitadas:</span> {areasHab.map(a => a.nombre).join(', ') || '—'}</div>
                 <div><span className="text-slate-500">Presupuesto total:</span> {usd(oca.presupuesto_total)}</div>
                 <div><span className="text-slate-500">Consumido:</span> {usd(oca.consumido)}</div>
@@ -666,6 +723,7 @@ export default function DetalleOcaPage() {
                     {e.tipo === 'incremento_presupuesto' && `Monto adicional: ${usd(e.monto_adicional ?? 0)}`}
                     {e.tipo === 'extension_plazo' && `Nueva fecha de fin: ${e.fecha_fin_nueva}`}
                     {e.tipo === 'modificacion_precios' && `${e.items_nuevos?.length ?? 0} ítem(s) propuestos`}
+                    {e.tipo === 'cambio_modalidad_facturacion' && `Nueva modalidad: ${e.modalidad_facturacion_nueva ? MODALIDAD_FACTURACION_LABEL[e.modalidad_facturacion_nueva] : '—'}`}
                   </p>
                   <p className="text-slate-500 text-xs">Justificación: {e.justificacion}</p>
                   <p className="text-slate-500 text-xs">Referencia contractual: {e.referencia_contractual}</p>
@@ -706,6 +764,13 @@ export default function DetalleOcaPage() {
                       }`}>
                         {RELEASE_ESTADO_LABEL[r.estado]}
                       </span>
+                      {r.estado === 'aprobado' && (
+                        <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
+                          r.facturado ? 'bg-teal-100 text-teal-700' : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {r.facturado ? `Facturado (${r.numero_factura})` : 'No facturado'}
+                        </span>
+                      )}
                     </div>
                     <div className="flex gap-2">
                       {puedeIntentarResolverRelease && r.estado === 'pendiente_aprobacion' && (
@@ -721,6 +786,17 @@ export default function DetalleOcaPage() {
                       {puedeIntentarResolverRelease && r.estado === 'aprobado' && (
                         <Button variant="outline" className="text-xs h-7 text-slate-600" onClick={() => setModalAnularRelease(r)}>
                           Anular
+                        </Button>
+                      )}
+                      {/* Spec: HU-022 RN-04 — solo compras/admin, a diferencia del resto de acciones de release */}
+                      {esComprasAdmin && r.estado === 'aprobado' && !r.facturado && (
+                        <Button variant="outline" className="text-xs h-7 text-teal-700" onClick={() => { setModalFacturar(r); setNumeroFactura('') }}>
+                          Marcar como facturado
+                        </Button>
+                      )}
+                      {esComprasAdmin && r.estado === 'aprobado' && r.facturado && (
+                        <Button variant="outline" className="text-xs h-7 text-slate-600" onClick={() => handleDesfacturar(r)}>
+                          Desmarcar
                         </Button>
                       )}
                       {r.estado === 'aprobado' && (
@@ -845,6 +921,17 @@ export default function DetalleOcaPage() {
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+
+            {tipoEnmienda === 'cambio_modalidad_facturacion' && (
+              <div className="mb-3">
+                <Label className="text-xs">Nueva modalidad de facturación *</Label>
+                <select value={enmModalidadNueva} onChange={e => setEnmModalidadNueva(e.target.value as ModalidadFacturacion)}
+                  className="w-full border rounded px-3 py-1.5 text-sm mt-1">
+                  <option value="por_release">Por release</option>
+                  <option value="mensual_consolidada">Mensual consolidada</option>
+                </select>
               </div>
             )}
 
@@ -1000,6 +1087,25 @@ export default function DetalleOcaPage() {
                 {anulando ? 'Procesando...' : 'Confirmar'}
               </Button>
               <Button variant="outline" className="text-sm" onClick={() => { setModalAnularRelease(null); setMotivoAnular('') }}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalFacturar && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-lg shadow-lg max-w-md w-full p-5">
+            <h3 className="font-semibold text-slate-800 mb-3">Marcar release como facturado</h3>
+            <p className="text-slate-500 text-sm mb-3">{modalFacturar.numero_release} — {usd(modalFacturar.monto_total)}</p>
+            <Label className="text-xs">Número de factura *</Label>
+            <Input value={numeroFactura} onChange={e => setNumeroFactura(e.target.value)} className="mt-1 h-8 text-sm" />
+            <div className="flex gap-3 mt-4">
+              <Button className="btn-primary text-sm" disabled={facturando || !numeroFactura.trim()} onClick={handleFacturar}>
+                {facturando ? 'Procesando...' : 'Confirmar'}
+              </Button>
+              <Button variant="outline" className="text-sm" onClick={() => { setModalFacturar(null); setNumeroFactura('') }}>
                 Cancelar
               </Button>
             </div>

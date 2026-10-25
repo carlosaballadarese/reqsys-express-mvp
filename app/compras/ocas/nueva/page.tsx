@@ -33,6 +33,8 @@ export default function NuevaOcaPage() {
   const [fechaFin, setFechaFin]           = useState('')
   const [presupuesto, setPresupuesto]     = useState('')
   const [referencia, setReferencia]       = useState('')
+  // Spec: HU-022 CA-01 — default 'por_release' si no se especifica
+  const [modalidadFacturacion, setModalidadFacturacion] = useState<'por_release' | 'mensual_consolidada'>('por_release')
   const [areasSeleccionadas, setAreasSeleccionadas] = useState<string[]>([])
   const [items, setItems]                 = useState<ItemForm[]>([{ ...ITEM_VACIO }])
 
@@ -132,6 +134,7 @@ export default function NuevaOcaPage() {
         fecha_fin: fechaFin,
         presupuesto_total: Number(presupuesto),
         referencia_contractual: referencia,
+        modalidad_facturacion: modalidadFacturacion,
         areas_habilitadas: areasSeleccionadas,
         ...(npOrigenId ? { np_origen_id: npOrigenId } : {}),
         items: items.map(it => ({
@@ -211,6 +214,14 @@ export default function NuevaOcaPage() {
             <div>
               <Label className="text-xs">Referencia contractual *</Label>
               <Input value={referencia} onChange={e => setReferencia(e.target.value)} className="mt-1 h-8 text-sm" placeholder="N° de contrato o acuerdo" />
+            </div>
+            <div>
+              <Label className="text-xs">Modalidad de facturación</Label>
+              <select value={modalidadFacturacion} onChange={e => setModalidadFacturacion(e.target.value as typeof modalidadFacturacion)}
+                className="w-full border rounded px-3 py-1.5 text-sm mt-1">
+                <option value="por_release">Por release</option>
+                <option value="mensual_consolidada">Mensual consolidada</option>
+              </select>
             </div>
             <div>
               <Label className="text-xs">Áreas habilitadas (Centro de Costo)</Label>
