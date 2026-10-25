@@ -12,6 +12,8 @@ type ReleasePendiente = {
   id: string; numero_release: string; oca_id: string; area_id: string
   monto_total: number; observaciones: string | null; created_at: string
   numero_oca: string | null; area_nombre: string | null; solicitante_nombre: string | null
+  // Spec: HU-024 CA-03
+  alerta_antiguedad: boolean
 }
 
 function usd(n: number) {
@@ -125,7 +127,14 @@ export default function ReleasesPendientesPage() {
                         <td className="py-2 pr-4">{r.area_nombre ?? '—'}</td>
                         <td className="py-2 pr-4">{r.solicitante_nombre ?? '—'}</td>
                         <td className="py-2 pr-4 text-right">{usd(r.monto_total)}</td>
-                        <td className="py-2 pr-4">{new Date(r.created_at).toLocaleDateString('es-EC')}</td>
+                        <td className="py-2 pr-4">
+                          {new Date(r.created_at).toLocaleDateString('es-EC')}
+                          {r.alerta_antiguedad && (
+                            <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">
+                              &gt; 24h
+                            </span>
+                          )}
+                        </td>
                         <td className="py-2 text-right">
                           <div className="flex gap-2 justify-end">
                             <Button className="btn-primary text-xs h-7" onClick={() => setModalResolver({ release: r, decision: 'aprobar' })}>

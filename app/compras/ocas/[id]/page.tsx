@@ -23,6 +23,9 @@ type Oca = {
   consumido: number; disponible: number; porcentaje_ejecucion: number
   motivo_rechazo: string | null; motivo_suspension: string | null; motivo_cierre: string | null
   modalidad_facturacion: ModalidadFacturacion
+  // Spec: HU-024 CA-01/CA-02
+  alerta_presupuesto: '100' | '90' | '80' | null
+  alerta_vigencia: boolean
 }
 type Proveedor = { id: string; nombre: string }
 type ItemForm = {
@@ -62,6 +65,10 @@ const MODALIDAD_FACTURACION_LABEL: Record<ModalidadFacturacion, string> = {
   mensual_consolidada: 'Mensual consolidada',
   por_release: 'Por release',
 }
+// Spec: HU-024 CA-01/CA-02
+const ALERTA_PRESUPUESTO_COLOR: Record<string, string> = {
+  '100': 'bg-red-100 text-red-700', '90': 'bg-orange-100 text-orange-700', '80': 'bg-amber-100 text-amber-700',
+}
 
 // Spec: HU-021 — releases (descargos) contra una OCA vigente
 type Release = {
@@ -72,6 +79,8 @@ type Release = {
   created_at: string
   // Spec: HU-022 CA-08
   facturado: boolean; numero_factura: string | null
+  // Spec: HU-024 CA-03
+  alerta_antiguedad: boolean
 }
 type ReleaseItemForm = { oca_item_id: string; seleccionado: boolean; cantidad: string; precio_unitario: string }
 const RELEASE_ESTADO_LABEL: Record<Release['estado'], string> = {
@@ -441,9 +450,21 @@ export default function DetalleOcaPage() {
             <h1 className="text-2xl font-bold text-slate-800">{oca.numero_oca}</h1>
             <p className="text-slate-500 text-sm mt-0.5">{oca.descripcion}</p>
           </div>
-          <span className="text-sm px-3 py-1.5 rounded-full bg-slate-100 text-slate-700 font-medium">
-            {ESTADO_LABEL[oca.estado] ?? oca.estado}
-          </span>
+          <div className="flex gap-2 items-center flex-wrap">
+            <span className="text-sm px-3 py-1.5 rounded-full bg-slate-100 text-slate-700 font-medium">
+              {ESTADO_LABEL[oca.estado] ?? oca.estado}
+            </span>
+            {oca.alerta_presupuesto && (
+              <span className={`text-sm px-3 py-1.5 rounded-full font-medium ${ALERTA_PRESUPUESTO_COLOR[oca.alerta_presupuesto]}`}>
+                {oca.alerta_presupuesto}% del presupuesto
+              </span>
+            )}
+            {oca.alerta_vigencia && (
+              <span className="text-sm px-3 py-1.5 rounded-full bg-purple-100 text-purple-700 font-medium">
+                Por vencer
+              </span>
+            )}
+          </div>
         </div>
 
         {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>}
@@ -769,6 +790,11 @@ export default function DetalleOcaPage() {
                           r.facturado ? 'bg-teal-100 text-teal-700' : 'bg-slate-100 text-slate-500'
                         }`}>
                           {r.facturado ? `Facturado (${r.numero_factura})` : 'No facturado'}
+                        </span>
+                      )}
+                      {r.alerta_antiguedad && (
+                        <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">
+                          Pendiente &gt; 24h
                         </span>
                       )}
                     </div>

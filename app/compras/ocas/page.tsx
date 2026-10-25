@@ -20,6 +20,13 @@ type Oca = {
   disponible: number
   porcentaje_ejecucion: number
   estado: string
+  // Spec: HU-024 CA-01/CA-02
+  alerta_presupuesto: '100' | '90' | '80' | null
+  alerta_vigencia: boolean
+}
+
+const ALERTA_PRESUPUESTO_COLOR: Record<string, string> = {
+  '100': 'bg-red-100 text-red-700', '90': 'bg-orange-100 text-orange-700', '80': 'bg-amber-100 text-amber-700',
 }
 
 const ESTADO_LABEL: Record<string, string> = {
@@ -154,6 +161,16 @@ export default function OcasPage() {
                           <span className={`text-xs px-2 py-1 rounded-full ${ESTADO_COLOR[o.estado] ?? 'bg-slate-100 text-slate-700'}`}>
                             {ESTADO_LABEL[o.estado] ?? o.estado}
                           </span>
+                          {o.alerta_presupuesto && (
+                            <span className={`ml-1 text-xs px-2 py-1 rounded-full ${ALERTA_PRESUPUESTO_COLOR[o.alerta_presupuesto]}`}>
+                              {o.alerta_presupuesto}% presupuesto
+                            </span>
+                          )}
+                          {o.alerta_vigencia && (
+                            <span className="ml-1 text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-700">
+                              Por vencer
+                            </span>
+                          )}
                         </td>
                       </tr>
                     ))}
