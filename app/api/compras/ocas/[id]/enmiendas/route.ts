@@ -52,6 +52,8 @@ export async function POST(
         monto_adicional: body.tipo === 'incremento_presupuesto' ? body.monto_adicional : null,
         fecha_fin_nueva: body.tipo === 'extension_plazo' ? body.fecha_fin_nueva : null,
         items_nuevos: body.tipo === 'modificacion_precios' ? body.items : null,
+        // Spec: HU-022 — 4to tipo, mismo patrón condicional que los otros 3 campos específicos
+        modalidad_facturacion_nueva: body.tipo === 'cambio_modalidad_facturacion' ? body.modalidad_facturacion_nueva : null,
         solicitado_por_id: user.id,
       })
       .select('id, tipo, estado')

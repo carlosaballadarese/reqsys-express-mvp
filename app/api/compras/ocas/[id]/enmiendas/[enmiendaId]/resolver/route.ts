@@ -77,8 +77,8 @@ export async function POST(
         fecha_fin: enmienda.fecha_fin_nueva,
         ...(oca.estado === 'vencida' ? { estado: 'vigente' } : {}),
       }).eq('id', id)
-    } else {
-      // modificacion_precios — mismo patrón de reemplazo completo que PUT /api/compras/ocas/[id]
+    } else if (enmienda.tipo === 'modificacion_precios') {
+      // mismo patrón de reemplazo completo que PUT /api/compras/ocas/[id]
       await adminClient().from('oca_items').delete().eq('oca_id', id)
       const items: OcaItemInput[] = enmienda.items_nuevos ?? []
       if (items.length > 0) {
@@ -95,6 +95,13 @@ export async function POST(
           }))
         )
       }
+    } else {
+      // cambio_modalidad_facturacion (HU-022) — sin reactivación de estado
+      // (Decisión de diseño #3: la modalidad de facturación no tiene relación
+      // causal con presupuesto ni vigencia temporal)
+      await adminClient().from('oca').update({
+        modalidad_facturacion: enmienda.modalidad_facturacion_nueva,
+      }).eq('id', id)
     }
 
     await adminClient().from('oca_enmiendas').update({

@@ -6881,6 +6881,37 @@ describe('POST /api/compras/ocas/[id]/enmiendas', () => {
     }), ctx)
     expect(res.status).toBe(201)
   })
+
+  it('HU-022 RN-03: devuelve 201 con cambio_modalidad_facturacion válido desde vigente y persiste modalidad_facturacion_nueva', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let insertPayload: any = null
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return chainForEnmiendas([], { rol: 'compras', nombre: 'G', email: 'g@a.com' })
+      if (table === 'oca') return chainForEnmiendas([], ocaVigente)
+      if (table === 'oca_enmiendas') {
+        const chain = chainForEnmiendas([], { id: 'enm-1', tipo: 'cambio_modalidad_facturacion', estado: 'pendiente' }, null)
+        chain.insert = jest.fn((payload: unknown) => { insertPayload = payload; return chain })
+        return chain
+      }
+      return chainForEnmiendas([])
+    })
+    const res = await POST(req({
+      tipo: 'cambio_modalidad_facturacion', justificacion: 'J', referencia_contractual: 'C-1',
+      modalidad_facturacion_nueva: 'mensual_consolidada',
+    }), ctx)
+    expect(res.status).toBe(201)
+    expect(insertPayload).toEqual(expect.objectContaining({ modalidad_facturacion_nueva: 'mensual_consolidada' }))
+  })
+
+  it('HU-022: devuelve 400 con cambio_modalidad_facturacion desde agotada (RN-03: solo vigente)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', oca: ocaAgotada })
+    const res = await POST(req({
+      tipo: 'cambio_modalidad_facturacion', justificacion: 'J', referencia_contractual: 'C-1',
+      modalidad_facturacion_nueva: 'mensual_consolidada',
+    }), ctx)
+    expect(res.status).toBe(400)
+  })
 })
 
 describe('GET /api/compras/ocas/[id]/enmiendas', () => {
@@ -7070,6 +7101,16 @@ describe('POST /api/compras/ocas/[id]/enmiendas/[enmiendaId]/resolver', () => {
     expect(res.status).toBe(200)
     expect(updateEnmiendaSpy).toHaveBeenCalledWith(expect.objectContaining({ estado: 'rechazada', motivo_rechazo: 'Presupuesto insuficiente' }))
     expect(updateOcaSpy).not.toHaveBeenCalled()
+  })
+
+  it('HU-022: aprueba cambio_modalidad_facturacion: actualiza modalidad_facturacion de la OCA sin tocar su estado', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const enmiendaModalidad = { id: 'enm-1', oca_id: 'oca-1', tipo: 'cambio_modalidad_facturacion', estado: 'pendiente', modalidad_facturacion_nueva: 'mensual_consolidada' }
+    setupMock({ rol: 'gerencia', enmienda: enmiendaModalidad, oca: ocaVigente })
+    const res = await POST(req({ decision: 'aprobar' }), ctx)
+    expect(res.status).toBe(200)
+    expect(updateOcaSpy).toHaveBeenCalledWith({ modalidad_facturacion: 'mensual_consolidada' })
+    expect(updateEnmiendaSpy).toHaveBeenCalledWith(expect.objectContaining({ estado: 'aprobada' }))
   })
 })
 
