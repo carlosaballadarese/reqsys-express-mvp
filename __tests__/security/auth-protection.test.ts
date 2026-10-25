@@ -6018,6 +6018,61 @@ describe('POST /api/compras/ocas', () => {
     expect(res.status).toBe(201)
     expect(mockActualizarEstadoNP).not.toHaveBeenCalled()
   })
+
+  it('HU-022 CA-01: crea sin especificar modalidad_facturacion (queda el default de la columna)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let insertPayloadOca: any = null
+    mockFrom.mockImplementation((table: string) => {
+      const chain = mockChainVacio()
+      if (table === 'perfiles') {
+        chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+        return chain
+      }
+      if (table === 'oca') {
+        chain.insert = jest.fn((payload: any) => { insertPayloadOca = payload; return chain })
+        chain.select = jest.fn(() => chain)
+        chain.single = jest.fn(() =>
+          Promise.resolve({ data: { id: 'oca-1', numero_oca: 'OCA-2026-0001', estado: 'borrador' }, error: null })
+        )
+        return chain
+      }
+      return chain
+    })
+    const res = await POST(reqCrear(bodyValido))
+    expect(res.status).toBe(201)
+    expect(insertPayloadOca).not.toHaveProperty('modalidad_facturacion')
+  })
+
+  it('HU-022 CA-01: crea especificando modalidad_facturacion=mensual_consolidada → se persiste', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let insertPayloadOca: any = null
+    mockFrom.mockImplementation((table: string) => {
+      const chain = mockChainVacio()
+      if (table === 'perfiles') {
+        chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+        return chain
+      }
+      if (table === 'oca') {
+        chain.insert = jest.fn((payload: any) => { insertPayloadOca = payload; return chain })
+        chain.select = jest.fn(() => chain)
+        chain.single = jest.fn(() =>
+          Promise.resolve({ data: { id: 'oca-1', numero_oca: 'OCA-2026-0001', estado: 'borrador' }, error: null })
+        )
+        return chain
+      }
+      return chain
+    })
+    const res = await POST(reqCrear({ ...bodyValido, modalidad_facturacion: 'mensual_consolidada' }))
+    expect(res.status).toBe(201)
+    expect(insertPayloadOca).toEqual(expect.objectContaining({ modalidad_facturacion: 'mensual_consolidada' }))
+  })
+
+  it('HU-022: devuelve 400 si modalidad_facturacion trae un valor fuera del dominio', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras' })
+    const res = await POST(reqCrear({ ...bodyValido, modalidad_facturacion: 'otra' }))
+    expect(res.status).toBe(400)
+  })
 })
 
 describe('GET /api/compras/ocas', () => {
@@ -6288,6 +6343,35 @@ describe('PUT /api/compras/ocas/[id]', () => {
     expect(res.status).toBe(200)
     expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-viejo')
     expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-nuevo')
+  })
+
+  it('HU-022 CA-02: edita modalidad_facturacion en borrador', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let updatePayload: any = null
+    mockFrom.mockImplementation((table: string) => {
+      const chain = mockChainVacio()
+      if (table === 'perfiles') {
+        chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+        return chain
+      }
+      if (table === 'oca') {
+        chain.single = jest.fn(() => Promise.resolve({ data: { id: 'oca-1', estado: 'borrador' }, error: null }))
+        chain.update = jest.fn((payload: any) => { updatePayload = payload; return chain })
+        return chain
+      }
+      chain.delete = jest.fn(() => chain)
+      return chain
+    })
+    const res = await PUT(reqEditar({ ...bodyValido, modalidad_facturacion: 'mensual_consolidada' }), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(200)
+    expect(updatePayload).toEqual(expect.objectContaining({ modalidad_facturacion: 'mensual_consolidada' }))
+  })
+
+  it('HU-022: devuelve 400 si modalidad_facturacion trae un valor fuera del dominio', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', estado: 'borrador' })
+    const res = await PUT(reqEditar({ ...bodyValido, modalidad_facturacion: 'otra' }), { params: Promise.resolve({ id: 'oca-1' }) })
+    expect(res.status).toBe(400)
   })
 })
 

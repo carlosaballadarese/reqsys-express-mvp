@@ -19,7 +19,14 @@ export type OcaCabeceraInput = {
   fecha_fin?: string
   presupuesto_total?: number
   items?: OcaItemInput[]
+  // Spec: HU-022 CA-01/CA-02 — opcional, default 'por_release' si se omite
+  modalidad_facturacion?: string
 }
+
+// Spec: HU-022 — dominio de modalidad_facturacion, compartido por la
+// validación de cabecera (POST/PUT de OCA) y la enmienda cambio_modalidad_facturacion.
+export type ModalidadFacturacion = 'mensual_consolidada' | 'por_release'
+export const MODALIDADES_FACTURACION: ModalidadFacturacion[] = ['mensual_consolidada', 'por_release']
 
 // Spec: HU-018 RN-05 — extraída para que HU-020 (modificación de lista de
 // precios vía enmienda) la reutilice sin duplicar la regla de negocio.
@@ -44,6 +51,9 @@ export function validarCabeceraEItems(body: OcaCabeceraInput): string | null {
   }
   if (!body.presupuesto_total || body.presupuesto_total <= 0) {
     return 'El presupuesto total debe ser un monto positivo'
+  }
+  if (body.modalidad_facturacion !== undefined && !MODALIDADES_FACTURACION.includes(body.modalidad_facturacion as ModalidadFacturacion)) {
+    return 'Modalidad de facturación inválida'
   }
   return validarItemsSegunTipo(body.tipo, body.items ?? [])
 }

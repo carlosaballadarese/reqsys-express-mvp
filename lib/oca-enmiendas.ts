@@ -1,4 +1,4 @@
-import { validarItemsSegunTipo, type OcaItemInput } from '@/lib/oca-validaciones'
+import { validarItemsSegunTipo, MODALIDADES_FACTURACION, type OcaItemInput, type ModalidadFacturacion } from '@/lib/oca-validaciones'
 
 export type TipoEnmienda =
   | 'incremento_presupuesto'
@@ -12,9 +12,6 @@ export const TIPOS_ENMIENDA: TipoEnmienda[] = [
   'modificacion_precios',
   'cambio_modalidad_facturacion',
 ]
-
-export type ModalidadFacturacion = 'mensual_consolidada' | 'por_release'
-const MODALIDADES_FACTURACION: ModalidadFacturacion[] = ['mensual_consolidada', 'por_release']
 
 // Spec: HU-020 RN-04 — incremento de presupuesto permitido desde vigente/agotada
 const ESTADOS_PARA_INCREMENTO: string[] = ['vigente', 'agotada']

@@ -53,6 +53,9 @@ export async function POST(req: NextRequest) {
         fecha_fin: body.fecha_fin,
         presupuesto_total: body.presupuesto_total,
         referencia_contractual: body.referencia_contractual,
+        // Spec: HU-022 CA-01 — opcional, si se omite la columna aplica su
+        // default 'por_release' (NOT NULL DEFAULT en la migración)
+        ...(body.modalidad_facturacion ? { modalidad_facturacion: body.modalidad_facturacion } : {}),
         creado_por_id: user.id,
       })
       .select('id, numero_oca, estado')

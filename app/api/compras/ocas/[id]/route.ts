@@ -105,6 +105,9 @@ export async function PUT(
       fecha_fin: body.fecha_fin,
       presupuesto_total: body.presupuesto_total,
       referencia_contractual: body.referencia_contractual,
+      // Spec: HU-022 CA-02 — editable mientras la OCA está en borrador, mismo
+      // patrón que el resto de la cabecera
+      ...(body.modalidad_facturacion ? { modalidad_facturacion: body.modalidad_facturacion } : {}),
       updated_at: new Date().toISOString(),
     }).eq('id', id)
 
