@@ -7726,3 +7726,72 @@ describe('GET /api/compras/ocas/[id]/releases/[releaseId]/pdf', () => {
     expect(res.headers.get('Content-Disposition')).toContain('OCA-2026-0001-R001.pdf')
   })
 })
+
+// ── HU-023 — Reportes de Ejecución de OCA ───────────────────────────────────
+
+function chainReportesOca(data: unknown) {
+  const chain: any = {}
+  const noop = jest.fn(() => chain)
+  chain.select = noop
+  chain.order = noop
+  chain.eq = noop
+  chain.gte = noop
+  chain.lte = noop
+  chain.in = noop
+  chain.single = jest.fn(() => Promise.resolve({ data: null, error: null }))
+  chain.then = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve)
+  return chain
+}
+
+function setupReportesMock(opts: { rol?: string | null } = {}) {
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'perfiles') {
+      const c = chainReportesOca([])
+      c.single = jest.fn(() => Promise.resolve({ data: opts.rol ? { rol: opts.rol } : null, error: null }))
+      return c
+    }
+    if (table === 'oca') return chainReportesOca([{ id: 'oca-1', numero_oca: 'OCA-2026-0001', proveedor_id: 'prov-1', tipo: 'precio_fijo', fecha_inicio: '2026-01-01', fecha_fin: '2026-12-31', presupuesto_total: 1000, estado: 'vigente' }])
+    if (table === 'oca_releases') return chainReportesOca([{ id: 'rel-1', numero_release: 'OCA-2026-0001-R001', oca_id: 'oca-1', area_id: 'area-1', solicitante_id: 'user-1', monto_total: 300, estado: 'aprobado', facturado: false, numero_factura: null, created_at: '2026-10-01' }])
+    if (table === 'oca_enmiendas') return chainReportesOca([{ id: 'enm-1', oca_id: 'oca-1', tipo: 'incremento_presupuesto', estado: 'aprobada', solicitado_por_id: 'user-1', solicitado_en: '2026-10-01', aprobado_por_id: 'user-2', aprobado_en: '2026-10-02', motivo_rechazo: null }])
+    if (table === 'proveedores') return chainReportesOca([{ id: 'prov-1', nombre: 'Proveedor X' }])
+    if (table === 'areas') return chainReportesOca([{ id: 'area-1', nombre: 'TI' }])
+    return chainReportesOca([])
+  })
+}
+
+describe.each([
+  ['GET /api/compras/ocas/reportes/estado/excel', '@/app/api/compras/ocas/reportes/estado/excel/route', 'http://localhost/api/compras/ocas/reportes/estado/excel', 'OCA_Reporte_Estado_'],
+  ['GET /api/compras/ocas/reportes/releases/excel', '@/app/api/compras/ocas/reportes/releases/excel/route', 'http://localhost/api/compras/ocas/reportes/releases/excel', 'OCA_Reporte_Releases_'],
+  ['GET /api/compras/ocas/reportes/consumo-centro-costo/excel', '@/app/api/compras/ocas/reportes/consumo-centro-costo/excel/route', 'http://localhost/api/compras/ocas/reportes/consumo-centro-costo/excel', 'OCA_Reporte_Consumo_Centro_Costo_'],
+  ['GET /api/compras/ocas/reportes/enmiendas/excel', '@/app/api/compras/ocas/reportes/enmiendas/excel/route', 'http://localhost/api/compras/ocas/reportes/enmiendas/excel', 'OCA_Reporte_Historico_Enmiendas_'],
+])('%s', (_nombre, modulo, url, prefijoArchivo) => {
+  const { GET } = require(modulo)
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest(url))
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'bodega', 'consulta', 'coordinador'])(
+    'devuelve 403 para rol %s (RN-03)',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupReportesMock({ rol })
+      const res = await GET(makeRequest(url))
+      expect(res.status).toBe(403)
+    }
+  )
+
+  it.each(['compras', 'admin', 'asistente_compras', 'gerencia'])(
+    'devuelve 200 con el .xlsx para rol %s (RN-03)',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupReportesMock({ rol })
+      const res = await GET(makeRequest(url))
+      expect(res.status).toBe(200)
+      expect(res.headers.get('Content-Type')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      expect(res.headers.get('Content-Disposition')).toMatch(new RegExp(`^attachment; filename="${prefijoArchivo}\\d{8}_\\d{4}\\.xlsx"$`))
+    }
+  )
+})
