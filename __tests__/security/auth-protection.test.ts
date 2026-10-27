@@ -392,8 +392,11 @@ describe('GET /api/compras/asistentes', () => {
     expect(res.status).toBe(200)
   })
 
-  // Spec: HU-010 CA-02, CA-03 — el listado incluye asistente_compras y compras (admin excluido)
-  it('filtra por rol asistente_compras y compras (no solo asistente_compras)', async () => {
+  // Spec: fix real — Claudia Sánchez (jefa de Compras) tiene rol admin en
+  // producción y no podía autoasignarse NPs porque admin quedaba excluido de
+  // esta lista (inconsistente con el resto del proyecto). El listado incluye
+  // asistente_compras, compras y admin.
+  it('filtra por rol asistente_compras, compras y admin', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     const chain = mockChainVacio()
     chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'admin' }, error: null }))
@@ -401,7 +404,7 @@ describe('GET /api/compras/asistentes', () => {
     mockFrom.mockReturnValue(chain)
     const res = await GET(makeRequest('http://localhost/api/compras/asistentes'))
     expect(res.status).toBe(200)
-    expect(chain.in).toHaveBeenCalledWith('rol', ['asistente_compras', 'compras'])
+    expect(chain.in).toHaveBeenCalledWith('rol', ['asistente_compras', 'compras', 'admin'])
   })
 })
 
@@ -561,7 +564,7 @@ describe('POST /api/compras/nps/[id]/asignar', () => {
   })
 
   // Spec: HU-010 CA-02, CA-03 — lookup de comprador amplía el filtro de rol
-  it('el lookup de comprador filtra por rol asistente_compras o compras (CA-03: compras se autoasigna)', async () => {
+  it('el lookup de comprador filtra por rol asistente_compras, compras o admin (CA-03: compras se autoasigna)', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     let singleCalls = 0
     const chain = mockChainVacio()
@@ -583,7 +586,33 @@ describe('POST /api/compras/nps/[id]/asignar', () => {
       { params: Promise.resolve({ id: 'np-123' }) }
     )
     expect(res.status).toBe(200)
-    expect(chain.in).toHaveBeenCalledWith('rol', ['asistente_compras', 'compras'])
+    expect(chain.in).toHaveBeenCalledWith('rol', ['asistente_compras', 'compras', 'admin'])
+  })
+
+  // Spec: fix real — un usuario con rol admin (ej. Claudia Sánchez, jefa de
+  // Compras en producción) ahora puede autoasignarse una NP, igual que compras.
+  it('un comprador con rol admin puede autoasignarse (fix real)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'admin', nombre: 'Claudia Sánchez', email: 'compras@arlift.com.ec' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({
+        data: { id: 'np-123', numero: 'NP-2026-0001', estado: 'aprobada', convertida: false, area: 'TI', asignado_a: null }, error: null,
+      })
+      return Promise.resolve({ data: { id: 'admin-1', nombre: 'Claudia Sánchez', email: 'compras@arlift.com.ec' }, error: null })
+    })
+    chain.update = jest.fn(() => chain)
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-123/asignar', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'asignar', asistente_id: 'admin-1' }),
+      }),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(200)
   })
 
   // Spec: HU-010 CA-04 — la Acción "Asignada" (orden 1) se marca automáticamente

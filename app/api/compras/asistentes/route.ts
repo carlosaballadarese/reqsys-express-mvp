@@ -16,12 +16,15 @@ export async function GET(_req: NextRequest) {
   if (!perfil || !['compras', 'admin'].includes(perfil.rol))
     return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
 
-  // Spec: HU-010 CA-02, CA-03 — comprador puede ser asistente_compras o compras
-  // (incluido el propio Coordinador). admin queda excluido por no estar en la lista.
+  // Spec: HU-010 CA-02, CA-03 — comprador puede ser asistente_compras, compras
+  // o admin (fix real: Claudia Sánchez, jefa de Compras, tiene rol admin en
+  // producción y no podía autoasignarse NPs porque admin quedaba excluido de
+  // esta lista — inconsistente con el resto del proyecto, donde admin nunca
+  // queda excluido de algo que compras puede hacer).
   const { data, error } = await adminClient()
     .from('perfiles')
     .select('id, nombre, email')
-    .in('rol', ['asistente_compras', 'compras'])
+    .in('rol', ['asistente_compras', 'compras', 'admin'])
     .eq('activo', true)
     .order('nombre')
 

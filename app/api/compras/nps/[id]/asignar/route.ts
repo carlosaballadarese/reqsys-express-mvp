@@ -59,14 +59,15 @@ export async function POST(
     return NextResponse.json({ error: 'La NP no tiene comprador asignado' }, { status: 400 })
 
   // Para asignar/reasignar: verificar que el asistente_id existe y tiene el rol correcto
-  // Spec: HU-010 CA-02, CA-03 — comprador puede ser asistente_compras o compras
+  // Spec: HU-010 CA-02, CA-03 — comprador puede ser asistente_compras, compras
+  // o admin (fix real: ver app/api/compras/asistentes/route.ts)
   let asistente: { id: string; nombre: string; email: string } | null = null
   if (accion !== 'tomar_control') {
     const { data: ast } = await adminClient()
       .from('perfiles')
       .select('id, nombre, email')
       .eq('id', asistente_id)
-      .in('rol', ['asistente_compras', 'compras'])
+      .in('rol', ['asistente_compras', 'compras', 'admin'])
       .eq('activo', true)
       .single()
 

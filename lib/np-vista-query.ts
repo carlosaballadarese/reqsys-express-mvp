@@ -69,10 +69,12 @@ export async function obtenerCatalogosVista(): Promise<{
   compradoresDisponibles: { id: string; nombre: string }[]
   accionesCatalogo: AccionCatalogo[]
 }> {
+  // Spec: fix real — admin incluido junto a asistente_compras/compras (ver
+  // app/api/compras/asistentes/route.ts para el detalle del hallazgo).
   const [{ data: catalogoRaw }, { data: compradoresRaw }] = await Promise.all([
     adminClient().from('acciones_gestion').select('id, orden, descripcion').order('orden'),
     adminClient().from('perfiles').select('id, nombre')
-      .in('rol', ['asistente_compras', 'compras']).eq('activo', true).order('nombre'),
+      .in('rol', ['asistente_compras', 'compras', 'admin']).eq('activo', true).order('nombre'),
   ])
   return {
     accionesCatalogo: catalogoRaw ?? [],
