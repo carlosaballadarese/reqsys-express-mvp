@@ -174,7 +174,7 @@ export default function DashboardOcaPage() {
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm text-slate-600">OCAs con Alertas Activas</CardTitle>
                   <Link href="/compras/ocas/releases-pendientes" className="text-xs text-teal-700 hover:underline">
-                    {resumen.kpis.releases_pendientes_con_alerta} release(s) pendiente(s) &gt; 24h →
+                    {`${resumen.kpis.releases_pendientes_con_alerta} release(s) pendiente(s) > 24h →`}
                   </Link>
                 </div>
               </CardHeader>
