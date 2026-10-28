@@ -93,6 +93,8 @@ const NAV: NavGroup[] = [
       // Spec: HU-023 RN-03 — mismos roles que Dashboard OCs, más restringido
       // que el resto del grupo "OCA" (reportes administrativo-financieros).
       { label: 'Reportes', href: '/compras/ocas/reportes', roles: ['compras', 'admin', 'asistente_compras', 'gerencia'] },
+      // Spec: HU-025 RN-06 — mismos roles que "Reportes"
+      { label: 'Dashboard', href: '/compras/ocas/dashboard', roles: ['compras', 'admin', 'asistente_compras', 'gerencia'] },
     ],
   },
   {
