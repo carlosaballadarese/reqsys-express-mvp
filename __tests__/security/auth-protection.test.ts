@@ -7889,3 +7889,41 @@ describe.each([
     }
   )
 })
+
+// ── HU-025 — Dashboard de OCA ────────────────────────────────────────────────
+
+describe('GET /api/compras/ocas/dashboard', () => {
+  const { GET } = require('@/app/api/compras/ocas/dashboard/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/dashboard'))
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'bodega', 'consulta', 'coordinador'])(
+    'devuelve 403 para rol %s (RN-01, mismos roles que los reportes de HU-023)',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupReportesMock({ rol })
+      const res = await GET(makeRequest('http://localhost/api/compras/ocas/dashboard'))
+      expect(res.status).toBe(403)
+    }
+  )
+
+  it.each(['compras', 'admin', 'asistente_compras', 'gerencia'])(
+    'devuelve 200 con el resumen para rol %s (RN-01: sin scope personal para asistente_compras)',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupReportesMock({ rol })
+      const res = await GET(makeRequest('http://localhost/api/compras/ocas/dashboard'))
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body).toHaveProperty('kpis')
+      expect(body).toHaveProperty('porEstado')
+      expect(body).toHaveProperty('porCentroCosto')
+      expect(body).toHaveProperty('porMes')
+      expect(body).toHaveProperty('ocasConAlerta')
+    }
+  )
+})
