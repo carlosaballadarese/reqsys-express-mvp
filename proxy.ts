@@ -124,6 +124,16 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL('/compras/ocas', req.url))
   }
 
+  // Spec: HU-025 RN-06 — Dashboard de OCA, mismos roles que Reportes de OCA
+  // y Dashboard OCs. Mismo motivo que el chequeo de arriba: sin esto calzaría
+  // con la excepción genérica esDetalleOca de solicitante/coordinador.
+  if (
+    (pathname === '/compras/ocas/dashboard' || pathname.startsWith('/compras/ocas/dashboard/')) &&
+    !DASHBOARD_OCS_ROLES.includes(rol)
+  ) {
+    return NextResponse.redirect(new URL('/compras/ocas', req.url))
+  }
+
   // Admin only
   if (requiresAdmin(pathname) && rol !== 'admin') {
     return NextResponse.redirect(new URL('/compras/dashboard', req.url))
