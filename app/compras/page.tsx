@@ -42,6 +42,9 @@ const ESTADO_BADGE: Record<string, string> = {
   oc_generada:      'bg-indigo-100 text-indigo-800',
   oc_en_aprobacion: 'bg-purple-100 text-purple-800',
   oc_aprobada:      'bg-teal-100 text-teal-800',
+  // Spec: HU-019 — cobertura vía OCA (100% u mixta con OC)
+  oca_generada:     'bg-fuchsia-100 text-fuchsia-800',
+  oca_oc_generada:  'bg-pink-100 text-pink-800',
   completada:       'bg-teal-100 text-teal-800',
   cancelada:        'bg-gray-100 text-gray-600',
 }
@@ -59,6 +62,9 @@ const ESTADO_LABEL: Record<string, string> = {
   oc_generada:      'OC generada',
   oc_en_aprobacion: 'OC en aprobación',
   oc_aprobada:      'OC aprobada',
+  // Spec: HU-019 CA-06/CA-09 — 100% OCA / mezcla OC+OCA
+  oca_generada:     'OCA generada',
+  oca_oc_generada:  'OC + OCA generadas',
   completada:       'Completada',
   cancelada:        'Cancelada',
 }
@@ -78,7 +84,7 @@ const PRIORIDAD_BADGE: Record<string, string> = {
 const ESTADOS = [
   'todos', 'borrador', 'pendiente', 'aprobada', 'rechazada', 'devuelta',
   'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada',
-  'cancelada',
+  'oca_generada', 'oca_oc_generada', 'cancelada',
 ]
 
 export default function ComprasPage() {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -237,6 +238,7 @@ function ModalGenerarOC({ lineas, onClose, onGenerado }: {
 // ─── Página ──────────────────────────────────────────────────────────────────
 
 export default function LineasPendientesPage() {
+  const router = useRouter()
   const [perfil, setPerfil]         = useState<Perfil | null>(null)
   const [rows, setRows]             = useState<LineaPendiente[]>([])
   const [compradores, setCompradores] = useState<Comprador[]>([])
@@ -458,9 +460,24 @@ export default function LineasPendientesPage() {
                     : 'Esta NP está asignada a otro comprador'} — no puedes generar su OC
                 </span>
               ) : (
-                <Button onClick={() => setModalAbierto(true)} className="h-8 btn-primary text-xs">
-                  {esConsolidacion ? 'Consolidar en OC' : 'Generar OC'}
-                </Button>
+                <div className="flex gap-2">
+                  <Button onClick={() => setModalAbierto(true)} className="h-8 btn-primary text-xs">
+                    {esConsolidacion ? 'Consolidar en OC' : 'Generar OC'}
+                  </Button>
+                  {/* Spec: HU-019 CA-01 — solo con líneas de UNA sola NP seleccionada */}
+                  {!esConsolidacion && (
+                    <Button
+                      variant="outline"
+                      className="h-8 text-xs"
+                      onClick={() => {
+                        const ids = [...seleccion].join(',')
+                        router.push(`/compras/ocas/nueva?desde_items=${encodeURIComponent(ids)}`)
+                      }}
+                    >
+                      Crear OCA desde esta NP
+                    </Button>
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>

@@ -5,6 +5,7 @@ import {
   clasificarBadgeSLA,
   accionAgregadaDeFila,
   ocVivaDeLinea,
+  ocaVivaDeLinea,
   aplicarMaskingPrecio,
   calcularSlaDiasSigno,
 } from '@/lib/np-vista'
@@ -65,6 +66,20 @@ describe('clasificarBadgeSLA (HU-011 CA-07)', () => {
   it('"Pausado" también aplica a completada (cierre administrativo, HU-006)', () => {
     expect(clasificarBadgeSLA({
       estado: 'completada', slaIniciadoEn: '2026-07-13T00:00:00Z', slaPausadoDesde: '2026-07-14T00:00:00Z',
+      transcurridoMs: null, plazoMs: null,
+    })).toBe('pausado')
+  })
+
+  it('"Pausado" también aplica a oca_generada (HU-019 — sin esto caía en "No activo")', () => {
+    expect(clasificarBadgeSLA({
+      estado: 'oca_generada', slaIniciadoEn: '2026-07-13T00:00:00Z', slaPausadoDesde: '2026-07-14T00:00:00Z',
+      transcurridoMs: null, plazoMs: null,
+    })).toBe('pausado')
+  })
+
+  it('"Pausado" también aplica a oca_oc_generada (HU-019)', () => {
+    expect(clasificarBadgeSLA({
+      estado: 'oca_oc_generada', slaIniciadoEn: '2026-07-13T00:00:00Z', slaPausadoDesde: '2026-07-14T00:00:00Z',
       transcurridoMs: null, plazoMs: null,
     })).toBe('pausado')
   })
@@ -160,6 +175,43 @@ describe('ocVivaDeLinea (HU-011 CA-03, RN-02)', () => {
       ]],
     ])
     expect(ocVivaDeLinea('item-1', mapa)).toEqual({ id: 'oc-2', numero_oc: 'OC-2026-0002' })
+  })
+})
+
+describe('ocaVivaDeLinea (HU-019 CA-05, RN-01)', () => {
+  it('devuelve {id, numero_oca} si hay una OCA viva para la línea', () => {
+    const mapa = new Map([
+      ['item-1', [{ id: 'oca-1', numero_oca: 'OCA-2026-0001', estado: 'vigente' }]],
+    ])
+    expect(ocaVivaDeLinea('item-1', mapa)).toEqual({ id: 'oca-1', numero_oca: 'OCA-2026-0001' })
+  })
+
+  it('devuelve null si la única OCA de la línea está cerrada (RN-01)', () => {
+    const mapa = new Map([
+      ['item-1', [{ id: 'oca-1', numero_oca: 'OCA-2026-0001', estado: 'cerrada' }]],
+    ])
+    expect(ocaVivaDeLinea('item-1', mapa)).toBeNull()
+  })
+
+  it('devuelve null si la línea no tiene ninguna OCA', () => {
+    expect(ocaVivaDeLinea('item-sin-oca', new Map())).toBeNull()
+  })
+
+  it('cuenta como viva una OCA en borrador (todavía no vigente)', () => {
+    const mapa = new Map([
+      ['item-1', [{ id: 'oca-1', numero_oca: 'OCA-2026-0001', estado: 'borrador' }]],
+    ])
+    expect(ocaVivaDeLinea('item-1', mapa)).toEqual({ id: 'oca-1', numero_oca: 'OCA-2026-0001' })
+  })
+
+  it('encuentra la OCA viva entre varias (una cerrada + una vigente)', () => {
+    const mapa = new Map([
+      ['item-1', [
+        { id: 'oca-1', numero_oca: 'OCA-2026-0001', estado: 'cerrada' },
+        { id: 'oca-2', numero_oca: 'OCA-2026-0002', estado: 'vigente' },
+      ]],
+    ])
+    expect(ocaVivaDeLinea('item-1', mapa)).toEqual({ id: 'oca-2', numero_oca: 'OCA-2026-0002' })
   })
 })
 

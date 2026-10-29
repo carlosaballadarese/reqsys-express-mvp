@@ -1,5 +1,6 @@
 import { adminClient } from '@/lib/supabase/clients'
 import { registrarAuditoria } from '@/lib/auditoria'
+import { ESTADOS_OCA_VIVAS } from '@/lib/oca-estado'
 
 // HU-003: Trazabilidad ítem OC → ítem NP
 export type ErrorEnlace = {
@@ -67,6 +68,8 @@ export type ItemCobertura = {
   cantidad_comprometida: number
   saldo:                 number
   porcentaje:            number
+  // Spec: HU-019 CA-08 — OCA viva que cubre esta línea (null si no aplica)
+  oca:                   { id: string; numero_oca: string } | null
 }
 
 export type CoberturaResult = {
@@ -142,9 +145,37 @@ export async function calcularCoberturaNP(
     }
   }
 
+  // Spec: HU-019 CA-08, RN-01 — cobertura vía OCA. oca_items no tiene columna
+  // "cantidad" (HU-018 CA-03, se define en el release futuro): una línea
+  // vinculada a una OCA viva se trata como 100% comprometida para sí misma
+  // (mismo criterio ya aplicado en dashboard/cobertura/route.ts). RN-02 de
+  // HU-019 garantiza por construcción que una línea no esté cubierta por
+  // ambos canales a la vez.
+  const ocaPorItem: Record<string, { id: string; numero_oca: string }> = {}
+  const { data: ocaItemsTodos } = await adminClient()
+    .from('oca_items')
+    .select('item_np_id, oca_id')
+    .in('item_np_id', npItemIds)
+    .not('item_np_id', 'is', null)
+
+  const ocaIdsCandidatos = [...new Set((ocaItemsTodos ?? []).map(it => it.oca_id))]
+  if (ocaIdsCandidatos.length > 0) {
+    const { data: ocasData } = await adminClient()
+      .from('oca').select('id, numero_oca, estado').in('id', ocaIdsCandidatos)
+
+    const ocaPorId = new Map((ocasData ?? []).map(oca => [oca.id, oca]))
+    for (const it of (ocaItemsTodos ?? [])) {
+      if (!it.item_np_id) continue
+      const oca = ocaPorId.get(it.oca_id)
+      if (!oca || !(ESTADOS_OCA_VIVAS as string[]).includes(oca.estado)) continue
+      ocaPorItem[it.item_np_id] = { id: oca.id, numero_oca: oca.numero_oca }
+    }
+  }
+
   const por_item: ItemCobertura[] = npItems.map((item: any) => {
-    const comprometido = comprometidoMap[item.id] ?? 0
+    const cubiertaPorOca = ocaPorItem[item.id] ?? null
     const solicitado   = Number(item.cantidad)
+    const comprometido = cubiertaPorOca ? solicitado : (comprometidoMap[item.id] ?? 0)
     const saldo        = Math.max(0, solicitado - comprometido)
     const porcentaje   = solicitado > 0 ? (comprometido / solicitado) * 100 : 0
     return {
@@ -155,6 +186,7 @@ export async function calcularCoberturaNP(
       cantidad_comprometida: comprometido,
       saldo,
       porcentaje,
+      oca:                   cubiertaPorOca,
     }
   })
 

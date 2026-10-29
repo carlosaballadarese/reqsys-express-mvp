@@ -1,9 +1,11 @@
 import { adminClient } from '@/lib/supabase/clients'
+import { ESTADOS_OCA_VIVAS } from '@/lib/oca-estado'
 
 export type Estado =
   | 'borrador' | 'pendiente' | 'aprobada' | 'rechazada' | 'devuelta'
   | 'en_gestion' | 'oc_directa' | 'oc_generada' | 'oc_en_aprobacion'
   | 'oc_aprobada' | 'completada' | 'cancelada'
+  | 'oca_generada' | 'oca_oc_generada'
 
 // Spec: HU-009 RN-01 — solo estos valores se recalculan automáticamente.
 // borrador/pendiente/rechazada/devuelta/completada/cancelada son transiciones
@@ -11,8 +13,11 @@ export type Estado =
 // Spec: HU-017 — exportada para que reabrir/route.ts decida si, al reabrir una NP
 // cancelada, el Estado previo debe recalcularse vía actualizarEstadoNP() (autogestionado)
 // o restaurarse directo (devuelta/rechazada, que este motor nunca toca).
+// Spec: HU-019 — oca_generada/oca_oc_generada se agregan para que el cierre de
+// una OCA (que libera una línea) pueda hacer retroceder la NP automáticamente.
 export const ESTADOS_AUTOGESTIONADOS: Estado[] =
-  ['aprobada', 'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada']
+  ['aprobada', 'en_gestion', 'oc_directa', 'oc_generada', 'oc_en_aprobacion', 'oc_aprobada',
+   'oca_generada', 'oca_oc_generada']
 
 // Spec: HU-009 RN-02 — el SLA cuenta únicamente mientras el Estado está en este conjunto.
 const ESTADOS_ACTIVOS_SLA: Estado[] = ['en_gestion', 'oc_directa']
@@ -149,15 +154,22 @@ async function calcularEstadoDestino(np: NPResumen): Promise<Estado> {
     .select('item_np_id, registro_compras_id')
     .in('item_np_id', itemIds)
 
-  if (!itemsOc || itemsOc.length === 0) {
+  // Spec: HU-019 CA-06 — cobertura vía OCA, consultada junto a la de OC para
+  // poder distinguir los 3 casos (100% OC / 100% OCA / mixto) más abajo.
+  const { data: ocaItems } = await adminClient()
+    .from('oca_items')
+    .select('item_np_id, oca_id')
+    .in('item_np_id', itemIds)
+    .not('item_np_id', 'is', null)
+
+  if ((!itemsOc || itemsOc.length === 0) && (!ocaItems || ocaItems.length === 0)) {
     return np.prioridad === 'excepcional' ? 'oc_directa' : 'en_gestion'
   }
 
-  const ocIds = [...new Set(itemsOc.map(i => i.registro_compras_id))]
-  const { data: ocs } = await adminClient()
-    .from('registro_compras')
-    .select('id, estado_oc')
-    .in('id', ocIds)
+  const ocIds = [...new Set((itemsOc ?? []).map(i => i.registro_compras_id))]
+  const { data: ocs } = ocIds.length > 0
+    ? await adminClient().from('registro_compras').select('id, estado_oc').in('id', ocIds)
+    : { data: [] as { id: string; estado_oc: string }[] }
 
   const estadoOcPorId: Record<string, string> = {}
   for (const oc of ocs ?? []) estadoOcPorId[oc.id] = oc.estado_oc
@@ -165,7 +177,7 @@ async function calcularEstadoDestino(np: NPResumen): Promise<Estado> {
   // Spec: HU-009 RN-04 — una OC rechazada/cancelada no cuenta; si era la única
   // OC de una línea, esa línea vuelve a considerarse sin OC.
   const coberturaViva: Record<string, string[]> = {}
-  for (const io of itemsOc) {
+  for (const io of itemsOc ?? []) {
     const estadoOc = estadoOcPorId[io.registro_compras_id]
     if (estadoOc && ESTADOS_OC_VIVOS.includes(estadoOc)) {
       coberturaViva[io.item_np_id] = coberturaViva[io.item_np_id] ?? []
@@ -173,16 +185,47 @@ async function calcularEstadoDestino(np: NPResumen): Promise<Estado> {
     }
   }
 
-  const todasLasLineasCubiertas = itemIds.every(id => (coberturaViva[id]?.length ?? 0) > 0)
+  // Spec: HU-019 RN-01 — una OCA cerrada no cuenta; si era la única cobertura
+  // de la línea, esa línea vuelve a considerarse sin cobertura.
+  const ocaIds = [...new Set((ocaItems ?? []).map(i => i.oca_id))]
+  const { data: ocas } = ocaIds.length > 0
+    ? await adminClient().from('oca').select('id, estado').in('id', ocaIds)
+    : { data: [] as { id: string; estado: string }[] }
+
+  const estadoOcaPorId: Record<string, string> = {}
+  for (const oca of ocas ?? []) estadoOcaPorId[oca.id] = oca.estado
+
+  const coberturaOcaViva: Record<string, string[]> = {}
+  for (const io of ocaItems ?? []) {
+    if (!io.item_np_id) continue
+    const estadoOca = estadoOcaPorId[io.oca_id]
+    if (estadoOca && (ESTADOS_OCA_VIVAS as string[]).includes(estadoOca)) {
+      coberturaOcaViva[io.item_np_id] = coberturaOcaViva[io.item_np_id] ?? []
+      coberturaOcaViva[io.item_np_id].push(estadoOca)
+    }
+  }
+
+  const todasLasLineasCubiertas = itemIds.every(
+    id => (coberturaViva[id]?.length ?? 0) > 0 || (coberturaOcaViva[id]?.length ?? 0) > 0
+  )
   if (!todasLasLineasCubiertas) {
     return np.prioridad === 'excepcional' ? 'oc_directa' : 'en_gestion'
   }
 
-  // Spec: HU-009 CA-03 — toma el estado_oc menos avanzado entre todas las OCs vivas
-  const todosLosEstadosVivos = Object.values(coberturaViva).flat()
-  const ordenMinimo = Math.min(...todosLosEstadosVivos.map(e => ORDEN_AVANCE_OC[e]))
+  // Spec: HU-019 CA-06 — determina, por línea, cuál de los 2 canales la cubre
+  // (RN-02 garantiza por construcción que no sean ambos a la vez).
+  const lineasPorOc = itemIds.filter(id => (coberturaViva[id]?.length ?? 0) > 0)
+  const lineasPorOca = itemIds.filter(id => (coberturaOcaViva[id]?.length ?? 0) > 0)
 
-  if (ordenMinimo === 0) return 'oc_generada'
-  if (ordenMinimo === 1) return 'oc_en_aprobacion'
-  return 'oc_aprobada'
+  if (lineasPorOca.length === 0) {
+    // Spec: HU-009 CA-03 — toma el estado_oc menos avanzado entre todas las OCs vivas
+    const todosLosEstadosVivos = Object.values(coberturaViva).flat()
+    const ordenMinimo = Math.min(...todosLosEstadosVivos.map(e => ORDEN_AVANCE_OC[e]))
+    if (ordenMinimo === 0) return 'oc_generada'
+    if (ordenMinimo === 1) return 'oc_en_aprobacion'
+    return 'oc_aprobada'
+  }
+
+  if (lineasPorOc.length === 0) return 'oca_generada'
+  return 'oca_oc_generada'
 }

@@ -20,9 +20,11 @@ import { calcularCoberturaNP } from '@/lib/np-cobertura'
 type ItemNP = { id: string; linea: number; descripcion: string; cantidad: number }
 type ItemOC = { item_np_id: string | null; cantidad: number; registro_compras_id: string }
 type OC = { id: string; estado_oc: string }
+type OcaItem = { item_np_id: string | null; oca_id: string }
+type Oca = { id: string; numero_oca: string; estado: string }
 
-function setupMock(opts: { itemsNp: ItemNP[]; itemsOc?: ItemOC[]; ocs?: OC[] }) {
-  const { itemsNp, itemsOc = [], ocs = [] } = opts
+function setupMock(opts: { itemsNp: ItemNP[]; itemsOc?: ItemOC[]; ocs?: OC[]; ocaItems?: OcaItem[]; ocas?: Oca[] }) {
+  const { itemsNp, itemsOc = [], ocs = [], ocaItems = [], ocas = [] } = opts
 
   mockFrom.mockImplementation((table: string) => {
     if (table === 'items_np') {
@@ -41,6 +43,13 @@ function setupMock(opts: { itemsNp: ItemNP[]; itemsOc?: ItemOC[]; ocs?: OC[] }) 
           }),
         }),
       }
+    }
+    // Spec: HU-019 CA-08 — cobertura vía OCA
+    if (table === 'oca_items') {
+      return { select: () => ({ in: () => ({ not: () => Promise.resolve({ data: ocaItems, error: null }) }) }) }
+    }
+    if (table === 'oca') {
+      return { select: () => ({ in: () => Promise.resolve({ data: ocas, error: null }) }) }
     }
     throw new Error(`tabla no mockeada: ${table}`)
   })
@@ -102,6 +111,40 @@ describe('calcularCoberturaNP — HU-016 CA-10 (OC consolidada de varias NPs)', 
       ocs: [{ id: 'oc-editando', estado_oc: 'en_proceso' }],
     })
     const cobertura = await calcularCoberturaNP('np-a', 'oc-editando')
+    expect(cobertura.por_item[0].cantidad_comprometida).toBe(0)
+  })
+})
+
+describe('calcularCoberturaNP — HU-019 CA-08, RN-01 (cobertura vía OCA)', () => {
+  it('una línea vinculada a una OCA viva cuenta 100% de su propia cantidad y expone el enlace', async () => {
+    setupMock({
+      itemsNp: [{ id: 'item-a', linea: 1, descripcion: 'Tornillos', cantidad: 7 }],
+      ocaItems: [{ item_np_id: 'item-a', oca_id: 'oca-1' }],
+      ocas: [{ id: 'oca-1', numero_oca: 'OCA-2026-0001', estado: 'vigente' }],
+    })
+    const cobertura = await calcularCoberturaNP('np-a')
+    expect(cobertura.por_item[0].cantidad_comprometida).toBe(7)
+    expect(cobertura.por_item[0].saldo).toBe(0)
+    expect(cobertura.por_item[0].oca).toEqual({ id: 'oca-1', numero_oca: 'OCA-2026-0001' })
+    expect(cobertura.np_cubierta).toBe(true)
+  })
+
+  it('una línea cuya única OCA está cerrada NO cuenta como comprometida (RN-01)', async () => {
+    setupMock({
+      itemsNp: [{ id: 'item-a', linea: 1, descripcion: 'Tornillos', cantidad: 7 }],
+      ocaItems: [{ item_np_id: 'item-a', oca_id: 'oca-1' }],
+      ocas: [{ id: 'oca-1', numero_oca: 'OCA-2026-0001', estado: 'cerrada' }],
+    })
+    const cobertura = await calcularCoberturaNP('np-a')
+    expect(cobertura.por_item[0].cantidad_comprometida).toBe(0)
+    expect(cobertura.por_item[0].oca).toBeNull()
+    expect(cobertura.np_cubierta).toBe(false)
+  })
+
+  it('línea sin ninguna cobertura (ni OC ni OCA) queda con oca: null', async () => {
+    setupMock({ itemsNp: [{ id: 'item-a', linea: 1, descripcion: 'Tornillos', cantidad: 7 }] })
+    const cobertura = await calcularCoberturaNP('np-a')
+    expect(cobertura.por_item[0].oca).toBeNull()
     expect(cobertura.por_item[0].cantidad_comprometida).toBe(0)
   })
 })

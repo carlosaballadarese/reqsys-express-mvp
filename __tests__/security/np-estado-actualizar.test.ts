@@ -30,10 +30,12 @@ function setupMock(opts: {
   itemsNp?: { id: string }[]
   itemsOc?: { item_np_id: string; registro_compras_id: string }[]
   ocs?: { id: string; estado_oc: string }[]
+  ocaItems?: { item_np_id: string; oca_id: string }[]
+  ocas?: { id: string; estado: string }[]
   updateSpy?: jest.Mock
   insertSpy?: jest.Mock
 }) {
-  const { np, itemsNp = [], itemsOc = [], ocs = [], updateSpy, insertSpy } = opts
+  const { np, itemsNp = [], itemsOc = [], ocs = [], ocaItems = [], ocas = [], updateSpy, insertSpy } = opts
 
   mockFrom.mockImplementation((table: string) => {
     if (table === 'notas_pedido') {
@@ -53,6 +55,12 @@ function setupMock(opts: {
     }
     if (table === 'registro_compras') {
       return { select: () => ({ in: () => Promise.resolve({ data: ocs, error: null }) }) }
+    }
+    if (table === 'oca_items') {
+      return { select: () => ({ in: () => ({ not: () => Promise.resolve({ data: ocaItems, error: null }) }) }) }
+    }
+    if (table === 'oca') {
+      return { select: () => ({ in: () => Promise.resolve({ data: ocas, error: null }) }) }
     }
     if (table === 'historial_np') {
       return { insert: (payload: unknown) => { insertSpy?.(payload); return Promise.resolve({ data: {}, error: null }) } }
@@ -223,6 +231,65 @@ describe('actualizarEstadoNP — RN-04 (OC rechazada/cancelada no cuenta)', () =
     const payload = updateSpy.mock.calls[0][0]
     expect(payload.sla_pausado_desde).toBeNull()
     expect(payload.sla_pausado_acumulado_seg).toBeGreaterThanOrEqual(10)
+  })
+})
+
+describe('actualizarEstadoNP — HU-019 CA-06 (cobertura vía OCA)', () => {
+  it('todas las líneas cubiertas por OCA (ninguna por OC) → oca_generada', async () => {
+    const updateSpy = jest.fn()
+    setupMock({
+      np: { ...npBase, estado: 'en_gestion', asignado_a: 'comprador-1', prioridad: 'media' },
+      itemsNp: [{ id: 'item-1' }],
+      ocaItems: [{ item_np_id: 'item-1', oca_id: 'oca-1' }],
+      ocas: [{ id: 'oca-1', estado: 'vigente' }],
+      updateSpy,
+    })
+    await actualizarEstadoNP('np-1')
+    expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ estado: 'oca_generada' }))
+  })
+
+  it('cobertura mixta (una línea por OC, otra por OCA, ambas vivas) → oca_oc_generada', async () => {
+    const updateSpy = jest.fn()
+    setupMock({
+      np: { ...npBase, estado: 'en_gestion', asignado_a: 'comprador-1', prioridad: 'media' },
+      itemsNp: [{ id: 'item-1' }, { id: 'item-2' }],
+      itemsOc: [{ item_np_id: 'item-1', registro_compras_id: 'oc-1' }],
+      ocs: [{ id: 'oc-1', estado_oc: 'aprobada' }],
+      ocaItems: [{ item_np_id: 'item-2', oca_id: 'oca-1' }],
+      ocas: [{ id: 'oca-1', estado: 'vigente' }],
+      updateSpy,
+    })
+    await actualizarEstadoNP('np-1')
+    expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ estado: 'oca_oc_generada' }))
+  })
+
+  it('RN-01: una OCA cerrada no cuenta — la línea vuelve a quedar sin cobertura (en_gestion)', async () => {
+    const updateSpy = jest.fn()
+    setupMock({
+      np: { ...npBase, estado: 'oca_generada', asignado_a: 'comprador-1', prioridad: 'media' },
+      itemsNp: [{ id: 'item-1' }],
+      ocaItems: [{ item_np_id: 'item-1', oca_id: 'oca-1' }],
+      ocas: [{ id: 'oca-1', estado: 'cerrada' }], // ya no está en ESTADOS_OCA_VIVAS
+      updateSpy,
+    })
+    await actualizarEstadoNP('np-1')
+    expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ estado: 'en_gestion' }))
+  })
+
+  it('liberación parcial: si la OCA de una línea se cierra pero la otra sigue cubierta por OC → oc_generada (ya no mixto)', async () => {
+    const updateSpy = jest.fn()
+    setupMock({
+      np: { ...npBase, estado: 'oca_oc_generada', asignado_a: 'comprador-1', prioridad: 'media' },
+      itemsNp: [{ id: 'item-1' }, { id: 'item-2' }],
+      itemsOc: [{ item_np_id: 'item-1', registro_compras_id: 'oc-1' }],
+      ocs: [{ id: 'oc-1', estado_oc: 'en_proceso' }],
+      ocaItems: [{ item_np_id: 'item-2', oca_id: 'oca-1' }],
+      ocas: [{ id: 'oca-1', estado: 'cerrada' }],
+      updateSpy,
+    })
+    await actualizarEstadoNP('np-1')
+    // item-2 queda sin cobertura (OCA cerrada) → no todas las líneas cubiertas → en_gestion
+    expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ estado: 'en_gestion' }))
   })
 })
 

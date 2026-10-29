@@ -1,11 +1,16 @@
 import { type Estado, ESTADOS_OC_VIVOS, calcularAccionAgregada } from '@/lib/np-estado'
+import { ESTADOS_OCA_VIVAS } from '@/lib/oca-estado'
 
 export type SlaBadge = 'no_activo' | 'pausado' | 'a_tiempo' | 'vencido'
 
 // Spec: HU-009 RN-02 — mismo criterio que actualizarEstadoNP()/calcularSLA().
 const ESTADOS_ACTIVOS_SLA: Estado[] = ['en_gestion', 'oc_directa']
 // Spec: HU-011 CA-07 — Estados en los que el badge puede leer "Pausado".
-const ESTADOS_PAUSABLES: Estado[] = ['oc_generada', 'oc_en_aprobacion', 'oc_aprobada', 'completada']
+// Spec: HU-019 — oca_generada/oca_oc_generada agregados; sin esto, una NP en
+// esos estados mostraba "No activo" en vez de "Pausado" (el SLA sí se pausa
+// vía actualizarEstadoNP(), pero este badge de solo-lectura no lo reflejaba).
+const ESTADOS_PAUSABLES: Estado[] =
+  ['oc_generada', 'oc_en_aprobacion', 'oc_aprobada', 'completada', 'oca_generada', 'oca_oc_generada']
 
 // Spec: HU-011 CA-07 — clasifica el badge de SLA a partir del Estado y los campos
 // ya resueltos (transcurridoMs/plazoMs se calculan antes con diasHabilesEntreSync
@@ -84,6 +89,20 @@ export function ocVivaDeLinea(
   const ocs = ocsPorItem.get(itemNpId) ?? []
   const viva = ocs.find(oc => ESTADOS_OC_VIVOS.includes(oc.estado_oc))
   return viva ? { id: viva.id, numero_oc: viva.numero_oc } : null
+}
+
+export type OcaDeLinea = { id: string; numero_oca: string }
+
+// Spec: HU-019 CA-05, RN-01 — espejo exacto de ocVivaDeLinea(), mismo contrato
+// (recibe el Map ya construido por el caller). Una OCA en estado `cerrada` no
+// cubre la línea a estos efectos (RN-01, mismo rol que rechazada/cancelada para OC).
+export function ocaVivaDeLinea(
+  itemNpId: string,
+  ocasPorItem: Map<string, { id: string; numero_oca: string; estado: string }[]>
+): OcaDeLinea | null {
+  const ocas = ocasPorItem.get(itemNpId) ?? []
+  const viva = ocas.find(oca => (ESTADOS_OCA_VIVAS as string[]).includes(oca.estado))
+  return viva ? { id: viva.id, numero_oca: viva.numero_oca } : null
 }
 
 // Spec: HU-011 CA-08 — envoltorio delgado sobre puedeVerPrecioNP para no repetir

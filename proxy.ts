@@ -112,6 +112,28 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL('/compras/dashboard', req.url))
   }
 
+  // Spec: HU-023 RN-03 — Reportes de OCA, mismos roles que Dashboard OCs
+  // (DASHBOARD_OCS_ROLES). Chequeo explícito porque de lo contrario calzaría
+  // con la excepción genérica esDetalleOca de solicitante/coordinador
+  // (2 segmentos tras /compras/ocas/) y bodega no tiene ningún bloqueo que
+  // lo frene — la página cargaría pero cada descarga fallaría con 403.
+  if (
+    (pathname === '/compras/ocas/reportes' || pathname.startsWith('/compras/ocas/reportes/')) &&
+    !DASHBOARD_OCS_ROLES.includes(rol)
+  ) {
+    return NextResponse.redirect(new URL('/compras/ocas', req.url))
+  }
+
+  // Spec: HU-025 RN-06 — Dashboard de OCA, mismos roles que Reportes de OCA
+  // y Dashboard OCs. Mismo motivo que el chequeo de arriba: sin esto calzaría
+  // con la excepción genérica esDetalleOca de solicitante/coordinador.
+  if (
+    (pathname === '/compras/ocas/dashboard' || pathname.startsWith('/compras/ocas/dashboard/')) &&
+    !DASHBOARD_OCS_ROLES.includes(rol)
+  ) {
+    return NextResponse.redirect(new URL('/compras/ocas', req.url))
+  }
+
   // Admin only
   if (requiresAdmin(pathname) && rol !== 'admin') {
     return NextResponse.redirect(new URL('/compras/dashboard', req.url))
@@ -126,7 +148,14 @@ export async function proxy(req: NextRequest) {
     // solicitante: solo sus NPs y dashboard
     if (rol === 'solicitante') {
       const permitidasSolicitante = ['/compras', '/compras/dashboard']
-      const permitida = permitidasSolicitante.includes(pathname) || /^\/compras\/[^/]+$/.test(pathname)
+      // Spec: HU-018 CA-12 — el listado de OCA (/compras/ocas, un solo segmento)
+      // ya calza con el patrón de abajo; el detalle (/compras/ocas/[id], dos
+      // segmentos) necesita esta excepción explícita, sin abrir también la
+      // creación (/compras/ocas/nueva — RN-01 restringe la creación a compras/admin).
+      const esDetalleOca = /^\/compras\/ocas\/[^/]+$/.test(pathname) && pathname !== '/compras/ocas/nueva'
+      const permitida = permitidasSolicitante.includes(pathname)
+        || /^\/compras\/[^/]+$/.test(pathname)
+        || esDetalleOca
       if (!permitida) {
         return NextResponse.redirect(new URL('/compras', req.url))
       }
@@ -165,7 +194,18 @@ export async function proxy(req: NextRequest) {
 
     // coordinador: solo lista de NPs y detalle de NP individual
     if (rol === 'coordinador') {
-      const permitida = pathname === '/compras' || /^\/compras\/[^/]+$/.test(pathname)
+      // Spec: HU-021 — hallazgo real al revisar la visibilidad de la bandeja
+      // de releases: los coordinadores de área reales (verificado contra
+      // datos reales de dev:local) tienen roles solicitante/coordinador/
+      // gerencia/admin, no un único rol de sistema — pero el allowlist de
+      // 'coordinador' de 1 solo segmento nunca permitió abrir el detalle de
+      // OCA (/compras/ocas/[id], 2 segmentos), donde vive la acción de
+      // aprobar Enmiendas (HU-020). Mismo patrón que la excepción ya
+      // existente para 'solicitante' — sin abrir /compras/ocas/nueva. Esto
+      // también habilita /compras/ocas/releases-pendientes (HU-021), que
+      // calza con el mismo patrón de 2 segmentos.
+      const esDetalleOca = /^\/compras\/ocas\/[^/]+$/.test(pathname) && pathname !== '/compras/ocas/nueva'
+      const permitida = pathname === '/compras' || /^\/compras\/[^/]+$/.test(pathname) || esDetalleOca
       if (!permitida) {
         return NextResponse.redirect(new URL('/compras', req.url))
       }
