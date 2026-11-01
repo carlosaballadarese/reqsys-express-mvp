@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { adminClient, anonClient } from '@/lib/supabase/clients'
+import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { transporter } from '@/lib/mailer'
 import { pausarSLAPorCierre } from '@/lib/np-estado'
@@ -129,7 +129,7 @@ export async function POST(
     // no ejecutó la cancelación (Solicitante si canceló Compras, coordinador de
     // Compras si canceló el propio Solicitante).
     try {
-      const { data: coordArea } = await anonClient()
+      const { data: coordArea } = await adminClient()
         .from('coordinadores_area')
         .select('nombre, email')
         .eq('area', np.area)
@@ -170,7 +170,7 @@ export async function POST(
           ].join('\n'),
         })
       } else if (!esCompras) {
-        const { data: compras } = await anonClient()
+        const { data: compras } = await adminClient()
           .from('coordinadores_area')
           .select('nombre, email')
           .eq('area', 'Compras')

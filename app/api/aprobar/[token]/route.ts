@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { transporter } from '@/lib/mailer'
-import { adminClient, anonClient } from '@/lib/supabase/clients'
+import { adminClient } from '@/lib/supabase/clients'
 import { escapeHtml } from '@/lib/utils'
 
 
@@ -18,7 +18,7 @@ export async function POST(
     }
 
     // Buscar la NP por token
-    const { data: np, error } = await anonClient()
+    const { data: np, error } = await adminClient()
       .from('notas_pedido')
       .select('*')
       .eq('token_aprobacion', token)
@@ -42,12 +42,12 @@ export async function POST(
     // "natural" del área en vez de a sí mismo. Fallback al área de texto legado
     // para NPs creadas antes de esta SC (sin backfill posible).
     const { data: coordinadorArea } = np.aprobador_asignado_id
-      ? await anonClient().from('coordinadores_area').select('nombre, email, area').eq('id', np.aprobador_asignado_id).single()
-      : await anonClient().from('coordinadores_area').select('nombre, email, area').eq('area', np.area).single()
+      ? await adminClient().from('coordinadores_area').select('nombre, email, area').eq('id', np.aprobador_asignado_id).single()
+      : await adminClient().from('coordinadores_area').select('nombre, email, area').eq('area', np.area).single()
 
     // Si fue aprobada, preparar y enviar email a Compras
     if (esAprobada) {
-      const { data: compras } = await anonClient().from('coordinadores_area').select('nombre, email').eq('area', 'Compras').single()
+      const { data: compras } = await adminClient().from('coordinadores_area').select('nombre, email').eq('area', 'Compras').single()
       const aprobador = coordinadorArea
 
       if (compras) {
@@ -96,7 +96,7 @@ export async function POST(
     }
 
     // Actualizar estado en BD
-    const { error: errorUpdate } = await anonClient()
+    const { error: errorUpdate } = await adminClient()
       .from('notas_pedido')
       .update({
         estado: nuevoEstado,

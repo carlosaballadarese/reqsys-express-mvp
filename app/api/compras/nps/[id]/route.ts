@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { adminClient, anonClient } from '@/lib/supabase/clients'
+import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { transporter } from '@/lib/mailer'
@@ -382,7 +382,7 @@ export async function PATCH(
     // 3. Notificaciones por Email — texto plano sin URLs para evitar filtros antivirus
     try {
       if (esAprobada) {
-        const { data: compras } = await anonClient().from('coordinadores_area').select('nombre, email').eq('area', 'Compras').single()
+        const { data: compras } = await adminClient().from('coordinadores_area').select('nombre, email').eq('area', 'Compras').single()
         if (compras) {
           await transporter.sendMail({
             from: 'One ARLIFT <one.arlift@arlift.com.ec>',

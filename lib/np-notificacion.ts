@@ -1,4 +1,4 @@
-import { anonClient, adminClient } from '@/lib/supabase/clients'
+import { adminClient } from '@/lib/supabase/clients'
 import { transporter } from '@/lib/mailer'
 import { escapeHtml } from '@/lib/utils'
 
@@ -42,7 +42,7 @@ export async function enviarNPACoordinador(
     return { ok: false, error: 'No se encontró coordinador para el área seleccionada' }
   }
 
-  const { data: coordinador, error: errorCoord } = await anonClient()
+  const { data: coordinador, error: errorCoord } = await adminClient()
     .from('coordinadores_area')
     .select('nombre, email')
     .eq('id', aprobadorAsignadoId)

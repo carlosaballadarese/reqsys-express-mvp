@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { anonClient } from '@/lib/supabase/clients'
+import { adminClient } from '@/lib/supabase/clients'
 
 
 export async function GET(_req: NextRequest) {
   const supabase = await createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
-  const { data, error } = await anonClient()
+  const { data, error } = await adminClient()
     .from('inventario')
     .select('codigo')
     .like('codigo', 'AL-I%')

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { transporter } from '@/lib/mailer'
-import { adminClient, anonClient } from '@/lib/supabase/clients'
+import { adminClient } from '@/lib/supabase/clients'
 import { escapeHtml } from '@/lib/utils'
 
 
@@ -18,7 +18,7 @@ export async function POST(
     }
 
     // Buscar la NP por token_aprobacion (el mismo token del email de compras)
-    const { data: np, error } = await anonClient()
+    const { data: np, error } = await adminClient()
       .from('notas_pedido')
       .select('*')
       .eq('token_devolucion', token)
@@ -33,7 +33,7 @@ export async function POST(
     }
 
     // Actualizar estado a devuelta
-    const { error: errorUpdate } = await anonClient()
+    const { error: errorUpdate } = await adminClient()
       .from('notas_pedido')
       .update({
         estado: 'devuelta',
@@ -46,7 +46,7 @@ export async function POST(
     }
 
     // Registrar en historial
-    const { data: coordinadorCompras } = await anonClient()
+    const { data: coordinadorCompras } = await adminClient()
       .from('coordinadores_area')
       .select('nombre, email')
       .eq('area', 'Compras')

@@ -8249,3 +8249,61 @@ describe('POST /api/editar/[token] — escapeHtml en el email de reenvío', () =
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
   })
 })
+
+// ── SC-003 CA-06: rutas públicas por token ya no usan anonClient ────────────
+// Hallazgo confirmado con un GET real a PostgREST (clave anon, sin sesión ni
+// token) devolviendo filas reales de notas_pedido — la política RLS
+// `anon USING(true)` nunca filtraba por token, solo lo hacía el código de
+// la ruta. Fix: las 3 rutas pasan a usar exclusivamente adminClient() (ya
+// importado en los 3 archivos), permitiendo retirar esas políticas sin
+// cambiar el comportamiento del flujo de token.
+
+describe('Rutas públicas por token — ya no dependen de la política anon USING(true)', () => {
+  it('POST /api/aprobar/[token] no invoca anonClient', async () => {
+    const { POST } = require('@/app/api/aprobar/[token]/route')
+    mockAnonClient.mockClear()
+    const chain = mockChainVacio()
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/aprobar/tok-1', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'aprobar' }),
+      }),
+      { params: Promise.resolve({ token: 'tok-1' }) }
+    )
+    expect(res.status).toBe(404)
+    expect(mockAnonClient).not.toHaveBeenCalled()
+    expect(mockAdminClient).toHaveBeenCalled()
+  })
+
+  it('GET /api/editar/[token] no invoca anonClient', async () => {
+    const { GET } = require('@/app/api/editar/[token]/route')
+    mockAnonClient.mockClear()
+    const chain = mockChainVacio()
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(
+      makeRequest('http://localhost/api/editar/tok-1'),
+      { params: Promise.resolve({ token: 'tok-1' }) }
+    )
+    expect(res.status).toBe(404)
+    expect(mockAnonClient).not.toHaveBeenCalled()
+    expect(mockAdminClient).toHaveBeenCalled()
+  })
+
+  it('POST /api/devolver/[token] no invoca anonClient', async () => {
+    const { POST } = require('@/app/api/devolver/[token]/route')
+    mockAnonClient.mockClear()
+    const chain = mockChainVacio()
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/devolver/tok-1', {
+        method: 'POST',
+        body: JSON.stringify({ motivo_devolucion: 'Falta algo' }),
+      }),
+      { params: Promise.resolve({ token: 'tok-1' }) }
+    )
+    expect(res.status).toBe(404)
+    expect(mockAnonClient).not.toHaveBeenCalled()
+    expect(mockAdminClient).toHaveBeenCalled()
+  })
+})
