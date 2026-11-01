@@ -1,5 +1,6 @@
-import { anonClient, adminClient } from '@/lib/supabase/clients'
+import { adminClient } from '@/lib/supabase/clients'
 import { transporter } from '@/lib/mailer'
+import { escapeHtml } from '@/lib/utils'
 
 export type ItemEmailNP = {
   codigo: string | null
@@ -41,7 +42,7 @@ export async function enviarNPACoordinador(
     return { ok: false, error: 'No se encontró coordinador para el área seleccionada' }
   }
 
-  const { data: coordinador, error: errorCoord } = await anonClient()
+  const { data: coordinador, error: errorCoord } = await adminClient()
     .from('coordinadores_area')
     .select('nombre, email')
     .eq('id', aprobadorAsignadoId)
@@ -52,16 +53,20 @@ export async function enviarNPACoordinador(
     return { ok: false, error: 'No se encontró coordinador para el área seleccionada' }
   }
 
+  // Spec: SC-003 CA-03 — descripcion_general, nombre/email del solicitante
+  // y descripción/código de cada ítem son input libre del solicitante;
+  // se escapan antes de interpolar en el HTML del email (mismo patrón ya
+  // usado en aprobar/[token], devolver/[token] y PATCH nps/[id]).
   const filaRegularizacion = encabezado.es_regularizacion
-    ? `<tr><td style="padding:5px 0;color:#64748b;width:140px">Regularización</td><td style="font-weight:600;color:#b45309">Sí — Provisión: ${encabezado.fecha_provision}</td></tr>`
+    ? `<tr><td style="padding:5px 0;color:#64748b;width:140px">Regularización</td><td style="font-weight:600;color:#b45309">Sí — Provisión: ${escapeHtml(encabezado.fecha_provision ?? '')}</td></tr>`
     : ''
 
   const tablaItemsHtml = items.map((item, i) => `
     <tr style="border-bottom:1px solid #e5e7eb">
       <td style="padding:6px 10px">${i + 1}</td>
-      <td style="padding:6px 10px;font-family:monospace;font-size:12px">${item.codigo || '-'}</td>
-      <td style="padding:6px 10px">${item.descripcion}</td>
-      <td style="padding:6px 10px;text-align:center">${item.cantidad} ${item.unidad}</td>
+      <td style="padding:6px 10px;font-family:monospace;font-size:12px">${escapeHtml(item.codigo || '-')}</td>
+      <td style="padding:6px 10px">${escapeHtml(item.descripcion)}</td>
+      <td style="padding:6px 10px;text-align:center">${item.cantidad} ${escapeHtml(item.unidad)}</td>
       <td style="padding:6px 10px;text-align:right">$${(item.precio_unitario || 0).toFixed(2)}</td>
       <td style="padding:6px 10px;text-align:right">$${(item.cantidad * (item.precio_unitario || 0)).toFixed(2)}</td>
     </tr>`).join('')
@@ -80,17 +85,17 @@ export async function enviarNPACoordinador(
           </div>
           <div style="border:1px solid #e2e8f0;border-top:none;padding:20px 24px;background:#f8fafc">
             <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
-              <tr><td style="padding:5px 0;color:#64748b;width:140px">Solicitante</td><td style="font-weight:600">${encabezado.solicitante_nombre}</td></tr>
-              <tr><td style="padding:5px 0;color:#64748b">Email</td><td>${encabezado.solicitante_email}</td></tr>
-              <tr><td style="padding:5px 0;color:#64748b">Area</td><td>${encabezado.area}</td></tr>
-              <tr><td style="padding:5px 0;color:#64748b">Prioridad</td><td style="text-transform:capitalize">${encabezado.prioridad}</td></tr>
-              <tr><td style="padding:5px 0;color:#64748b">Tipo de Compra</td><td style="text-transform:capitalize">${encabezado.tipo_compra}</td></tr>
-              <tr><td style="padding:5px 0;color:#64748b">Centro de Costo</td><td style="text-transform:capitalize">${encabezado.centro_costo}</td></tr>
+              <tr><td style="padding:5px 0;color:#64748b;width:140px">Solicitante</td><td style="font-weight:600">${escapeHtml(encabezado.solicitante_nombre)}</td></tr>
+              <tr><td style="padding:5px 0;color:#64748b">Email</td><td>${escapeHtml(encabezado.solicitante_email)}</td></tr>
+              <tr><td style="padding:5px 0;color:#64748b">Area</td><td>${escapeHtml(encabezado.area)}</td></tr>
+              <tr><td style="padding:5px 0;color:#64748b">Prioridad</td><td style="text-transform:capitalize">${escapeHtml(encabezado.prioridad)}</td></tr>
+              <tr><td style="padding:5px 0;color:#64748b">Tipo de Compra</td><td style="text-transform:capitalize">${escapeHtml(encabezado.tipo_compra)}</td></tr>
+              <tr><td style="padding:5px 0;color:#64748b">Centro de Costo</td><td style="text-transform:capitalize">${escapeHtml(encabezado.centro_costo)}</td></tr>
               ${filaRegularizacion}
             </table>
             <div style="background:white;border:1px solid #e2e8f0;border-radius:4px;padding:12px;margin-bottom:16px">
               <p style="margin:0 0 4px;color:#64748b;font-size:12px;text-transform:uppercase">Descripcion General</p>
-              <p style="margin:0">${encabezado.descripcion_general}</p>
+              <p style="margin:0">${escapeHtml(encabezado.descripcion_general)}</p>
             </div>
             <table style="width:100%;border-collapse:collapse;background:white;border:1px solid #e2e8f0;border-radius:4px;margin-bottom:20px">
               <thead>

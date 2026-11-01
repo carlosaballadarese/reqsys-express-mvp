@@ -1,5 +1,6 @@
 // Spec: SC-001-v3.md — lib/np-fechas-documento.ts (fecha de aprobación de NP,
 // rol amigable del solicitante).
+export {}
 
 const mockFrom = jest.fn()
 const mockAdminClient = jest.fn(() => ({ from: mockFrom }))

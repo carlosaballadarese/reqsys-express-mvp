@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { adminClient, anonClient } from '@/lib/supabase/clients'
+import { adminClient } from '@/lib/supabase/clients'
 import { puedeVerPrecioNP, puedeGuardarPrecioNP } from '@/lib/np-precio'
 import { enviarNPACoordinador } from '@/lib/np-notificacion'
 import { calcularAprobadorAsignado } from '@/lib/np-area'
@@ -150,7 +150,7 @@ export async function POST(req: NextRequest) {
       fecha_requerida:    item.fecha_requerida || null,
     }))
 
-    const { error: errorItems } = await anonClient().from('items_np').insert(itemsConNP)
+    const { error: errorItems } = await adminClient().from('items_np').insert(itemsConNP)
 
     if (errorItems) {
       return NextResponse.json({ error: 'Error al guardar los ítems' }, { status: 500 })

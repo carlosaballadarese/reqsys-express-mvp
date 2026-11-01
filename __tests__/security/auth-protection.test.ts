@@ -21,7 +21,8 @@ jest.mock('@/lib/supabase/server', () => ({
 }))
 
 const mockFrom = jest.fn()
-const mockAdminClient = jest.fn(() => ({ from: mockFrom }))
+const mockAdminClientRpc = jest.fn()
+const mockAdminClient = jest.fn(() => ({ from: mockFrom, rpc: mockAdminClientRpc }))
 const mockAnonClient  = jest.fn(() => ({ from: mockFrom }))
 
 jest.mock('@/lib/supabase/clients', () => ({
@@ -96,7 +97,7 @@ jest.mock('@/lib/oca-estado', () => ({
 const SIN_SESION  = { data: { user: null } }
 const CON_SESION  = { data: { user: { id: 'user-123', email: 'test@arlift.com' } } }
 
-function makeRequest(url: string, options?: RequestInit) {
+function makeRequest(url: string, options?: ConstructorParameters<typeof NextRequest>[1]) {
   return new NextRequest(url, options)
 }
 
@@ -803,6 +804,75 @@ describe('GET /api/compras/nps/[id]/exportar', () => {
     )
     expect(res.status).toBe(401)
   })
+
+  // Spec: SC-003 CA-05 — este endpoint nunca aplicó puedeVerPrecioNP; exportaba
+  // precio_unitario/total reales para cualquier rol autenticado, bypaseando el
+  // masking que sí aplica GET/excel/pdf de la misma NP.
+  it('enmascara precio_unitario/total a 0 cuando el rol no tiene permiso (solicitante)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'solicitante' }, error: null })
+      return Promise.resolve({
+        data: { numero: 'NP-2026-0001', area: 'Operaciones', solicitante_nombre: 'Juan',
+          created_at: '2026-01-01', es_regularizacion: false, creado_por_id: 'otro-user' },
+        error: null,
+      })
+    })
+    chain.then = (resolve: any) => Promise.resolve({
+      data: [{ linea: 1, codigo: 'AL-I0001', descripcion: 'Item', unidad: 'EA', cantidad: 2, precio_unitario: 50, total: 100 }],
+      error: null,
+    }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/nps/np-123/exportar'),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(200)
+
+    const XLSX = require('xlsx')
+    const buf = Buffer.from(await res.arrayBuffer())
+    const wb = XLSX.read(buf, { type: 'buffer' })
+    const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]])
+    expect(rows[0]['P. Unitario']).toBe(0)
+    expect(rows[0]['Total']).toBe(0)
+  })
+
+  it('devuelve el precio real cuando el rol sí tiene permiso (compras)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras' }, error: null })
+      return Promise.resolve({
+        data: { numero: 'NP-2026-0001', area: 'Operaciones', solicitante_nombre: 'Juan',
+          created_at: '2026-01-01', es_regularizacion: false, creado_por_id: 'otro-user' },
+        error: null,
+      })
+    })
+    chain.then = (resolve: any) => Promise.resolve({
+      data: [{ linea: 1, codigo: 'AL-I0001', descripcion: 'Item', unidad: 'EA', cantidad: 2, precio_unitario: 50, total: 100 }],
+      error: null,
+    }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/nps/np-123/exportar'),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(200)
+
+    const XLSX = require('xlsx')
+    const buf = Buffer.from(await res.arrayBuffer())
+    const wb = XLSX.read(buf, { type: 'buffer' })
+    const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]])
+    expect(rows[0]['P. Unitario']).toBe(50)
+    expect(rows[0]['Total']).toBe(100)
+  })
 })
 
 // ── 15. Enviar OC a aprobación ───────────────────────────────────────────────
@@ -833,6 +903,82 @@ describe('POST /api/compras/ordenes/[id]/enviar-aprobacion', () => {
       { params: Promise.resolve({ id: 'oc-123' }) }
     )
     expect(res.status).toBe(403)
+  })
+})
+
+// ── SC-003 CA-06: PATCH ordenes/[id]/estado no tenía auth ni ownership ───────
+
+describe('PATCH /api/compras/ordenes/[id]/estado', () => {
+  const { PATCH } = require('@/app/api/compras/ordenes/[id]/estado/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const chain = mockChainVacio()
+    mockFrom.mockReturnValue(chain)
+    const res = await PATCH(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/estado', {
+        method: 'PATCH',
+        body: JSON.stringify({ estado: 'aprobada' }),
+      }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol no autorizado (solicitante)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await PATCH(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/estado', {
+        method: 'PATCH',
+        body: JSON.stringify({ estado: 'aprobada' }),
+      }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 403 si asistente_compras no es el creador de la OC', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'asistente_compras' }, error: null })
+      return Promise.resolve({ data: { numero_oc: 'OC-2026-0001', estado_oc: 'en_proceso', creado_por_id: 'otro-user' }, error: null })
+    })
+    mockFrom.mockReturnValue(chain)
+    const res = await PATCH(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/estado', {
+        method: 'PATCH',
+        body: JSON.stringify({ estado: 'aprobada' }),
+      }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('permite a compras cambiar el estado de cualquier OC', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras' }, error: null })
+      return Promise.resolve({ data: { numero_oc: 'OC-2026-0001', estado_oc: 'en_proceso', creado_por_id: 'otro-user' }, error: null })
+    })
+    mockFrom.mockReturnValue(chain)
+    const res = await PATCH(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/estado', {
+        method: 'PATCH',
+        body: JSON.stringify({ estado: 'aprobada' }),
+      }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(res.status).toBe(200)
   })
 })
 
@@ -1717,7 +1863,7 @@ describe('POST /api/compras/convertir/[id] — propagación de aprobador_np', ()
 
   const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
   beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
-  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockAdminClientRpc }) })
 
   it('copia aprobador_np_nombre y aprobador_np_area de NP a la OC creada', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
@@ -1734,7 +1880,7 @@ describe('POST /api/compras/convertir/[id] — propagación de aprobador_np', ()
     const insertSelectSingleMock = jest.fn(() =>
       Promise.resolve({ data: { id: 'oc-new', numero_oc: 'OC-2026-0001' }, error: null })
     )
-    const insertMock = jest.fn(() => ({ select: jest.fn(() => ({ single: insertSelectSingleMock })) }))
+    const insertMock = jest.fn((..._args: unknown[]) => ({ select: jest.fn(() => ({ single: insertSelectSingleMock })) }))
 
     let singleCalls = 0
     const chain = mockChainVacio()
@@ -1968,7 +2114,7 @@ describe('POST /api/compras/convertir/[id] — validación sobrecompra', () => {
 
   const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
   beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
-  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockAdminClientRpc }) })
 
   function setupConvertir(cantidadNP: number, cantidadComprometida: number) {
     const np = { id: 'np-sob-1', numero: 'NP-2026-0010', area: 'Operaciones',
@@ -2367,7 +2513,7 @@ describe('GET /api/compras/nps — filtrado por creado_por_id para solicitante y
     mockGetUser.mockResolvedValue(CON_SESION) // user.id = 'user-123'
 
     const chain = mockChainVacio()
-    const orMock = jest.fn(() => chain)
+    const orMock = jest.fn((..._args: unknown[]) => chain)
     chain.or = orMock
     chain.single = jest.fn(() =>
       Promise.resolve({ data: { rol: 'solicitante', email: 'sol@arlift.com' }, error: null })
@@ -2390,7 +2536,7 @@ describe('GET /api/compras/nps — filtrado por creado_por_id para solicitante y
     mockGetUser.mockResolvedValue(CON_SESION) // user.id = 'user-123'
 
     const chain = mockChainVacio()
-    const orMock = jest.fn(() => chain)
+    const orMock = jest.fn((..._args: unknown[]) => chain)
     chain.or = orMock
     chain.single = jest.fn(() =>
       Promise.resolve({ data: { rol: 'coordinador', email: 'coord@arlift.com' }, error: null })
@@ -2406,8 +2552,8 @@ describe('GET /api/compras/nps — filtrado por creado_por_id para solicitante y
     const req = makeRequest('http://localhost/api/compras/nps')
     await GET(req)
 
-    const orCall = orMock.mock.calls.find((c: string[]) =>
-      c[0].includes('area.in.') && c[0].includes('creado_por_id.eq.user-123')
+    const orCall = orMock.mock.calls.find((c: unknown[]) =>
+      String(c[0]).includes('area.in.') && String(c[0]).includes('creado_por_id.eq.user-123')
     )
     expect(orCall).toBeDefined()
     expect(orCall![0]).toContain('area.in.(Operaciones)')
@@ -2489,7 +2635,7 @@ describe('POST /api/compras/convertir/[id] — HU-003 enlace y justificación', 
 
   const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
   beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
-  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockAdminClientRpc }) })
 
   const NP_APROBADA = {
     id: 'np-hu003', numero: 'NP-2026-0020', area: 'Operaciones',
@@ -2577,7 +2723,7 @@ describe('POST /api/compras/convertir/[id] — HU-014 CA-08 defensa de backend',
 
   const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
   beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
-  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockAdminClientRpc }) })
 
   const NP_APROBADA = {
     id: 'np-hu014', numero: 'NP-2026-0030', area: 'Operaciones',
@@ -4144,7 +4290,7 @@ describe('POST /api/compras/nps — accion borrador/enviar (HU-009)', () => {
   const { POST } = require('@/app/api/compras/nps/route')
   const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
   beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
-  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockAdminClientRpc }) })
 
   const encabezadoBase = {
     es_regularizacion: false,
@@ -4504,7 +4650,7 @@ describe('actualizarEstadoNP() se invoca en los 6 puntos de mutación de OC/NP',
       { params: Promise.resolve({ id: 'np-conv-1' }) }
     )
 
-    mockAdminClient.mockReturnValue({ from: mockFrom })
+    mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockAdminClientRpc })
     expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-conv-1')
   })
 
@@ -5709,7 +5855,7 @@ describe('POST /api/compras/ordenes/consolidar', () => {
 
   const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
   beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
-  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockAdminClientRpc }) })
 
   // Chain genérico: eq/in/order/neq son noop que devuelven el propio chain (permite
   // cualquier combinación de encadenado); .then resuelve siempre a `data` (array).
@@ -7148,7 +7294,7 @@ describe('POST /api/compras/ocas/[id]/enmiendas/[enmiendaId]/resolver', () => {
 
   it('aprueba modificacion_precios: reemplaza oca_items', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
-    const insertItemsSpy = jest.fn(() => Promise.resolve({ data: null, error: null }))
+    const insertItemsSpy = jest.fn((..._args: unknown[]) => Promise.resolve({ data: null, error: null }))
     const deleteItemsSpy = jest.fn(() => Promise.resolve({ data: null, error: null }))
     mockFrom.mockImplementation((table: string) => {
       if (table === 'perfiles') return chainForEnmiendas([], { rol: 'gerencia', nombre: 'G', email: 'g@a.com' })
@@ -7955,4 +8101,209 @@ describe('GET /api/compras/ocas/dashboard', () => {
       expect(body).toHaveProperty('ocasConAlerta')
     }
   )
+})
+
+// ── SC-003 CA-01: /api/compras/secuencia* (NP/OC/OCA) no tenían auth ────────
+
+describe.each([
+  ['NP',  '@/app/api/compras/secuencia/route'],
+  ['OC',  '@/app/api/compras/secuencia-oc/route'],
+  ['OCA', '@/app/api/compras/secuencia-oca/route'],
+])('GET/POST /api/compras/secuencia* (%s)', (_label, modulePath) => {
+  const { GET, POST } = require(modulePath)
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET()
+    expect(res.status).toBe(401)
+  })
+
+  it('GET devuelve 200 para cualquier rol autenticado', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.order = jest.fn(() => Promise.resolve({ data: [], error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await GET()
+    expect(res.status).toBe(200)
+  })
+
+  it('POST devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/secuencia', {
+        method: 'POST',
+        body: JSON.stringify({ año: 2027, numero_inicial: 1 }),
+      })
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('POST devuelve 403 para rol no autorizado (solicitante) — evita resetear la numeración', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/secuencia', {
+        method: 'POST',
+        body: JSON.stringify({ año: 2027, numero_inicial: 1 }),
+      })
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('POST devuelve 200 para rol admin', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'admin' }, error: null }))
+    chain.upsert = jest.fn(() => Promise.resolve({ data: {}, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/secuencia', {
+        method: 'POST',
+        body: JSON.stringify({ año: 2027, numero_inicial: 1 }),
+      })
+    )
+    expect(res.status).toBe(200)
+  })
+})
+
+// ── SC-003 CA-03: HTML injection en emails sin escapeHtml ───────────────────
+
+describe('enviarNPACoordinador (lib/np-notificacion) — escapeHtml en el email de nueva NP', () => {
+  const { enviarNPACoordinador } = require('@/lib/np-notificacion')
+  const { transporter } = require('@/lib/mailer')
+
+  it('escapa descripcion_general, solicitante_nombre y descripción de ítems antes de interpolar en el HTML', async () => {
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { nombre: 'Coord', email: 'coord@arlift.com' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    ;(transporter.sendMail as jest.Mock).mockClear()
+
+    const resultado = await enviarNPACoordinador(
+      'np-1',
+      'NP-2026-0001',
+      {
+        solicitante_nombre: '<img src=x onerror=alert(1)>',
+        solicitante_email: 'sol@arlift.com',
+        area: 'Operaciones',
+        prioridad: 'alta',
+        tipo_compra: 'bienes',
+        centro_costo: 'CC01',
+        descripcion_general: '<script>alert(1)</script>',
+        es_regularizacion: false,
+      },
+      [{ codigo: 'AL-I0001', descripcion: '<b onmouseover=alert(1)>Item</b>', cantidad: 1, unidad: 'EA', precio_unitario: 10 }],
+      10,
+      'coord-1'
+    )
+
+    expect(resultado.ok).toBe(true)
+    const html = (transporter.sendMail as jest.Mock).mock.calls[0][0].html as string
+    expect(html).not.toContain('<script>alert(1)</script>')
+    expect(html).not.toContain('<img src=x onerror=alert(1)>')
+    expect(html).not.toContain('<b onmouseover=alert(1)>')
+    expect(html).toContain('&lt;script&gt;')
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
+  })
+})
+
+describe('POST /api/editar/[token] — escapeHtml en el email de reenvío', () => {
+  const { POST } = require('@/app/api/editar/[token]/route')
+  const { transporter } = require('@/lib/mailer')
+
+  it('escapa solicitante_nombre y area antes de interpolar en el HTML de reenvío', async () => {
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { id: 'np-1', numero: 'NP-2026-0001', estado: 'devuelta', token_aprobacion: 'tok-ap' }, error: null })
+      return Promise.resolve({ data: { nombre: 'Coord', email: 'coord@arlift.com' }, error: null })
+    })
+    chain.delete = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: null, error: null })) }))
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: null, error: null })) }))
+    chain.insert = jest.fn(() => Promise.resolve({ data: null, error: null }))
+    mockFrom.mockReturnValue(chain)
+    ;(transporter.sendMail as jest.Mock).mockClear()
+
+    const res = await POST(
+      makeRequest('http://localhost/api/editar/tok-edicion', {
+        method: 'POST',
+        body: JSON.stringify({
+          encabezado: {
+            solicitante_nombre: '<img src=x onerror=alert(1)>',
+            solicitante_email: 'sol@arlift.com',
+            area: '<svg onload=alert(1)>',
+            prioridad: 'alta', tipo_compra: 'bienes', centro_costo: 'CC01',
+            descripcion_general: 'Test', es_regularizacion: false,
+          },
+          items: [{ codigo: 'AL-I0001', descripcion: 'Item', cantidad: 1, unidad: 'EA', precio_unitario: 10 }],
+        }),
+      }),
+      { params: Promise.resolve({ token: 'tok-edicion' }) }
+    )
+    expect(res.status).toBe(200)
+    const html = (transporter.sendMail as jest.Mock).mock.calls[0][0].html as string
+    expect(html).not.toContain('<img src=x onerror=alert(1)>')
+    expect(html).not.toContain('<svg onload=alert(1)>')
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
+  })
+})
+
+// ── SC-003 CA-06: rutas públicas por token ya no usan anonClient ────────────
+// Hallazgo confirmado con un GET real a PostgREST (clave anon, sin sesión ni
+// token) devolviendo filas reales de notas_pedido — la política RLS
+// `anon USING(true)` nunca filtraba por token, solo lo hacía el código de
+// la ruta. Fix: las 3 rutas pasan a usar exclusivamente adminClient() (ya
+// importado en los 3 archivos), permitiendo retirar esas políticas sin
+// cambiar el comportamiento del flujo de token.
+
+describe('Rutas públicas por token — ya no dependen de la política anon USING(true)', () => {
+  it('POST /api/aprobar/[token] no invoca anonClient', async () => {
+    const { POST } = require('@/app/api/aprobar/[token]/route')
+    mockAnonClient.mockClear()
+    const chain = mockChainVacio()
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/aprobar/tok-1', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'aprobar' }),
+      }),
+      { params: Promise.resolve({ token: 'tok-1' }) }
+    )
+    expect(res.status).toBe(404)
+    expect(mockAnonClient).not.toHaveBeenCalled()
+    expect(mockAdminClient).toHaveBeenCalled()
+  })
+
+  it('GET /api/editar/[token] no invoca anonClient', async () => {
+    const { GET } = require('@/app/api/editar/[token]/route')
+    mockAnonClient.mockClear()
+    const chain = mockChainVacio()
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(
+      makeRequest('http://localhost/api/editar/tok-1'),
+      { params: Promise.resolve({ token: 'tok-1' }) }
+    )
+    expect(res.status).toBe(404)
+    expect(mockAnonClient).not.toHaveBeenCalled()
+    expect(mockAdminClient).toHaveBeenCalled()
+  })
+
+  it('POST /api/devolver/[token] no invoca anonClient', async () => {
+    const { POST } = require('@/app/api/devolver/[token]/route')
+    mockAnonClient.mockClear()
+    const chain = mockChainVacio()
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/devolver/tok-1', {
+        method: 'POST',
+        body: JSON.stringify({ motivo_devolucion: 'Falta algo' }),
+      }),
+      { params: Promise.resolve({ token: 'tok-1' }) }
+    )
+    expect(res.status).toBe(404)
+    expect(mockAnonClient).not.toHaveBeenCalled()
+    expect(mockAdminClient).toHaveBeenCalled()
+  })
 })

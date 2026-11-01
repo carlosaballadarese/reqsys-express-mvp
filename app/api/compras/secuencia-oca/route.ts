@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { adminClient } from '@/lib/supabase/clients'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 // Spec: HU-018 — espejo exacto de /api/compras/secuencia y /secuencia-oc,
 // para que el admin pueda fijar el número inicial de la secuencia de OCA.
+// Spec: SC-003 CA-01 — el espejo se hizo exacto también en el hallazgo:
+// ninguno de los 3 tenía chequeo de sesión/rol.
 
 export async function GET() {
+  const supabase = await createSupabaseServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
   const { data, error } = await adminClient()
     .from('oca_secuencia')
     .select('año, ultimo_numero')
@@ -16,6 +23,19 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const supabase = await createSupabaseServerClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
+    const { data: perfil } = await adminClient()
+      .from('perfiles')
+      .select('rol')
+      .eq('id', user.id)
+      .single()
+
+    if (!perfil || !['compras', 'admin'].includes(perfil.rol))
+      return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+
     const { año, numero_inicial } = await req.json()
 
     if (!año || numero_inicial === undefined || numero_inicial < 0) {

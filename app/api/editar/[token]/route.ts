@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { transporter } from '@/lib/mailer'
-import { adminClient, anonClient } from '@/lib/supabase/clients'
+import { adminClient } from '@/lib/supabase/clients'
+import { escapeHtml } from '@/lib/utils'
 
 
 // Cliente con service role para operaciones que requieren bypass de RLS
@@ -13,7 +14,7 @@ export async function GET(
   try {
     const { token } = await params
 
-    const { data: np, error } = await anonClient()
+    const { data: np, error } = await adminClient()
       .from('notas_pedido')
       .select('*')
       .eq('token_edicion', token)
@@ -26,7 +27,7 @@ export async function GET(
 
     // Spec CA-14: select ampliado — fecha_requerida y proveedor_sugerido incluidos
     // precio_unitario devuelto sin masking (token actúa como prueba de identidad del creador)
-    const { data: items } = await anonClient()
+    const { data: items } = await adminClient()
       .from('items_np')
       .select('linea, codigo, descripcion, unidad, cantidad, precio_unitario, fecha_requerida, proveedor_sugerido, informacion_adicional')
       .eq('nota_pedido_id', np.id)
@@ -50,7 +51,7 @@ export async function POST(
     const { encabezado, items } = body
 
     // Verificar que la NP sigue en estado devuelta
-    const { data: np, error } = await anonClient()
+    const { data: np, error } = await adminClient()
       .from('notas_pedido')
       .select('*')
       .eq('token_edicion', token)
@@ -62,7 +63,7 @@ export async function POST(
     }
 
     // Buscar coordinador del área
-    const { data: coordinador, error: errorCoord } = await anonClient()
+    const { data: coordinador, error: errorCoord } = await adminClient()
       .from('coordinadores_area')
       .select('nombre, email')
       .eq('area', encabezado.area)
@@ -82,7 +83,7 @@ export async function POST(
     // Actualizar encabezado de la NP y volver a pendiente
     // Spec CA-14: campos de regularización actualizables desde el formulario público
     const esRegularizacion = encabezado.es_regularizacion === true
-    const { error: errorUpdate } = await anonClient()
+    const { error: errorUpdate } = await adminClient()
       .from('notas_pedido')
       .update({
         solicitante_nombre: encabezado.solicitante_nombre,
@@ -170,12 +171,12 @@ export async function POST(
         subject: `[REQSYS] NP Corregida ${np.numero} — ${encabezado.area}`,
         text: `Hola ${coordinador.nombre},\n\nLa Nota de Pedido ${np.numero} ha sido corregida por el solicitante y requiere su aprobación nuevamente.\n\nNúmero: ${np.numero}\nSolicitante: ${encabezado.solicitante_nombre}\nÁrea: ${encabezado.area}\n\nPara gestionar esta solicitud, use los siguientes enlaces:\n\nAPROBAR: ${urlAprobar}\nRECHAZAR: ${urlRechazar}\n\nREQSYS — ARLIFT S.A.`,
         html: `
-          <p>Hola <strong>${coordinador.nombre}</strong>,</p>
+          <p>Hola <strong>${escapeHtml(coordinador.nombre)}</strong>,</p>
           <p>La Nota de Pedido <strong>${np.numero}</strong> ha sido corregida por el solicitante y requiere su aprobación nuevamente.</p>
           <ul>
             <li><strong>Número:</strong> ${np.numero}</li>
-            <li><strong>Solicitante:</strong> ${encabezado.solicitante_nombre}</li>
-            <li><strong>Área:</strong> ${encabezado.area}</li>
+            <li><strong>Solicitante:</strong> ${escapeHtml(encabezado.solicitante_nombre)}</li>
+            <li><strong>Área:</strong> ${escapeHtml(encabezado.area)}</li>
           </ul>
           <p>Puede gestionar esta solicitud haciendo clic en los siguientes enlaces:</p>
           <p>
