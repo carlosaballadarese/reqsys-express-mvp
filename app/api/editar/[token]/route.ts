@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { transporter } from '@/lib/mailer'
 import { adminClient, anonClient } from '@/lib/supabase/clients'
+import { escapeHtml } from '@/lib/utils'
 
 
 // Cliente con service role para operaciones que requieren bypass de RLS
@@ -170,12 +171,12 @@ export async function POST(
         subject: `[REQSYS] NP Corregida ${np.numero} — ${encabezado.area}`,
         text: `Hola ${coordinador.nombre},\n\nLa Nota de Pedido ${np.numero} ha sido corregida por el solicitante y requiere su aprobación nuevamente.\n\nNúmero: ${np.numero}\nSolicitante: ${encabezado.solicitante_nombre}\nÁrea: ${encabezado.area}\n\nPara gestionar esta solicitud, use los siguientes enlaces:\n\nAPROBAR: ${urlAprobar}\nRECHAZAR: ${urlRechazar}\n\nREQSYS — ARLIFT S.A.`,
         html: `
-          <p>Hola <strong>${coordinador.nombre}</strong>,</p>
+          <p>Hola <strong>${escapeHtml(coordinador.nombre)}</strong>,</p>
           <p>La Nota de Pedido <strong>${np.numero}</strong> ha sido corregida por el solicitante y requiere su aprobación nuevamente.</p>
           <ul>
             <li><strong>Número:</strong> ${np.numero}</li>
-            <li><strong>Solicitante:</strong> ${encabezado.solicitante_nombre}</li>
-            <li><strong>Área:</strong> ${encabezado.area}</li>
+            <li><strong>Solicitante:</strong> ${escapeHtml(encabezado.solicitante_nombre)}</li>
+            <li><strong>Área:</strong> ${escapeHtml(encabezado.area)}</li>
           </ul>
           <p>Puede gestionar esta solicitud haciendo clic en los siguientes enlaces:</p>
           <p>

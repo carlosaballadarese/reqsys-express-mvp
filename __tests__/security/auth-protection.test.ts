@@ -8167,3 +8167,85 @@ describe.each([
     expect(res.status).toBe(200)
   })
 })
+
+// ── SC-003 CA-03: HTML injection en emails sin escapeHtml ───────────────────
+
+describe('enviarNPACoordinador (lib/np-notificacion) — escapeHtml en el email de nueva NP', () => {
+  const { enviarNPACoordinador } = require('@/lib/np-notificacion')
+  const { transporter } = require('@/lib/mailer')
+
+  it('escapa descripcion_general, solicitante_nombre y descripción de ítems antes de interpolar en el HTML', async () => {
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { nombre: 'Coord', email: 'coord@arlift.com' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    ;(transporter.sendMail as jest.Mock).mockClear()
+
+    const resultado = await enviarNPACoordinador(
+      'np-1',
+      'NP-2026-0001',
+      {
+        solicitante_nombre: '<img src=x onerror=alert(1)>',
+        solicitante_email: 'sol@arlift.com',
+        area: 'Operaciones',
+        prioridad: 'alta',
+        tipo_compra: 'bienes',
+        centro_costo: 'CC01',
+        descripcion_general: '<script>alert(1)</script>',
+        es_regularizacion: false,
+      },
+      [{ codigo: 'AL-I0001', descripcion: '<b onmouseover=alert(1)>Item</b>', cantidad: 1, unidad: 'EA', precio_unitario: 10 }],
+      10,
+      'coord-1'
+    )
+
+    expect(resultado.ok).toBe(true)
+    const html = (transporter.sendMail as jest.Mock).mock.calls[0][0].html as string
+    expect(html).not.toContain('<script>alert(1)</script>')
+    expect(html).not.toContain('<img src=x onerror=alert(1)>')
+    expect(html).not.toContain('<b onmouseover=alert(1)>')
+    expect(html).toContain('&lt;script&gt;')
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
+  })
+})
+
+describe('POST /api/editar/[token] — escapeHtml en el email de reenvío', () => {
+  const { POST } = require('@/app/api/editar/[token]/route')
+  const { transporter } = require('@/lib/mailer')
+
+  it('escapa solicitante_nombre y area antes de interpolar en el HTML de reenvío', async () => {
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { id: 'np-1', numero: 'NP-2026-0001', estado: 'devuelta', token_aprobacion: 'tok-ap' }, error: null })
+      return Promise.resolve({ data: { nombre: 'Coord', email: 'coord@arlift.com' }, error: null })
+    })
+    chain.delete = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: null, error: null })) }))
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: null, error: null })) }))
+    chain.insert = jest.fn(() => Promise.resolve({ data: null, error: null }))
+    mockFrom.mockReturnValue(chain)
+    ;(transporter.sendMail as jest.Mock).mockClear()
+
+    const res = await POST(
+      makeRequest('http://localhost/api/editar/tok-edicion', {
+        method: 'POST',
+        body: JSON.stringify({
+          encabezado: {
+            solicitante_nombre: '<img src=x onerror=alert(1)>',
+            solicitante_email: 'sol@arlift.com',
+            area: '<svg onload=alert(1)>',
+            prioridad: 'alta', tipo_compra: 'bienes', centro_costo: 'CC01',
+            descripcion_general: 'Test', es_regularizacion: false,
+          },
+          items: [{ codigo: 'AL-I0001', descripcion: 'Item', cantidad: 1, unidad: 'EA', precio_unitario: 10 }],
+        }),
+      }),
+      { params: Promise.resolve({ token: 'tok-edicion' }) }
+    )
+    expect(res.status).toBe(200)
+    const html = (transporter.sendMail as jest.Mock).mock.calls[0][0].html as string
+    expect(html).not.toContain('<img src=x onerror=alert(1)>')
+    expect(html).not.toContain('<svg onload=alert(1)>')
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
+  })
+})
