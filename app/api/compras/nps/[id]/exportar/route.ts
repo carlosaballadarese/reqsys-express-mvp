@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { puedeVerPrecioNP } from '@/lib/np-precio'
 // @ts-ignore
 import * as XLSX from 'xlsx'
 
+// Spec: SC-003 CA-05 — este endpoint exportaba precio_unitario/total sin
+// aplicar puedeVerPrecioNP, a diferencia de GET/excel/pdf de la misma NP
+// (bypass del masking de precio por rol: solicitante/bodega podían
+// descargar el precio real de cualquier NP vía este botón).
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -15,13 +20,16 @@ export async function GET(
 
     const { id } = await params
 
-    const [{ data: np }, { data: items }] = await Promise.all([
-      adminClient().from('notas_pedido').select('numero, area, solicitante_nombre, created_at').eq('id', id).single(),
+    const [{ data: perfil }, { data: np }, { data: items }] = await Promise.all([
+      adminClient().from('perfiles').select('rol').eq('id', user.id).single(),
+      adminClient().from('notas_pedido').select('numero, area, solicitante_nombre, created_at, es_regularizacion, creado_por_id').eq('id', id).single(),
       adminClient().from('items_np').select('linea, codigo, descripcion, unidad, cantidad, precio_unitario, total').eq('nota_pedido_id', id).order('linea'),
     ])
 
     if (!np) return NextResponse.json({ error: 'NP no encontrada' }, { status: 404 })
     if (!items || items.length === 0) return NextResponse.json({ error: 'La NP no tiene ítems' }, { status: 404 })
+
+    const verPrecio = puedeVerPrecioNP(perfil?.rol ?? '', np.es_regularizacion ?? false, np.creado_por_id ?? null, user.id)
 
     const rows = items.map(i => ({
       'Línea':       i.linea,
@@ -29,8 +37,8 @@ export async function GET(
       'Descripción': i.descripcion,
       'Unidad':      i.unidad,
       'Cantidad':    Number(i.cantidad),
-      'P. Unitario': Number(i.precio_unitario),
-      'Total':       Number(i.total),
+      'P. Unitario': verPrecio ? Number(i.precio_unitario) : 0,
+      'Total':       verPrecio ? Number(i.total) : 0,
     }))
 
     const ws = XLSX.utils.json_to_sheet(rows)

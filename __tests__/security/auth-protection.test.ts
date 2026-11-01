@@ -804,6 +804,75 @@ describe('GET /api/compras/nps/[id]/exportar', () => {
     )
     expect(res.status).toBe(401)
   })
+
+  // Spec: SC-003 CA-05 — este endpoint nunca aplicó puedeVerPrecioNP; exportaba
+  // precio_unitario/total reales para cualquier rol autenticado, bypaseando el
+  // masking que sí aplica GET/excel/pdf de la misma NP.
+  it('enmascara precio_unitario/total a 0 cuando el rol no tiene permiso (solicitante)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'solicitante' }, error: null })
+      return Promise.resolve({
+        data: { numero: 'NP-2026-0001', area: 'Operaciones', solicitante_nombre: 'Juan',
+          created_at: '2026-01-01', es_regularizacion: false, creado_por_id: 'otro-user' },
+        error: null,
+      })
+    })
+    chain.then = (resolve: any) => Promise.resolve({
+      data: [{ linea: 1, codigo: 'AL-I0001', descripcion: 'Item', unidad: 'EA', cantidad: 2, precio_unitario: 50, total: 100 }],
+      error: null,
+    }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/nps/np-123/exportar'),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(200)
+
+    const XLSX = require('xlsx')
+    const buf = Buffer.from(await res.arrayBuffer())
+    const wb = XLSX.read(buf, { type: 'buffer' })
+    const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]])
+    expect(rows[0]['P. Unitario']).toBe(0)
+    expect(rows[0]['Total']).toBe(0)
+  })
+
+  it('devuelve el precio real cuando el rol sí tiene permiso (compras)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras' }, error: null })
+      return Promise.resolve({
+        data: { numero: 'NP-2026-0001', area: 'Operaciones', solicitante_nombre: 'Juan',
+          created_at: '2026-01-01', es_regularizacion: false, creado_por_id: 'otro-user' },
+        error: null,
+      })
+    })
+    chain.then = (resolve: any) => Promise.resolve({
+      data: [{ linea: 1, codigo: 'AL-I0001', descripcion: 'Item', unidad: 'EA', cantidad: 2, precio_unitario: 50, total: 100 }],
+      error: null,
+    }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/nps/np-123/exportar'),
+      { params: Promise.resolve({ id: 'np-123' }) }
+    )
+    expect(res.status).toBe(200)
+
+    const XLSX = require('xlsx')
+    const buf = Buffer.from(await res.arrayBuffer())
+    const wb = XLSX.read(buf, { type: 'buffer' })
+    const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]])
+    expect(rows[0]['P. Unitario']).toBe(50)
+    expect(rows[0]['Total']).toBe(100)
+  })
 })
 
 // ── 15. Enviar OC a aprobación ───────────────────────────────────────────────
