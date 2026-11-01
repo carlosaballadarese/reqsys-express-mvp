@@ -1,4 +1,5 @@
 // Spec: HU-016-v3.md — helpers de orquestación multi-NP (lib/np-multi-oc.ts).
+export {}
 
 const mockFrom = jest.fn()
 const mockAdminClient = jest.fn(() => ({ from: mockFrom }))

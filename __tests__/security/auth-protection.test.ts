@@ -21,7 +21,8 @@ jest.mock('@/lib/supabase/server', () => ({
 }))
 
 const mockFrom = jest.fn()
-const mockAdminClient = jest.fn(() => ({ from: mockFrom }))
+const mockAdminClientRpc = jest.fn()
+const mockAdminClient = jest.fn(() => ({ from: mockFrom, rpc: mockAdminClientRpc }))
 const mockAnonClient  = jest.fn(() => ({ from: mockFrom }))
 
 jest.mock('@/lib/supabase/clients', () => ({
@@ -96,7 +97,7 @@ jest.mock('@/lib/oca-estado', () => ({
 const SIN_SESION  = { data: { user: null } }
 const CON_SESION  = { data: { user: { id: 'user-123', email: 'test@arlift.com' } } }
 
-function makeRequest(url: string, options?: RequestInit) {
+function makeRequest(url: string, options?: ConstructorParameters<typeof NextRequest>[1]) {
   return new NextRequest(url, options)
 }
 
@@ -1717,7 +1718,7 @@ describe('POST /api/compras/convertir/[id] — propagación de aprobador_np', ()
 
   const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
   beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
-  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockAdminClientRpc }) })
 
   it('copia aprobador_np_nombre y aprobador_np_area de NP a la OC creada', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
@@ -1734,7 +1735,7 @@ describe('POST /api/compras/convertir/[id] — propagación de aprobador_np', ()
     const insertSelectSingleMock = jest.fn(() =>
       Promise.resolve({ data: { id: 'oc-new', numero_oc: 'OC-2026-0001' }, error: null })
     )
-    const insertMock = jest.fn(() => ({ select: jest.fn(() => ({ single: insertSelectSingleMock })) }))
+    const insertMock = jest.fn((..._args: unknown[]) => ({ select: jest.fn(() => ({ single: insertSelectSingleMock })) }))
 
     let singleCalls = 0
     const chain = mockChainVacio()
@@ -1968,7 +1969,7 @@ describe('POST /api/compras/convertir/[id] — validación sobrecompra', () => {
 
   const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
   beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
-  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockAdminClientRpc }) })
 
   function setupConvertir(cantidadNP: number, cantidadComprometida: number) {
     const np = { id: 'np-sob-1', numero: 'NP-2026-0010', area: 'Operaciones',
@@ -2367,7 +2368,7 @@ describe('GET /api/compras/nps — filtrado por creado_por_id para solicitante y
     mockGetUser.mockResolvedValue(CON_SESION) // user.id = 'user-123'
 
     const chain = mockChainVacio()
-    const orMock = jest.fn(() => chain)
+    const orMock = jest.fn((..._args: unknown[]) => chain)
     chain.or = orMock
     chain.single = jest.fn(() =>
       Promise.resolve({ data: { rol: 'solicitante', email: 'sol@arlift.com' }, error: null })
@@ -2390,7 +2391,7 @@ describe('GET /api/compras/nps — filtrado por creado_por_id para solicitante y
     mockGetUser.mockResolvedValue(CON_SESION) // user.id = 'user-123'
 
     const chain = mockChainVacio()
-    const orMock = jest.fn(() => chain)
+    const orMock = jest.fn((..._args: unknown[]) => chain)
     chain.or = orMock
     chain.single = jest.fn(() =>
       Promise.resolve({ data: { rol: 'coordinador', email: 'coord@arlift.com' }, error: null })
@@ -2406,8 +2407,8 @@ describe('GET /api/compras/nps — filtrado por creado_por_id para solicitante y
     const req = makeRequest('http://localhost/api/compras/nps')
     await GET(req)
 
-    const orCall = orMock.mock.calls.find((c: string[]) =>
-      c[0].includes('area.in.') && c[0].includes('creado_por_id.eq.user-123')
+    const orCall = orMock.mock.calls.find((c: unknown[]) =>
+      String(c[0]).includes('area.in.') && String(c[0]).includes('creado_por_id.eq.user-123')
     )
     expect(orCall).toBeDefined()
     expect(orCall![0]).toContain('area.in.(Operaciones)')
@@ -2489,7 +2490,7 @@ describe('POST /api/compras/convertir/[id] — HU-003 enlace y justificación', 
 
   const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
   beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
-  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockAdminClientRpc }) })
 
   const NP_APROBADA = {
     id: 'np-hu003', numero: 'NP-2026-0020', area: 'Operaciones',
@@ -2577,7 +2578,7 @@ describe('POST /api/compras/convertir/[id] — HU-014 CA-08 defensa de backend',
 
   const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
   beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
-  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockAdminClientRpc }) })
 
   const NP_APROBADA = {
     id: 'np-hu014', numero: 'NP-2026-0030', area: 'Operaciones',
@@ -4144,7 +4145,7 @@ describe('POST /api/compras/nps — accion borrador/enviar (HU-009)', () => {
   const { POST } = require('@/app/api/compras/nps/route')
   const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
   beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
-  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockAdminClientRpc }) })
 
   const encabezadoBase = {
     es_regularizacion: false,
@@ -4504,7 +4505,7 @@ describe('actualizarEstadoNP() se invoca en los 6 puntos de mutación de OC/NP',
       { params: Promise.resolve({ id: 'np-conv-1' }) }
     )
 
-    mockAdminClient.mockReturnValue({ from: mockFrom })
+    mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockAdminClientRpc })
     expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-conv-1')
   })
 
@@ -5709,7 +5710,7 @@ describe('POST /api/compras/ordenes/consolidar', () => {
 
   const mockRpcFn = jest.fn(() => Promise.resolve({ data: 1, error: null }))
   beforeEach(() => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockRpcFn }) })
-  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom }) })
+  afterEach(()  => { mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockAdminClientRpc }) })
 
   // Chain genérico: eq/in/order/neq son noop que devuelven el propio chain (permite
   // cualquier combinación de encadenado); .then resuelve siempre a `data` (array).
@@ -7148,7 +7149,7 @@ describe('POST /api/compras/ocas/[id]/enmiendas/[enmiendaId]/resolver', () => {
 
   it('aprueba modificacion_precios: reemplaza oca_items', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
-    const insertItemsSpy = jest.fn(() => Promise.resolve({ data: null, error: null }))
+    const insertItemsSpy = jest.fn((..._args: unknown[]) => Promise.resolve({ data: null, error: null }))
     const deleteItemsSpy = jest.fn(() => Promise.resolve({ data: null, error: null }))
     mockFrom.mockImplementation((table: string) => {
       if (table === 'perfiles') return chainForEnmiendas([], { rol: 'gerencia', nombre: 'G', email: 'g@a.com' })
