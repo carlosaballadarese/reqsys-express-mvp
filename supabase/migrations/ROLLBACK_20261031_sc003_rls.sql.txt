@@ -1,0 +1,14 @@
+-- ROLLBACK de emergencia para 20261031000000_sc003_retirar_rls_anon_permisivo.sql
+-- Solo ejecutar si, tras aplicar la migracion, algun flujo real se rompe de forma
+-- inesperada y no hay tiempo de diagnosticar la causa real primero.
+-- Restaura exactamente las 9 politicas retiradas, con su texto original.
+
+CREATE POLICY "anon_insert_inventario" ON "public"."inventario" FOR INSERT TO "anon" WITH CHECK (true);
+CREATE POLICY "anon_insert_items_np" ON "public"."items_np" FOR INSERT TO "anon" WITH CHECK (true);
+CREATE POLICY "anon_insert_notas_pedido" ON "public"."notas_pedido" FOR INSERT TO "anon" WITH CHECK (true);
+CREATE POLICY "anon_read_coordinadores" ON "public"."coordinadores_area" FOR SELECT TO "anon" USING (true);
+CREATE POLICY "anon_read_inventario" ON "public"."inventario" FOR SELECT TO "anon" USING (true);
+CREATE POLICY "anon_read_items_np" ON "public"."items_np" FOR SELECT TO "anon" USING (true);
+CREATE POLICY "anon_read_notas_pedido" ON "public"."notas_pedido" FOR SELECT TO "anon" USING (true);
+CREATE POLICY "anon_read_registro_compras" ON "public"."registro_compras" FOR SELECT TO "anon" USING (true);
+CREATE POLICY "anon_update_notas_pedido" ON "public"."notas_pedido" FOR UPDATE TO "anon" USING (true);
