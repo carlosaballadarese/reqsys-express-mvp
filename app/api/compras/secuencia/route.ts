@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { adminClient } from '@/lib/supabase/clients'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 
+// Spec: SC-003 CA-01 — GET no tenía ningún chequeo de sesión (usado como
+// preview del próximo número desde Nueva NP, cualquier rol logueado); POST
+// (fija el número inicial, solo desde Configuración) no tenía chequeo de
+// rol — cualquiera podía resetear la numeración de NP.
 
 // GET — devuelve el estado actual de la secuencia por año
 export async function GET() {
+  const supabase = await createSupabaseServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
   const { data, error } = await adminClient()
     .from('np_secuencia')
     .select('año, ultimo_numero')
@@ -16,6 +25,19 @@ export async function GET() {
 // POST — establece el número inicial para un año
 export async function POST(req: NextRequest) {
   try {
+    const supabase = await createSupabaseServerClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
+    const { data: perfil } = await adminClient()
+      .from('perfiles')
+      .select('rol')
+      .eq('id', user.id)
+      .single()
+
+    if (!perfil || !['compras', 'admin'].includes(perfil.rol))
+      return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+
     const { año, numero_inicial } = await req.json()
 
     if (!año || numero_inicial === undefined || numero_inicial < 0) {

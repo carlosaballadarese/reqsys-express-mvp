@@ -8033,3 +8033,68 @@ describe('GET /api/compras/ocas/dashboard', () => {
     }
   )
 })
+
+// ── SC-003 CA-01: /api/compras/secuencia* (NP/OC/OCA) no tenían auth ────────
+
+describe.each([
+  ['NP',  '@/app/api/compras/secuencia/route'],
+  ['OC',  '@/app/api/compras/secuencia-oc/route'],
+  ['OCA', '@/app/api/compras/secuencia-oca/route'],
+])('GET/POST /api/compras/secuencia* (%s)', (_label, modulePath) => {
+  const { GET, POST } = require(modulePath)
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET()
+    expect(res.status).toBe(401)
+  })
+
+  it('GET devuelve 200 para cualquier rol autenticado', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.order = jest.fn(() => Promise.resolve({ data: [], error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await GET()
+    expect(res.status).toBe(200)
+  })
+
+  it('POST devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/secuencia', {
+        method: 'POST',
+        body: JSON.stringify({ año: 2027, numero_inicial: 1 }),
+      })
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('POST devuelve 403 para rol no autorizado (solicitante) — evita resetear la numeración', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/secuencia', {
+        method: 'POST',
+        body: JSON.stringify({ año: 2027, numero_inicial: 1 }),
+      })
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('POST devuelve 200 para rol admin', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'admin' }, error: null }))
+    chain.upsert = jest.fn(() => Promise.resolve({ data: {}, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/secuencia', {
+        method: 'POST',
+        body: JSON.stringify({ año: 2027, numero_inicial: 1 }),
+      })
+    )
+    expect(res.status).toBe(200)
+  })
+})
