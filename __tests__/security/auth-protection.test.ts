@@ -837,6 +837,82 @@ describe('POST /api/compras/ordenes/[id]/enviar-aprobacion', () => {
   })
 })
 
+// ── SC-003 CA-06: PATCH ordenes/[id]/estado no tenía auth ni ownership ───────
+
+describe('PATCH /api/compras/ordenes/[id]/estado', () => {
+  const { PATCH } = require('@/app/api/compras/ordenes/[id]/estado/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const chain = mockChainVacio()
+    mockFrom.mockReturnValue(chain)
+    const res = await PATCH(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/estado', {
+        method: 'PATCH',
+        body: JSON.stringify({ estado: 'aprobada' }),
+      }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol no autorizado (solicitante)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'solicitante' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await PATCH(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/estado', {
+        method: 'PATCH',
+        body: JSON.stringify({ estado: 'aprobada' }),
+      }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 403 si asistente_compras no es el creador de la OC', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'asistente_compras' }, error: null })
+      return Promise.resolve({ data: { numero_oc: 'OC-2026-0001', estado_oc: 'en_proceso', creado_por_id: 'otro-user' }, error: null })
+    })
+    mockFrom.mockReturnValue(chain)
+    const res = await PATCH(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/estado', {
+        method: 'PATCH',
+        body: JSON.stringify({ estado: 'aprobada' }),
+      }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('permite a compras cambiar el estado de cualquier OC', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) }))
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'compras' }, error: null })
+      return Promise.resolve({ data: { numero_oc: 'OC-2026-0001', estado_oc: 'en_proceso', creado_por_id: 'otro-user' }, error: null })
+    })
+    mockFrom.mockReturnValue(chain)
+    const res = await PATCH(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/estado', {
+        method: 'PATCH',
+        body: JSON.stringify({ estado: 'aprobada' }),
+      }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(res.status).toBe(200)
+  })
+})
+
 // ── 16. Aprobar / Rechazar OC ─────────────────────────────────────────────────
 
 describe('POST /api/compras/ordenes/[id]/aprobar', () => {
