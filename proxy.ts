@@ -7,6 +7,8 @@ const PUBLIC_PATHS = [
   '/aprobar',
   '/devolver',
   '/editar',
+  // Spec: SC-006 — /recuperar/confirmar queda cubierta por el startsWith() de abajo
+  '/recuperar',
 ]
 
 // Rutas que requieren rol específico (compras o admin)

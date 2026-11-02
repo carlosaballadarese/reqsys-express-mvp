@@ -186,9 +186,14 @@ function LoginForm() {
             </div>
 
             <div>
-              <Label className="text-xs font-semibold text-slate-600 tracking-wide uppercase">
-                Contraseña
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold text-slate-600 tracking-wide uppercase">
+                  Contraseña
+                </Label>
+                <a href="/recuperar" className="text-xs font-medium text-teal-700 hover:underline">
+                  ¿Olvidaste tu contraseña?
+                </a>
+              </div>
               <Input
                 type="password"
                 value={password}
