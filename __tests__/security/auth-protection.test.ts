@@ -467,7 +467,7 @@ describe('POST /api/auth/cambiar-password', () => {
 
 describe('POST /api/auth/recuperar', () => {
   const { POST } = require('@/app/api/auth/recuperar/route')
-  const MENSAJE_GENERICO = 'Si el correo existe en nuestro sistema, recibirás un enlace de recuperación en breve.'
+  const MENSAJE_GENERICO = 'Si el correo existe en nuestro sistema, recibirás un enlace de recuperación en breve. Si no lo ves en tu bandeja de entrada, revisa también la carpeta de spam o correo no deseado.'
 
   beforeEach(() => {
     mockAdminClient.mockReturnValue({

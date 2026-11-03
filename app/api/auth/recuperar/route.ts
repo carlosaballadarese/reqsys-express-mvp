@@ -5,7 +5,14 @@ import { registrarAuditoria } from '@/lib/auditoria'
 import { escapeHtml } from '@/lib/utils'
 
 const COOLDOWN_MINUTOS = 5
-const MENSAJE_GENERICO = 'Si el correo existe en nuestro sistema, recibirás un enlace de recuperación en breve.'
+// Hallazgo real 2026-11-02: Gmail (reqsys.cabe@gmail.com, SMTP con app password)
+// filtra a spam el correo automatizado dirigido a otras cuentas @gmail.com —
+// confirmado con un caso real (el correo llegó, pero a la carpeta de spam del
+// destinatario). sendMail() nunca lanza excepción en ese escenario, así que
+// no hay forma de detectarlo desde el código — el aviso en pantalla es la
+// mitigación inmediata mientras se evalúa una migración a un proveedor de
+// correo transaccional dedicado (deuda técnica, no corregida acá).
+const MENSAJE_GENERICO = 'Si el correo existe en nuestro sistema, recibirás un enlace de recuperación en breve. Si no lo ves en tu bandeja de entrada, revisa también la carpeta de spam o correo no deseado.'
 
 // Hallazgo real del security review de 2026-11-02 (bug-hunter --security-review):
 // el cooldown por email no protege contra alguien con una lista de emails

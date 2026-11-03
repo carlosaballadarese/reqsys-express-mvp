@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 
-const MENSAJE_GENERICO = 'Si el correo existe en nuestro sistema, recibirás un enlace de recuperación en breve.'
+const MENSAJE_GENERICO = 'Si el correo existe en nuestro sistema, recibirás un enlace de recuperación en breve. Si no lo ves en tu bandeja de entrada, revisa también la carpeta de spam o correo no deseado.'
 
 // Spec: SC-006 CA-03 — enlace usado/expirado: error claro + opción de reintentar
 const ERROR_MSG: Record<string, string> = {
