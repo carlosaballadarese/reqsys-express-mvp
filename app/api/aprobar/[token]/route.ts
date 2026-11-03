@@ -17,10 +17,12 @@ export async function POST(
       return NextResponse.json({ error: 'Acción inválida' }, { status: 400 })
     }
 
-    // Buscar la NP por token
+    // Buscar la NP por token — select acotado a lo usado server-side (nunca
+    // se devuelve np al cliente, pero se evita seleccionar de más; mismo
+    // criterio aplicado en editar/[token] tras el hallazgo de 2026-11-02)
     const { data: np, error } = await adminClient()
       .from('notas_pedido')
-      .select('*')
+      .select('id, numero, area, descripcion_general, total_estimado, solicitante_nombre, solicitante_email, aprobador_asignado_id')
       .eq('token_aprobacion', token)
       .eq('estado', 'pendiente')
       .single()

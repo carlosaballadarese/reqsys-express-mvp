@@ -14,9 +14,14 @@ export async function GET(
   try {
     const { token } = await params
 
+    // Hallazgo real de seguridad (2026-11-02): select('*') devolvía la fila
+    // completa de notas_pedido al cliente, incluidos token_aprobacion y
+    // token_devolucion — cualquiera con el link de edición podía leerlos en
+    // la respuesta JSON y aprobar/devolver su propia NP saltándose al
+    // coordinador. Select explícito: solo los campos que la UI usa.
     const { data: np, error } = await adminClient()
       .from('notas_pedido')
-      .select('*')
+      .select('id, numero, motivo_devolucion, solicitante_nombre, solicitante_email, area, prioridad, tipo_compra, centro_costo, descripcion_general')
       .eq('token_edicion', token)
       .eq('estado', 'devuelta')
       .single()
@@ -50,10 +55,13 @@ export async function POST(
     const body = await req.json()
     const { encabezado, items } = body
 
-    // Verificar que la NP sigue en estado devuelta
+    // Verificar que la NP sigue en estado devuelta — select acotado a lo que
+    // se usa server-side (id/numero para las operaciones, token_aprobacion
+    // para armar el email de reenvío al coordinador); nunca se devuelve al
+    // cliente, pero se evita seleccionar de más por el mismo motivo del GET.
     const { data: np, error } = await adminClient()
       .from('notas_pedido')
-      .select('*')
+      .select('id, numero, token_aprobacion')
       .eq('token_edicion', token)
       .eq('estado', 'devuelta')
       .single()

@@ -17,10 +17,12 @@ export async function POST(
       return NextResponse.json({ error: 'El motivo de devolución es requerido' }, { status: 400 })
     }
 
-    // Buscar la NP por token_aprobacion (el mismo token del email de compras)
+    // Buscar la NP por token_devolucion — select acotado a lo usado
+    // server-side (nunca se devuelve np al cliente, pero se evita
+    // seleccionar de más; mismo criterio de editar/[token], 2026-11-02)
     const { data: np, error } = await adminClient()
       .from('notas_pedido')
-      .select('*')
+      .select('id, numero, solicitante_nombre, solicitante_email, token_edicion')
       .eq('token_devolucion', token)
       .eq('estado', 'aprobada')
       .single()

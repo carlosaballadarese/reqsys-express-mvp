@@ -8469,6 +8469,66 @@ describe('POST /api/editar/[token] — escapeHtml en el email de reenvío', () =
   })
 })
 
+// ── Hallazgo real 2026-11-02: GET /api/editar/[token] filtraba los otros
+// tokens de la NP (token_aprobacion/token_devolucion) en su respuesta JSON
+// vía select('*') — cualquiera con el link de edición podía leerlos y
+// aprobar/devolver su propia NP saltándose al coordinador. Fix: select
+// explícito sin esos campos, en los 3 endpoints públicos por token.
+
+describe('Rutas públicas por token — nunca seleccionan los OTROS tokens de la NP', () => {
+  function chainCapturaSelect() {
+    const chain: any = {}
+    let selectArg = ''
+    chain.select = jest.fn((arg: string) => { selectArg = arg; return chain })
+    chain.eq     = jest.fn(() => chain)
+    chain.single = jest.fn(() => Promise.resolve({ data: null, error: { message: 'not found' } }))
+    chain.getSelectArg = () => selectArg
+    return chain
+  }
+
+  it('GET /api/editar/[token]: el select de notas_pedido no pide token_aprobacion ni token_devolucion', async () => {
+    const { GET } = require('@/app/api/editar/[token]/route')
+    const chain = chainCapturaSelect()
+    mockFrom.mockReturnValue(chain)
+
+    await GET(makeRequest('http://localhost/api/editar/tok-edicion'), { params: Promise.resolve({ token: 'tok-edicion' }) })
+
+    expect(chain.getSelectArg()).not.toContain('token_aprobacion')
+    expect(chain.getSelectArg()).not.toContain('token_devolucion')
+    expect(chain.getSelectArg()).not.toBe('*')
+  })
+
+  it('POST /api/aprobar/[token]: el select de notas_pedido no pide token_devolucion ni token_edicion', async () => {
+    const { POST } = require('@/app/api/aprobar/[token]/route')
+    const chain = chainCapturaSelect()
+    mockFrom.mockReturnValue(chain)
+
+    await POST(
+      makeRequest('http://localhost/api/aprobar/tok-ap', { method: 'POST', body: JSON.stringify({ accion: 'aprobar' }) }),
+      { params: Promise.resolve({ token: 'tok-ap' }) }
+    )
+
+    expect(chain.getSelectArg()).not.toContain('token_devolucion')
+    expect(chain.getSelectArg()).not.toContain('token_edicion')
+    expect(chain.getSelectArg()).not.toBe('*')
+  })
+
+  it('POST /api/devolver/[token]: el select de notas_pedido no pide token_aprobacion', async () => {
+    const { POST } = require('@/app/api/devolver/[token]/route')
+    const chain = chainCapturaSelect()
+    mockFrom.mockReturnValue(chain)
+
+    await POST(
+      makeRequest('http://localhost/api/devolver/tok-dev', { method: 'POST', body: JSON.stringify({ motivo_devolucion: 'Falta info' }) }),
+      { params: Promise.resolve({ token: 'tok-dev' }) }
+    )
+
+    expect(chain.getSelectArg()).not.toContain('token_aprobacion')
+    expect(chain.getSelectArg()).not.toBe('*')
+  })
+
+})
+
 // ── SC-003 CA-06: rutas públicas por token ya no usan anonClient ────────────
 // Hallazgo confirmado con un GET real a PostgREST (clave anon, sin sesión ni
 // token) devolviendo filas reales de notas_pedido — la política RLS
