@@ -104,7 +104,7 @@ function InventarioSearch({ value, onChange, onSelect }: InventarioSearchProps) 
     timerRef.current = setTimeout(async () => {
       setCargando(true)
       try {
-        const res = await fetch(`/api/compras/inventario/search?q=${encodeURIComponent(val)}`)
+        const res = await fetch(`/api/compras/inventario/search-interno?q=${encodeURIComponent(val)}`)
         const data = await res.json()
         setResultados(data)
         setAbierto(true)

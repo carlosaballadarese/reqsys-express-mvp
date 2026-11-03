@@ -1,4 +1,4 @@
-const ROLES_CON_PRECIO = ['compras', 'admin', 'asistente_compras']
+export const ROLES_CON_PRECIO = ['compras', 'admin', 'asistente_compras']
 
 // Spec CA-06: controla la RESPUESTA API — masking de precio_unitario y total_estimado
 export function puedeVerPrecioNP(

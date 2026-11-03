@@ -262,6 +262,74 @@ describe('GET /api/compras/inventario/search (endpoint público)', () => {
   })
 })
 
+describe('GET /api/compras/inventario/search-interno (requiere sesión, masking por rol)', () => {
+  const { GET } = require('@/app/api/compras/inventario/search-interno/route')
+
+  function chainFor(data: unknown, singleData: unknown = null) {
+    const chain: any = {}
+    const noop = jest.fn(() => chain)
+    chain.select = noop
+    chain.eq     = noop
+    chain.or     = noop
+    chain.limit  = noop
+    chain.single = jest.fn(() => Promise.resolve({ data: singleData, error: null }))
+    chain.then   = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve)
+    return chain
+  }
+
+  const itemInventario = { id: 'inv-1', codigo: 'AL-I0001', descripcion: 'Válvula', costo_unitario: 150.5, saldo_existencias: 10, categoria: 'Mecánico' }
+
+  function setup(rol: string) {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')   return chainFor([], { rol })
+      if (table === 'inventario') return chainFor([itemInventario])
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/inventario/search-interno?q=valvula'))
+    expect(res.status).toBe(401)
+  })
+
+  it('rol sin permiso de precio (solicitante) recibe costo_unitario enmascarado a 0', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setup('solicitante')
+    const res = await GET(makeRequest('http://localhost/api/compras/inventario/search-interno?q=valvula'))
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body[0].costo_unitario).toBe(0)
+    expect(body[0].saldo_existencias).toBe(10) // el resto de los campos no se enmascara
+  })
+
+  it('rol con permiso de precio (compras) recibe costo_unitario real', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setup('compras')
+    const res = await GET(makeRequest('http://localhost/api/compras/inventario/search-interno?q=valvula'))
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body[0].costo_unitario).toBe(150.5)
+  })
+})
+
+describe('GET /api/compras/inventario/search sigue sin exponer costo_unitario (fix de seguridad)', () => {
+  const { GET } = require('@/app/api/compras/inventario/search/route')
+
+  it('el select público nunca pide costo_unitario', async () => {
+    const chain = mockChainVacio()
+    chain.or    = jest.fn(() => chain)
+    chain.limit = jest.fn(() => Promise.resolve({ data: [], error: null }))
+    const selectSpy = jest.fn(() => chain)
+    chain.select = selectSpy
+    mockFrom.mockReturnValue(chain)
+
+    await GET(makeRequest('http://localhost/api/compras/inventario/search?q=valvula'))
+
+    expect(selectSpy).toHaveBeenCalledWith(expect.not.stringContaining('costo_unitario'))
+  })
+})
+
 // ── 5. Inventario/next-codigo ─────────────────────────────────────────────────
 
 describe('GET /api/compras/inventario/next-codigo', () => {

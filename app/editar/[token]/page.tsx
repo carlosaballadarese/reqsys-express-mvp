@@ -44,7 +44,6 @@ type InvItem = {
   id: string
   codigo: string
   descripcion: string
-  costo_unitario: number
   saldo_existencias: number
   categoria: string
 }
@@ -116,9 +115,6 @@ function InventarioSearch({ value, onChange, onSelect }: {
               </div>
               <div className="flex gap-2 shrink-0 ml-2">
                 <span className="text-xs text-green-600">Stock: {Number(item.saldo_existencias ?? 0).toFixed(0)}</span>
-                {item.costo_unitario > 0 && (
-                  <span className="text-xs text-blue-600">${Number(item.costo_unitario).toFixed(2)}</span>
-                )}
               </div>
             </li>
           ))}
@@ -398,9 +394,6 @@ export default function EditarNP() {
                           onSelect={inv => {
                             field.onChange(inv.descripcion)
                             setValue(`items.${index}.codigo`, inv.codigo, { shouldDirty: true })
-                            if (inv.costo_unitario > 0) {
-                              setValue(`items.${index}.precio_unitario`, String(inv.costo_unitario), { shouldDirty: true })
-                            }
                           }}
                         />
                       )}
