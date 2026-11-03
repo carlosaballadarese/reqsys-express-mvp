@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 
 const ERROR_MSG: Record<string, string> = {
   sin_acceso: 'Tu cuenta no tiene acceso al sistema. Contacta al administrador.',
+  sesion_expirada: 'Tu sesión expiró por inactividad o por tiempo máximo. Vuelve a iniciar sesión.',
 }
 
 function LoginForm() {

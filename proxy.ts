@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { excedeTimebox, excedeInactividad, ULTIMA_ACTIVIDAD_COOKIE, SESSION_INACTIVIDAD_HORAS } from '@/lib/sesion-timeout'
 
 // Rutas completamente públicas — no requieren sesión
 const PUBLIC_PATHS = [
@@ -83,6 +84,44 @@ export async function proxy(req: NextRequest) {
     url.searchParams.set('next', pathname)
     return NextResponse.redirect(url)
   }
+
+  // Cierre de sesión por tiempo — Supabase Free no soporta timebox/
+  // inactivity_timeout nativo (ver lib/sesion-timeout.ts). Se invalida la
+  // sesión real con signOut() (no solo un redirect cosmético) para que las
+  // rutas /api/ — que no pasan por este proxy — también dejen de aceptarla.
+  if (user.last_sign_in_at && excedeTimebox(user.last_sign_in_at)) {
+    await supabase.auth.signOut()
+    const url = req.nextUrl.clone()
+    url.pathname = '/login'
+    url.searchParams.set('error', 'sesion_expirada')
+    const redirect = NextResponse.redirect(url)
+    res.cookies.getAll().forEach(c => redirect.cookies.set(c))
+    redirect.cookies.delete(ULTIMA_ACTIVIDAD_COOKIE)
+    return redirect
+  }
+
+  const ultimaActividadCookie = req.cookies.get(ULTIMA_ACTIVIDAD_COOKIE)?.value
+  const ultimaActividadMs = ultimaActividadCookie ? Number(ultimaActividadCookie) : null
+
+  if (excedeInactividad(ultimaActividadMs)) {
+    await supabase.auth.signOut()
+    const url = req.nextUrl.clone()
+    url.pathname = '/login'
+    url.searchParams.set('error', 'sesion_expirada')
+    const redirect = NextResponse.redirect(url)
+    res.cookies.getAll().forEach(c => redirect.cookies.set(c))
+    redirect.cookies.delete(ULTIMA_ACTIVIDAD_COOKIE)
+    return redirect
+  }
+
+  // Actividad real dentro de los límites — renovar la marca de tiempo.
+  res.cookies.set(ULTIMA_ACTIVIDAD_COOKIE, String(Date.now()), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: SESSION_INACTIVIDAD_HORAS * 60 * 60,
+  })
 
   // Leer rol del perfil via service role (evita RLS)
   const { createClient } = await import('@supabase/supabase-js')
