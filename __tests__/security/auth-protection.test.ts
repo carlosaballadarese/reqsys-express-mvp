@@ -22,7 +22,19 @@ jest.mock('@/lib/supabase/server', () => ({
 
 const mockFrom = jest.fn()
 const mockAdminClientRpc = jest.fn()
-const mockAdminClient = jest.fn(() => ({ from: mockFrom, rpc: mockAdminClientRpc }))
+// Spec: SC-006 — generateLink() de Supabase Admin API, usado por POST /api/auth/recuperar.
+type GenerateLinkResult = {
+  data:  { properties: { action_link: string } } | null
+  error: { message: string } | null
+}
+const mockGenerateLink = jest.fn<Promise<GenerateLinkResult>, any[]>(() =>
+  Promise.resolve({ data: null, error: { message: 'not found' } })
+)
+const mockAdminClient = jest.fn((): any => ({
+  from: mockFrom,
+  rpc:  mockAdminClientRpc,
+  auth: { admin: { generateLink: mockGenerateLink } },
+}))
 const mockAnonClient  = jest.fn(() => ({ from: mockFrom }))
 
 jest.mock('@/lib/supabase/clients', () => ({
@@ -116,6 +128,7 @@ function mockChainVacio() {
   chain.neq    = noop
   chain.in     = noop
   chain.not    = noop
+  chain.gte    = noop
   chain.limit  = jest.fn(() => Promise.resolve(resolved))
   chain.single = jest.fn(() => Promise.resolve({ data: null, error: null }))
   chain.maybeSingle = jest.fn(() => Promise.resolve({ data: null, error: null }))
@@ -379,6 +392,144 @@ describe('POST /api/auth/cambiar-password', () => {
       })
     )
     expect(res.status).toBe(401)
+  })
+})
+
+// ── 10. Recuperación de contraseña (SC-006) ──────────────────────────────────
+
+describe('POST /api/auth/recuperar', () => {
+  const { POST } = require('@/app/api/auth/recuperar/route')
+  const MENSAJE_GENERICO = 'Si el correo existe en nuestro sistema, recibirás un enlace de recuperación en breve.'
+
+  beforeEach(() => {
+    mockAdminClient.mockReturnValue({
+      from: mockFrom,
+      rpc:  mockAdminClientRpc,
+      auth: { admin: { generateLink: mockGenerateLink } },
+    })
+    mockFrom.mockReturnValue(mockChainVacio())
+    mockGenerateLink.mockResolvedValue({ data: null, error: { message: 'not found' } })
+    const { registrarAuditoria } = require('@/lib/auditoria')
+    const { transporter } = require('@/lib/mailer')
+    ;(registrarAuditoria as jest.Mock).mockClear()
+    ;(transporter.sendMail as jest.Mock).mockClear()
+    ;(transporter.sendMail as jest.Mock).mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    mockAdminClient.mockReturnValue({ from: mockFrom, rpc: mockAdminClientRpc })
+  })
+
+  it('rechaza con 400 un email mal formado (no revela si existe o no una cuenta)', async () => {
+    const res = await POST(
+      makeRequest('http://localhost/api/auth/recuperar', {
+        method: 'POST',
+        body: JSON.stringify({ email: 'no-es-un-correo' }),
+      })
+    )
+    expect(res.status).toBe(400)
+    expect(mockGenerateLink).not.toHaveBeenCalled()
+  })
+
+  it('email no existente: responde 200 genérico sin loguear nada (RN-01, evita enumeración)', async () => {
+    mockGenerateLink.mockResolvedValue({ data: null, error: { message: 'User not found' } })
+    const { registrarAuditoria } = require('@/lib/auditoria')
+
+    const res  = await POST(
+      makeRequest('http://localhost/api/auth/recuperar', {
+        method: 'POST',
+        body: JSON.stringify({ email: 'noexiste@arlift.com' }),
+      })
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.mensaje).toBe(MENSAJE_GENERICO)
+    expect(registrarAuditoria).not.toHaveBeenCalled()
+  })
+
+  it('email existente: responde 200 genérico, envía el correo y registra solicitud_recuperacion', async () => {
+    mockGenerateLink.mockResolvedValue({
+      data: { properties: { action_link: 'https://reqsys-express.vercel.app/recuperar/confirmar?token=abc' } },
+      error: null,
+    })
+    const { registrarAuditoria } = require('@/lib/auditoria')
+    const { transporter } = require('@/lib/mailer')
+
+    const res  = await POST(
+      makeRequest('http://localhost/api/auth/recuperar', {
+        method: 'POST',
+        body: JSON.stringify({ email: 'claudia@arlift.com' }),
+      })
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.mensaje).toBe(MENSAJE_GENERICO)
+    expect(transporter.sendMail).toHaveBeenCalledTimes(1)
+    expect(registrarAuditoria).toHaveBeenCalledWith(
+      expect.objectContaining({ accion: 'solicitud_recuperacion', entidad: 'usuario', referencia: 'claudia@arlift.com' })
+    )
+  })
+
+  it('dentro del cooldown: responde 200 genérico sin llamar a generateLink (RN-07)', async () => {
+    const chain = mockChainVacio()
+    chain.limit = jest.fn(() => Promise.resolve({ data: [{ id: 'audit-1' }], error: null }))
+    mockFrom.mockReturnValue(chain)
+
+    const res  = await POST(
+      makeRequest('http://localhost/api/auth/recuperar', {
+        method: 'POST',
+        body: JSON.stringify({ email: 'claudia@arlift.com' }),
+      })
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.mensaje).toBe(MENSAJE_GENERICO)
+    expect(mockGenerateLink).not.toHaveBeenCalled()
+  })
+
+  it('si el envío del correo falla, registra solicitud_recuperacion_fallida sin romper la respuesta', async () => {
+    mockGenerateLink.mockResolvedValue({
+      data: { properties: { action_link: 'https://reqsys-express.vercel.app/recuperar/confirmar?token=abc' } },
+      error: null,
+    })
+    const { registrarAuditoria } = require('@/lib/auditoria')
+    const { transporter } = require('@/lib/mailer')
+    ;(transporter.sendMail as jest.Mock).mockRejectedValue(new Error('SMTP caído'))
+
+    const res  = await POST(
+      makeRequest('http://localhost/api/auth/recuperar', {
+        method: 'POST',
+        body: JSON.stringify({ email: 'claudia@arlift.com' }),
+      })
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.mensaje).toBe(MENSAJE_GENERICO)
+    expect(registrarAuditoria).toHaveBeenCalledWith(
+      expect.objectContaining({ accion: 'solicitud_recuperacion_fallida' })
+    )
+  })
+
+  it('escapa HTML del email antes de interpolarlo (CA-06, mismo patrón que el resto del proyecto)', async () => {
+    mockGenerateLink.mockResolvedValue({
+      data: { properties: { action_link: 'https://reqsys-express.vercel.app/recuperar/confirmar?token=abc' } },
+      error: null,
+    })
+    const { transporter } = require('@/lib/mailer')
+
+    await POST(
+      makeRequest('http://localhost/api/auth/recuperar', {
+        method: 'POST',
+        body: JSON.stringify({ email: '"><script>alert(1)</script>@arlift.com' }),
+      })
+    )
+
+    const llamada = (transporter.sendMail as jest.Mock).mock.calls[0]?.[0]
+    expect(llamada.html).not.toContain('<script>')
   })
 })
 

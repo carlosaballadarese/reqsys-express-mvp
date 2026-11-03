@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 
 const ERROR_MSG: Record<string, string> = {
   sin_acceso: 'Tu cuenta no tiene acceso al sistema. Contacta al administrador.',
+  sesion_expirada: 'Tu sesión expiró por inactividad o por tiempo máximo. Vuelve a iniciar sesión.',
 }
 
 function LoginForm() {
@@ -186,9 +187,14 @@ function LoginForm() {
             </div>
 
             <div>
-              <Label className="text-xs font-semibold text-slate-600 tracking-wide uppercase">
-                Contraseña
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold text-slate-600 tracking-wide uppercase">
+                  Contraseña
+                </Label>
+                <a href="/recuperar" className="text-xs font-medium text-teal-700 hover:underline">
+                  ¿Olvidaste tu contraseña?
+                </a>
+              </div>
               <Input
                 type="password"
                 value={password}

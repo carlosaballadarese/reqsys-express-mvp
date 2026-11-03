@@ -2,13 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { adminClient, anonClient } from '@/lib/supabase/clients'
 import { transporter } from '@/lib/mailer'
-
-function validarPassword(p: string): string | null {
-  if (p.length < 8)             return 'La contraseña debe tener al menos 8 caracteres.'
-  if (!/[A-Z]/.test(p))         return 'Debe incluir al menos una letra mayúscula.'
-  if (!/[0-9]/.test(p))         return 'Debe incluir al menos un número.'
-  return null
-}
+import { validarPassword } from '@/lib/validators'
 
 export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient()
