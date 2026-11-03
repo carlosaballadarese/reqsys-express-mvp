@@ -7,6 +7,20 @@ import { escapeHtml } from '@/lib/utils'
 const COOLDOWN_MINUTOS = 5
 const MENSAJE_GENERICO = 'Si el correo existe en nuestro sistema, recibirás un enlace de recuperación en breve.'
 
+// Hallazgo real del security review de 2026-11-02 (bug-hunter --security-review):
+// el cooldown por email no protege contra alguien con una lista de emails
+// reales (patrón predecible nombre.apellido@arlift.com.ec) disparando envíos
+// a MUCHAS cuentas distintas en una ráfaga — cada email solo se limita a sí
+// mismo. Ventana más amplia por IP, independiente del cooldown por email.
+const LIMITE_IP_INTENTOS  = 10
+const LIMITE_IP_MINUTOS   = 15
+
+function extraerIp(req: NextRequest): string {
+  const forwardedFor = req.headers.get('x-forwarded-for')
+  if (forwardedFor) return forwardedFor.split(',')[0].trim()
+  return req.headers.get('x-real-ip') ?? 'desconocida'
+}
+
 // Spec: SC-006 RN-07 — evita que un mismo email dispare múltiples envíos en poco tiempo
 async function dentroDeCooldown(email: string): Promise<boolean> {
   const desde = new Date(Date.now() - COOLDOWN_MINUTOS * 60 * 1000).toISOString()
@@ -20,12 +34,26 @@ async function dentroDeCooldown(email: string): Promise<boolean> {
   return !!data && data.length > 0
 }
 
-async function registrarEvento(email: string, exito: boolean, detalle?: string): Promise<void> {
+// Rate limit por IP — complementa (no reemplaza) el cooldown por email.
+async function excedeLimitePorIp(ip: string): Promise<boolean> {
+  if (ip === 'desconocida') return false
+  const desde = new Date(Date.now() - LIMITE_IP_MINUTOS * 60 * 1000).toISOString()
+  const { data } = await adminClient()
+    .from('auditoria')
+    .select('id')
+    .in('accion', ['solicitud_recuperacion', 'solicitud_recuperacion_fallida'])
+    .eq('detalle->>ip', ip)
+    .gte('created_at', desde)
+    .limit(LIMITE_IP_INTENTOS)
+  return !!data && data.length >= LIMITE_IP_INTENTOS
+}
+
+async function registrarEvento(email: string, ip: string, exito: boolean, detalle?: string): Promise<void> {
   await registrarAuditoria({
     accion:     exito ? 'solicitud_recuperacion' : 'solicitud_recuperacion_fallida',
     entidad:    'usuario',
     referencia: email,
-    ...(detalle ? { detalle: { motivo: detalle } } : {}),
+    detalle:    { ip, ...(detalle ? { motivo: detalle } : {}) },
   })
 }
 
@@ -34,10 +62,20 @@ export async function POST(req: NextRequest) {
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Cuerpo inválido' }, { status: 400 }) }
 
   const email = body.email?.trim().toLowerCase()
+  const ip    = extraerIp(req)
 
   // Spec: SC-006 CA-01 — formato inválido es el único caso que no responde con el mensaje genérico
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ error: 'Ingresa un correo válido.' }, { status: 400 })
+  }
+
+  // Hallazgo real del security review de 2026-11-02 — rate limit por IP,
+  // independiente del cooldown por email (ver comentario junto a la constante).
+  if (await excedeLimitePorIp(ip)) {
+    return NextResponse.json(
+      { error: 'Demasiados intentos desde esta conexión. Intenta de nuevo más tarde.' },
+      { status: 429 }
+    )
   }
 
   // Spec: SC-006 RN-07 — dentro del cooldown, responde genérico sin tocar Supabase ni loguear de nuevo
@@ -82,9 +120,9 @@ export async function POST(req: NextRequest) {
         <p>REQSYS — ARLIFT S.A.</p>
       `,
     })
-    await registrarEvento(email, true)
+    await registrarEvento(email, ip, true)
   } catch {
-    await registrarEvento(email, false, 'fallo_envio_smtp')
+    await registrarEvento(email, ip, false, 'fallo_envio_smtp')
   }
 
   return NextResponse.json({ mensaje: MENSAJE_GENERICO })

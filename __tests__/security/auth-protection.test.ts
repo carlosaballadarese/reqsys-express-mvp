@@ -582,6 +582,44 @@ describe('POST /api/auth/recuperar', () => {
     )
   })
 
+  it('IP con 10+ intentos recientes: responde 429 sin llamar a generateLink (hallazgo real del security review 2026-11-02)', async () => {
+    const chain = mockChainVacio()
+    chain.limit = jest.fn(() => Promise.resolve({
+      data: Array.from({ length: 10 }, (_, i) => ({ id: `audit-${i}` })),
+      error: null,
+    }))
+    mockFrom.mockReturnValue(chain)
+
+    const res = await POST(
+      makeRequest('http://localhost/api/auth/recuperar', {
+        method: 'POST',
+        headers: { 'x-forwarded-for': '203.0.113.9' },
+        body: JSON.stringify({ email: 'otra-cuenta@arlift.com' }),
+      })
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(429)
+    expect(body.error).toMatch(/demasiados intentos/i)
+    expect(mockGenerateLink).not.toHaveBeenCalled()
+  })
+
+  it('IP por debajo del límite: procede normalmente (no bloquea tráfico legítimo)', async () => {
+    mockGenerateLink.mockResolvedValue({
+      data: { properties: { action_link: 'https://reqsys-express.vercel.app/recuperar/confirmar?token=abc' } },
+      error: null,
+    })
+    const res = await POST(
+      makeRequest('http://localhost/api/auth/recuperar', {
+        method: 'POST',
+        headers: { 'x-forwarded-for': '203.0.113.10' },
+        body: JSON.stringify({ email: 'claudia@arlift.com' }),
+      })
+    )
+    expect(res.status).toBe(200)
+    expect(mockGenerateLink).toHaveBeenCalled()
+  })
+
   it('escapa HTML del email antes de interpolarlo (CA-06, mismo patrón que el resto del proyecto)', async () => {
     mockGenerateLink.mockResolvedValue({
       data: { properties: { action_link: 'https://reqsys-express.vercel.app/recuperar/confirmar?token=abc' } },
