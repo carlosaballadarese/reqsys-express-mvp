@@ -478,7 +478,14 @@ export default function DetalleOCPage() {
       })
       const data = await res.json()
       if (res.status === 409 && data.error === 'sobrecompra') {
-        setSobrecompraEdit({ items_excedidos: data.items_excedidos })
+        // Spec: HU-016 cambió items_excedidos de un arreglo plano a uno agrupado
+        // por NP ({np_id, items: ItemExcedido[]}[], ver lib/np-multi-oc.ts) — esta
+        // tabla nunca se actualizó y asumía el formato plano antiguo, lo que
+        // producía un TypeError no capturado en render (i.descripcion undefined)
+        // para cualquier OC enlazada a NP que disparara sobrecompra. Se aplana
+        // aquí para no perder el contexto de "por cuál NP" en el resto del cambio.
+        const grupos = (data.items_excedidos ?? []) as { np_id: string; items: ItemExcedido[] }[]
+        setSobrecompraEdit({ items_excedidos: grupos.flatMap(g => g.items) })
         return
       }
       if (data.success) { setEditando(false); cargar() }
