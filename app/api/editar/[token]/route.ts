@@ -174,7 +174,7 @@ export async function POST(
     // Notificar al coordinador del área para nueva aprobación
     try {
       await transporter.sendMail({
-        from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+        from: 'One ARLIFT <notificaciones@mail.cabesoft.com>',
         to: coordinador.email,
         subject: `[REQSYS] NP Corregida ${np.numero} — ${encabezado.area}`,
         text: `Hola ${coordinador.nombre},\n\nLa Nota de Pedido ${np.numero} ha sido corregida por el solicitante y requiere su aprobación nuevamente.\n\nNúmero: ${np.numero}\nSolicitante: ${encabezado.solicitante_nombre}\nÁrea: ${encabezado.area}\n\nPara gestionar esta solicitud, use los siguientes enlaces:\n\nAPROBAR: ${urlAprobar}\nRECHAZAR: ${urlRechazar}\n\nREQSYS — ARLIFT S.A.`,

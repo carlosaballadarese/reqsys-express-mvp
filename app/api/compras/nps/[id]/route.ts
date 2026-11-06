@@ -265,7 +265,7 @@ export async function PUT(
     const urlRechazar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=rechazar`
     try {
       await transporter.sendMail({
-        from:    'One ARLIFT <one.arlift@arlift.com.ec>',
+        from:    'One ARLIFT <notificaciones@mail.cabesoft.com>',
         to:      coordinador.email,
         subject: `REQSYS NP Corregida ${np.numero} - ${areaSeleccionada.nombre}`,
         text: [
@@ -385,7 +385,7 @@ export async function PATCH(
         const { data: compras } = await adminClient().from('coordinadores_area').select('nombre, email').eq('area', 'Compras').single()
         if (compras) {
           await transporter.sendMail({
-            from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+            from: 'One ARLIFT <notificaciones@mail.cabesoft.com>',
             to: compras.email,
             subject: `REQSYS NP Aprobada ${np.numero} - ${np.area}`,
             text: [
@@ -404,7 +404,7 @@ export async function PATCH(
 
       const estadoTexto = accion === 'devolver' ? 'devuelta para correcciones' : nuevoEstado
       await transporter.sendMail({
-        from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+        from: 'One ARLIFT <notificaciones@mail.cabesoft.com>',
         to: np.solicitante_email,
         subject: `REQSYS NP ${np.numero} ${estadoTexto}`,
         text: [

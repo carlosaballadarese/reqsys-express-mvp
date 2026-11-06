@@ -73,7 +73,7 @@ export async function enviarNPACoordinador(
 
   try {
     await transporter.sendMail({
-      from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+      from: 'One ARLIFT <notificaciones@mail.cabesoft.com>',
       to: coordinador.email,
       subject: `REQSYS Nueva NP ${numero} - ${encabezado.area}`,
       text: `Nueva NP ${numero}\nSolicitante: ${encabezado.solicitante_nombre}\nArea: ${encabezado.area}\nTotal: $${totalEstimado.toFixed(2)}${encabezado.es_regularizacion ? '\nRegularización: Sí' : ''}\n\nIngrese al sistema REQSYS para gestionar esta solicitud.`,

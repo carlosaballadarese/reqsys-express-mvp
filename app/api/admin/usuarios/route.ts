@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://reqsys-express.vercel.app'
     try {
       await transporter.sendMail({
-        from:    'REQSYS ARLIFT <reqsys.cabe@gmail.com>',
+        from:    'REQSYS ARLIFT <notificaciones@mail.cabesoft.com>',
         to:      email,
         subject: 'Bienvenido a REQSYS — ARLIFT S.A.',
         text: [

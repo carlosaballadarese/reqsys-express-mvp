@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
 
   try {
     await transporter.sendMail({
-      from:    process.env.SMTP_USER,
+      from:    'REQSYS ARLIFT <notificaciones@mail.cabesoft.com>',
       to:      correo,
       subject: 'REQSYS — Contraseña actualizada',
       text:

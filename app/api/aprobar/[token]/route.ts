@@ -56,7 +56,7 @@ export async function POST(
         // Email a compras - Simplificado para evitar filtros
         try {
           await transporter.sendMail({
-            from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+            from: 'One ARLIFT <notificaciones@mail.cabesoft.com>',
             to: compras.email,
             subject: `[REQSYS] NP Aprobada — ${np.numero} · ${np.area}`,
             text: `Hola ${compras.nombre},\n\nLa Nota de Pedido ${np.numero} fue aprobada por ${aprobador?.nombre ?? 'el coordinador'} y requiere tu gestión.\n\nDetalle: ${np.descripcion_general}\nTotal: $${Number(np.total_estimado).toFixed(2)}\n\nVer en el sistema: ${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/compras/nps/${np.id}\n\nREQSYS — ARLIFT S.A.`,
@@ -81,7 +81,7 @@ export async function POST(
     // Email al solicitante
     try {
       await transporter.sendMail({
-        from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+        from: 'One ARLIFT <notificaciones@mail.cabesoft.com>',
         to: np.solicitante_email,
         subject: `[REQSYS] Tu NP ${np.numero} fue ${esAprobada ? 'aprobada' : 'rechazada'}`,
         text: `Hola ${np.solicitante_nombre},\n\nTu Nota de Pedido ${np.numero} ha sido ${esAprobada ? 'aprobada' : 'rechazada'}.\n\n${!esAprobada && motivo_rechazo ? `Motivo: ${motivo_rechazo}` : ''}\n\nVer en el sistema: ${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/compras/nps/${np.id}\n\nREQSYS — ARLIFT S.A.`,

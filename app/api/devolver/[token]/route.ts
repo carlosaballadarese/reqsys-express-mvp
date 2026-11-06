@@ -68,7 +68,7 @@ export async function POST(
 
     try {
       await transporter.sendMail({
-        from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+        from: 'One ARLIFT <notificaciones@mail.cabesoft.com>',
         to: np.solicitante_email,
         subject: `[REQSYS] Tu NP ${np.numero} requiere correcciones`,
         text: `Hola ${np.solicitante_nombre},\n\nEl área de Compras ha devuelto tu Nota de Pedido ${np.numero} para que realices las correcciones necesarias.\n\nMotivo de devolución: ${motivo_devolucion}\n\nCorregir aquí: ${urlEditar}\n\nREQSYS — ARLIFT S.A.`,

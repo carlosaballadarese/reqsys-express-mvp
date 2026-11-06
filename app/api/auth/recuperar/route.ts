@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
 
   try {
     await transporter.sendMail({
-      from:    'REQSYS ARLIFT <reqsys.cabe@gmail.com>',
+      from:    'REQSYS ARLIFT <notificaciones@mail.cabesoft.com>',
       to:      email,
       subject: 'REQSYS — Recupera tu contraseña',
       text:

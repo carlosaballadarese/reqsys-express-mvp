@@ -112,7 +112,7 @@ export async function PUT(
       // Spec: notificación al correo nuevo
       try {
         await transporter.sendMail({
-          from:    'REQSYS ARLIFT <reqsys.cabe@gmail.com>',
+          from:    'REQSYS ARLIFT <notificaciones@mail.cabesoft.com>',
           to:      emailNuevo,
           subject: 'REQSYS — Tu correo de acceso ha sido actualizado',
           text: [

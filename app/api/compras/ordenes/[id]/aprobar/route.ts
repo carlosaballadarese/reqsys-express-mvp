@@ -73,7 +73,7 @@ export async function POST(
         if (creador) {
           const accionTexto = accion === 'aprobar' ? 'aprobada' : 'rechazada'
           await transporter.sendMail({
-            from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+            from: 'One ARLIFT <notificaciones@mail.cabesoft.com>',
             to: creador.email,
             subject: `REQSYS OC ${oc.numero_oc} ${accionTexto}`,
             text: [

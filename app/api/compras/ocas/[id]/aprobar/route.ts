@@ -79,7 +79,7 @@ export async function POST(
 
       if (creador?.email) {
         await transporter.sendMail({
-          from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+          from: 'One ARLIFT <notificaciones@mail.cabesoft.com>',
           to: creador.email,
           subject: `REQSYS OCA ${oca.numero_oca} rechazada`,
           text: [

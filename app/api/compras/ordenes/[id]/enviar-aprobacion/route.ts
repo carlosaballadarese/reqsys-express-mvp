@@ -67,7 +67,7 @@ export async function POST(
 
       for (const aprobador of aprobadores ?? []) {
         await transporter.sendMail({
-          from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+          from: 'One ARLIFT <notificaciones@mail.cabesoft.com>',
           to: aprobador.email,
           subject: `REQSYS OC ${oc.numero_oc} pendiente de aprobación`,
           text: [

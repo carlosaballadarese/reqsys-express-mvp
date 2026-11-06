@@ -137,7 +137,7 @@ export async function POST(
 
       if (coordArea) {
         await transporter.sendMail({
-          from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+          from: 'One ARLIFT <notificaciones@mail.cabesoft.com>',
           to: coordArea.email,
           subject: `REQSYS NP Cancelada ${np.numero} - ${np.area}`,
           text: [
@@ -155,7 +155,7 @@ export async function POST(
 
       if (esCompras && np.creado_por_id !== user.id && np.solicitante_email) {
         await transporter.sendMail({
-          from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+          from: 'One ARLIFT <notificaciones@mail.cabesoft.com>',
           to: np.solicitante_email,
           subject: `REQSYS NP ${np.numero} cancelada`,
           text: [
@@ -178,7 +178,7 @@ export async function POST(
 
         if (compras) {
           await transporter.sendMail({
-            from: 'One ARLIFT <one.arlift@arlift.com.ec>',
+            from: 'One ARLIFT <notificaciones@mail.cabesoft.com>',
             to: compras.email,
             subject: `REQSYS NP Cancelada ${np.numero} - ${np.area}`,
             text: [
