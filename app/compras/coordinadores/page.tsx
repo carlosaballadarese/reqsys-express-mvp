@@ -323,7 +323,7 @@ export default function CoordinadoresPage() {
                 <div>
                   <Label className="text-xs">Email *</Label>
                   <Input type="email" value={nuevoForm.email} onChange={e => setNuevoForm(f => ({ ...f, email: e.target.value }))}
-                    className="mt-1 h-8 text-sm" placeholder="coordinador@arlift.com.ec" />
+                    className="mt-1 h-8 text-sm" placeholder="coordinador@correo.com" />
                 </div>
               </div>
               {errorNuevo && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2 mt-3">{errorNuevo}</p>}

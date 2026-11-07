@@ -377,7 +377,7 @@ export default function NuevaNotaPedido() {
       <div className="max-w-3xl mx-auto">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-slate-800">Nueva Nota de Pedido</h1>
-          <p className="text-slate-500 text-sm mt-1">ARLIFT S.A. — Sistema de Gestión de Requerimientos</p>
+          <p className="text-slate-500 text-sm mt-1">Sistema de Gestión de Requerimientos de Compras</p>
         </div>
 
         <form

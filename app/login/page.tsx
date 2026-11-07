@@ -91,7 +91,7 @@ function LoginForm() {
         <div className="relative z-10 text-center">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-medium tracking-widest uppercase"
             style={{ border: '1px solid rgba(201,168,64,0.4)', color: '#c9a840', background: 'rgba(201,168,64,0.08)' }}>
-            REQSYS for ARLIFT S.A.
+            REQSYS — Sistema de Gestión de Compras
           </div>
         </div>
 
@@ -158,7 +158,7 @@ function LoginForm() {
             <h1 className="text-2xl font-black text-slate-800">
               REQ<span className="text-amber-600">SYS</span>
             </h1>
-            <p className="text-xs text-slate-400 tracking-wide">ARLIFT S.A. — Gestión de Compras</p>
+            <p className="text-xs text-slate-400 tracking-wide">Sistema de Gestión de Compras</p>
           </div>
         </div>
 
@@ -182,7 +182,7 @@ function LoginForm() {
                 required
                 autoComplete="email"
                 className="mt-1.5 h-11 text-sm border-slate-200 focus:border-teal-600 focus:ring-teal-600"
-                placeholder="usuario@arlift.com.ec"
+                placeholder="usuario@correo.com"
               />
             </div>
 

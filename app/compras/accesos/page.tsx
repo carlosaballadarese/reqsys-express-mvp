@@ -221,7 +221,7 @@ export default function AccesosPage() {
                 <div>
                   <Label className="text-xs">Email *</Label>
                   <Input type="email" value={nuevoForm.email} onChange={e => setNuevoForm(f => ({ ...f, email: e.target.value }))}
-                    className="mt-1 h-8 text-sm" placeholder="usuario@arlift.com.ec" />
+                    className="mt-1 h-8 text-sm" placeholder="usuario@correo.com" />
                 </div>
                 <div>
                   <Label className="text-xs">Rol *</Label>

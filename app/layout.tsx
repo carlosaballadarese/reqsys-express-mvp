@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "REQSYS — ARLIFT S.A.",
-  description: "Sistema de Gestión de Requerimientos ARLIFT",
+  title: "REQSYS — Sistema de Gestión de Compras",
+  description: "Sistema de Gestión de Requerimientos de Compras",
 };
 
 export default function RootLayout({

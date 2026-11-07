@@ -112,7 +112,7 @@ export default function ConfirmarRecuperacionPage() {
             <h1 className="text-2xl font-black text-slate-800">
               REQ<span className="text-amber-600">SYS</span>
             </h1>
-            <p className="text-xs text-slate-400 tracking-wide">ARLIFT S.A. — Gestión de Compras</p>
+            <p className="text-xs text-slate-400 tracking-wide">Sistema de Gestión de Compras</p>
           </div>
         </div>
 

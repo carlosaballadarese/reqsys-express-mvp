@@ -56,7 +56,7 @@ function RecuperarForm() {
             <h1 className="text-2xl font-black text-slate-800">
               REQ<span className="text-amber-600">SYS</span>
             </h1>
-            <p className="text-xs text-slate-400 tracking-wide">ARLIFT S.A. — Gestión de Compras</p>
+            <p className="text-xs text-slate-400 tracking-wide">Sistema de Gestión de Compras</p>
           </div>
         </div>
 
@@ -85,7 +85,7 @@ function RecuperarForm() {
                 required
                 autoComplete="email"
                 className="mt-1.5 h-11 text-sm border-slate-200 focus:border-teal-600 focus:ring-teal-600"
-                placeholder="usuario@arlift.com.ec"
+                placeholder="usuario@correo.com"
               />
             </div>
 

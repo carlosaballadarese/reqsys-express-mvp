@@ -617,7 +617,7 @@ export default function DashboardOcsPage() {
         })()}
 
         <p className="text-center text-xs text-slate-400 pb-4">
-          REQSYS — ARLIFT S.A. · Dashboard de Órdenes de Compra
+          REQSYS · Dashboard de Órdenes de Compra
         </p>
       </div>
     </div>

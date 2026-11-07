@@ -194,7 +194,7 @@ export default function InventarioPage() {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 p-6 space-y-4">
             <h2 className="text-base font-semibold text-slate-800">Importar inventario desde Excel</h2>
             <p className="text-xs text-slate-500">
-              Seleccioná el archivo <span className="font-mono font-medium">Control Inventario - ARLIFT.xlsx</span>.
+              Seleccioná el archivo <span className="font-mono font-medium">Control Inventario.xlsx</span>.
               La hoja <strong>PRODUCTOS</strong> debe tener encabezados en la fila 8.
               Los registros existentes se actualizarán por código; los nuevos se insertarán.
             </p>

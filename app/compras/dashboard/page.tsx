@@ -216,7 +216,7 @@ export default function DashboardPage() {
         </div>
 
         <p className="text-center text-xs text-slate-400 pb-4">
-          REQSYS — ARLIFT S.A. · Dashboard de Notas de Pedido
+          REQSYS · Dashboard de Notas de Pedido
         </p>
       </div>
     </div>

@@ -179,7 +179,6 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
                 <span className="font-black text-white text-base tracking-wide">
                   REQ<span style={{ color: '#c9a840' }}>SYS</span>
                 </span>
-                <span className="text-xs hidden sm:block" style={{ color: 'rgba(201,168,64,0.7)' }}>ARLIFT S.A.</span>
               </div>
             </Link>
 

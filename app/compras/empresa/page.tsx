@@ -80,7 +80,7 @@ export default function EmpresaPage() {
       <h1 className="text-xl font-bold text-slate-800 mb-5">Datos de Empresa</h1>
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base text-slate-700">FACTURAR A — Información de ARLIFT S.A.</CardTitle>
+          <CardTitle className="text-base text-slate-700">FACTURAR A — Información de la Empresa</CardTitle>
           <p className="text-xs text-slate-400 mt-0.5">
             Estos datos aparecen en el bloque "FACTURAR A" de todas las Órdenes de Compra generadas.
           </p>
@@ -93,7 +93,7 @@ export default function EmpresaPage() {
                 value={form.razon_social}
                 onChange={e => setField('razon_social', e.target.value)}
                 className="mt-1 h-8 text-sm"
-                placeholder="Ej. ARLIFT ENGINEERING & SERVICES S.A."
+                placeholder="Ej. MI EMPRESA S.A."
               />
             </div>
             <div>
