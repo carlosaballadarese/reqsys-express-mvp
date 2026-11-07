@@ -175,6 +175,19 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL('/compras/ocas', req.url))
   }
 
+  // Spec: SC-007 RN-02 — Reporte de Líneas NP/OC/OCA, mismos roles que
+  // ROLES_REPORTE_LINEAS (idéntico a DASHBOARD_OCS_ROLES). Chequeo explícito
+  // por el mismo motivo que los dos de arriba: bodega/consulta no tienen
+  // ningún bloqueo propio que los frene de esta ruta (2 segmentos bajo
+  // /compras/, ninguna excepción genérica la cubre) — sin esto la página
+  // cargaría y cada descarga fallaría con 403.
+  if (
+    (pathname === '/compras/reportes/lineas' || pathname.startsWith('/compras/reportes/lineas/')) &&
+    !DASHBOARD_OCS_ROLES.includes(rol)
+  ) {
+    return NextResponse.redirect(new URL('/compras', req.url))
+  }
+
   // Admin only
   if (requiresAdmin(pathname) && rol !== 'admin') {
     return NextResponse.redirect(new URL('/compras/dashboard', req.url))

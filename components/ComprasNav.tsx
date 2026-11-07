@@ -49,6 +49,9 @@ const NAV: NavGroup[] = [
       // Spec: HU-013 CA-06
       { label: 'Líneas Pendientes de OC', href: '/compras/lineas-pendientes',
         roles: ['compras','admin','asistente_compras'] },
+      // Spec: SC-007 — mismos roles que ROLES_REPORTE_LINEAS
+      { label: 'Reporte de Líneas', href: '/compras/reportes/lineas',
+        roles: ['compras','admin','asistente_compras','gerencia'] },
       { label: 'Proveedores',       href: '/compras/proveedores',
         roles: ['compras','admin','asistente_compras'] },
     ],

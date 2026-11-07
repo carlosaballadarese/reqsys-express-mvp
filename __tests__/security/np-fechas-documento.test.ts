@@ -58,6 +58,85 @@ describe('obtenerFechaAprobacionNP', () => {
   })
 })
 
+describe('obtenerFechasAprobacionNPBulk', () => {
+  beforeEach(() => jest.resetModules())
+
+  function chainInEq(resultado: { data: unknown; error: unknown }) {
+    const chain: Record<string, unknown> = {}
+    chain.select = jest.fn(() => chain)
+    chain.in = jest.fn(() => chain)
+    chain.eq = jest.fn(() => chain)
+    chain.order = jest.fn(() => Promise.resolve(resultado))
+    return chain
+  }
+
+  it('retorna un Map con null para cada NP sin ningún evento aprobada', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'historial_np') return chainInEq({ data: [], error: null })
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const { obtenerFechasAprobacionNPBulk } = require('@/lib/np-fechas-documento')
+    const resultado = await obtenerFechasAprobacionNPBulk(['np-1', 'np-2'])
+    expect(resultado.get('np-1')).toBeNull()
+    expect(resultado.get('np-2')).toBeNull()
+  })
+
+  it('retorna Map vacío sin consultar la BD cuando la lista de IDs está vacía', async () => {
+    const { obtenerFechasAprobacionNPBulk } = require('@/lib/np-fechas-documento')
+    const resultado = await obtenerFechasAprobacionNPBulk([])
+    expect(resultado.size).toBe(0)
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('toma la fecha más reciente por NP cuando hay varios eventos aprobada (reenvío tras devolución)', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'historial_np') {
+        // ya ordenado desc por fecha (como lo hace la query real) — la más reciente aparece primero
+        return chainInEq({
+          data: [
+            { np_id: 'np-1', fecha: '2026-08-01T00:00:00Z' },
+            { np_id: 'np-1', fecha: '2026-06-01T00:00:00Z' },
+          ],
+          error: null,
+        })
+      }
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const { obtenerFechasAprobacionNPBulk } = require('@/lib/np-fechas-documento')
+    const resultado = await obtenerFechasAprobacionNPBulk(['np-1'])
+    expect(resultado.get('np-1')).toBe('2026-08-01T00:00:00Z')
+  })
+
+  it('divide en lotes de 100 IDs — 2 llamadas a la BD para 150 IDs', async () => {
+    const llamadasIn: unknown[][] = []
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'historial_np') {
+        const chain = chainInEq({ data: [], error: null })
+        const inOriginal = chain.in as (...args: unknown[]) => unknown
+        chain.in = jest.fn((...args: unknown[]) => { llamadasIn.push(args); return inOriginal(...args) })
+        return chain
+      }
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const { obtenerFechasAprobacionNPBulk } = require('@/lib/np-fechas-documento')
+    const ids = Array.from({ length: 150 }, (_, i) => `np-${i}`)
+    await obtenerFechasAprobacionNPBulk(ids)
+    expect(llamadasIn).toHaveLength(2)
+    expect((llamadasIn[0][1] as unknown[]).length).toBe(100)
+    expect((llamadasIn[1][1] as unknown[]).length).toBe(50)
+  })
+
+  it('no toca a obtenerFechaAprobacionNP existente (sin regresión)', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'historial_np') return chainMaybeSingle({ data: { fecha: '2026-07-20T10:00:00Z' }, error: null })
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const { obtenerFechaAprobacionNP } = require('@/lib/np-fechas-documento')
+    const fecha = await obtenerFechaAprobacionNP('np-1')
+    expect(fecha).toBe('2026-07-20T10:00:00Z')
+  })
+})
+
 describe('obtenerRolSolicitante', () => {
   beforeEach(() => jest.resetModules())
 

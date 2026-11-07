@@ -56,10 +56,16 @@ jest.mock('@/lib/auditoria', () => ({
 const mockObtenerFechaAprobacionNP  = jest.fn((..._args: unknown[]) => Promise.resolve<string | null>(null))
 const mockObtenerRolSolicitante     = jest.fn((..._args: unknown[]) => Promise.resolve<string | null>(null))
 const mockObtenerAprobadorPendiente = jest.fn((..._args: unknown[]) => Promise.resolve<{ nombre: string; area: string } | null>(null))
+// Spec: SC-007 — usada por lib/reporte-lineas-np-query.ts; lógica real cubierta
+// por __tests__/security/np-fechas-documento.test.ts.
+const mockObtenerFechasAprobacionNPBulk = jest.fn((npIds: string[]) =>
+  Promise.resolve(new Map<string, string | null>(npIds.map(id => [id, null])))
+)
 jest.mock('@/lib/np-fechas-documento', () => ({
-  obtenerFechaAprobacionNP:  (...args: unknown[]) => mockObtenerFechaAprobacionNP(...args),
-  obtenerRolSolicitante:     (...args: unknown[]) => mockObtenerRolSolicitante(...args),
-  obtenerAprobadorPendiente: (...args: unknown[]) => mockObtenerAprobadorPendiente(...args),
+  obtenerFechaAprobacionNP:      (...args: unknown[]) => mockObtenerFechaAprobacionNP(...args),
+  obtenerRolSolicitante:         (...args: unknown[]) => mockObtenerRolSolicitante(...args),
+  obtenerAprobadorPendiente:     (...args: unknown[]) => mockObtenerAprobadorPendiente(...args),
+  obtenerFechasAprobacionNPBulk: (...args: [string[]]) => mockObtenerFechasAprobacionNPBulk(...args),
 }))
 
 const mockActualizarEstadoNP = jest.fn((..._args: unknown[]) => Promise.resolve())
@@ -5844,6 +5850,155 @@ describe('GET /api/compras/nps/lineas-pendientes', () => {
       expect(filasEscritas[0].accion).toBe('')
       expect(filasEscritas[0].estado).toBe('OC directa')
     })
+  })
+})
+
+// ── SC-007 — Reporte de líneas NP/OC/OCA con trazabilidad completa ──────────
+
+describe('GET /api/compras/reportes/lineas/excel', () => {
+  const { GET } = require('@/app/api/compras/reportes/lineas/excel/route')
+
+  function chainAwaitable(data: unknown) {
+    const chain: any = {}
+    const noop = jest.fn(() => chain)
+    chain.select = noop
+    chain.order  = noop
+    chain.eq     = noop
+    chain.ilike  = noop
+    chain.in     = noop
+    chain.not    = jest.fn(() => Promise.resolve({ data, error: null }))
+    chain.single = jest.fn(() => Promise.resolve({ data: null, error: null }))
+    chain.then   = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve)
+    return chain
+  }
+
+  function setupReporte(opts: {
+    rol: string
+    nps?: any[]
+    itemsNp?: any[]
+    itemsOc?: any[]
+    ocs?: any[]
+    ocaItems?: any[]
+    ocas?: any[]
+    proveedores?: any[]
+  }) {
+    const {
+      rol, nps = [], itemsNp = [], itemsOc = [], ocs = [], ocaItems = [], ocas = [], proveedores = [],
+    } = opts
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        const chain = chainAwaitable([])
+        chain.single = jest.fn(() => Promise.resolve({ data: { rol }, error: null }))
+        return chain
+      }
+      if (table === 'notas_pedido')    return chainAwaitable(nps)
+      if (table === 'items_np')        return chainAwaitable(itemsNp)
+      if (table === 'items_oc')        return chainAwaitable(itemsOc)
+      if (table === 'registro_compras') return chainAwaitable(ocs)
+      if (table === 'oca_items')       return chainAwaitable(ocaItems)
+      if (table === 'oca')             return chainAwaitable(ocas)
+      if (table === 'proveedores')     return chainAwaitable(proveedores)
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+  }
+
+  const npBase = { id: 'np-1', numero: 'NP-2026-0050', area: 'Operaciones', estado: 'aprobada' }
+  const itemBase = {
+    id: 'item-1', nota_pedido_id: 'np-1', linea: 1, codigo: 'AL-I0050',
+    descripcion: 'Válvula de control', cantidad: 3, precio_unitario: 15, proveedor_sugerido: 'Proveedor Sugerido X',
+  }
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/reportes/lineas/excel'))
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'bodega', 'consulta', 'coordinador'])(
+    'CA-08: devuelve 403 para rol %s (fuera de ROLES_REPORTE_LINEAS)',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupReporte({ rol })
+      const res = await GET(makeRequest('http://localhost/api/compras/reportes/lineas/excel'))
+      expect(res.status).toBe(403)
+    }
+  )
+
+  it.each(['compras', 'admin', 'asistente_compras', 'gerencia'])(
+    'devuelve 200 con Content-Type/Content-Disposition de xlsx para rol %s',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupReporte({ rol, nps: [npBase], itemsNp: [itemBase] })
+      const res = await GET(makeRequest('http://localhost/api/compras/reportes/lineas/excel'))
+      expect(res.status).toBe(200)
+      expect(res.headers.get('Content-Type')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      expect(res.headers.get('Content-Disposition')).toMatch(/^attachment; filename="Reporte_Lineas_NP_OC_OCA_\d{8}_\d{4}\.xlsx"$/)
+    }
+  )
+
+  it('CA-02: una línea sin cobertura escribe 1 fila con los bloques de OC/OCA vacíos', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupReporte({ rol: 'compras', nps: [npBase], itemsNp: [itemBase] })
+    const res = await GET(makeRequest('http://localhost/api/compras/reportes/lineas/excel'))
+    expect(res.status).toBe(200)
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const ExcelJS = require('exceljs').default
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('cualquiera')
+    const filasEscritas = ws.addRow.mock.calls.map((c: any[]) => c[0])
+
+    expect(filasEscritas).toHaveLength(1)
+    expect(filasEscritas[0].np_numero).toBe('NP-2026-0050')
+    expect(filasEscritas[0].proveedor_sugerido).toBe('Proveedor Sugerido X')
+    expect(filasEscritas[0].oc_numero).toBe('')
+    expect(filasEscritas[0].oca_numero).toBe('')
+  })
+
+  it('CA-05: una línea con OC real y OCA vigente simultáneas escribe ambos bloques en la misma fila', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupReporte({
+      rol: 'compras',
+      nps: [npBase],
+      itemsNp: [itemBase],
+      itemsOc: [{ item_np_id: 'item-1', registro_compras_id: 'oc-1', precio_unitario: 14 }],
+      ocs: [{ id: 'oc-1', numero_oc: 'OC-2026-0050', proveedor: 'Proveedor Real OC', aprobado_en: '2026-08-01T00:00:00Z' }],
+      ocaItems: [{ item_np_id: 'item-1', oca_id: 'oca-1' }],
+      ocas: [{ id: 'oca-1', numero_oca: 'OCA-2026-0005', proveedor_id: 'prov-1', aprobado_en: '2026-07-01T00:00:00Z' }],
+      proveedores: [{ id: 'prov-1', nombre: 'Proveedor Real OCA' }],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/reportes/lineas/excel'))
+    expect(res.status).toBe(200)
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const ExcelJS = require('exceljs').default
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('cualquiera')
+    const filasEscritas = ws.addRow.mock.calls.map((c: any[]) => c[0])
+
+    expect(filasEscritas).toHaveLength(1)
+    expect(filasEscritas[0].oc_numero).toBe('OC-2026-0050')
+    expect(filasEscritas[0].oc_proveedor).toBe('Proveedor Real OC')
+    expect(filasEscritas[0].oca_numero).toBe('OCA-2026-0005')
+    expect(filasEscritas[0].oca_proveedor).toBe('Proveedor Real OCA')
+  })
+
+  it('acepta los mismos query params de filtro (reutiliza obtenerFilasReporteLineas)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let chainNP: any
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        const c = chainAwaitable([])
+        c.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+        return c
+      }
+      if (table === 'notas_pedido') { chainNP = chainAwaitable([]); return chainNP }
+      return chainAwaitable([])
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/reportes/lineas/excel?area=Operaciones&estado_np=completada'))
+    expect(res.status).toBe(200)
+    expect(chainNP.ilike).toHaveBeenCalledWith('area', '%Operaciones%')
+    expect(chainNP.eq).toHaveBeenCalledWith('estado', 'completada')
   })
 })
 
