@@ -88,6 +88,32 @@ type NPItem = {
   cantidad: number
 }
 
+// Hotfix de producción (2026-11-07): el PUT de edición devuelve códigos de
+// error crudos (ver app/api/compras/ordenes/[id]/route.ts) que antes se
+// mostraban tal cual al usuario (ej. "justificacion_requerida", sin ningún
+// detalle de a qué línea se refería). Se traducen los 3 códigos conocidos a
+// un mensaje legible; cualquier otro `data.error` ya es texto humano y se
+// muestra sin cambios.
+function mensajeErrorGuardar(data: {
+  error?: string
+  lineas?: number[]
+  errores?: { linea_oc: number; cantidad_oc: number; cantidad_np: number }[]
+}): string {
+  if (data.error === 'justificacion_requerida') {
+    const detalle = (data.errores ?? [])
+      .map(e => `línea ${e.linea_oc} (cantidad OC: ${e.cantidad_oc}, cantidad NP: ${e.cantidad_np})`)
+      .join('; ')
+    return `Falta justificación de cantidad en ${detalle || 'una o más líneas'}. Selecciona el ítem de NP vinculado en esa línea y completa el campo "Justificación de cantidad".`
+  }
+  if (data.error === 'item_sin_enlace_np') {
+    return `Todas las líneas con NP origen deben tener un ítem de NP vinculado (línea${(data.lineas?.length ?? 0) > 1 ? 's' : ''} ${(data.lineas ?? []).join(', ')}).`
+  }
+  if (data.error === 'item_no_pertenece_a_np') {
+    return `Una o más líneas están vinculadas a un ítem que no pertenece a ninguna de las NPs de esta OC (línea${(data.lineas?.length ?? 0) > 1 ? 's' : ''} ${(data.lineas ?? []).join(', ')}).`
+  }
+  return data.error || 'Error al guardar'
+}
+
 type Proveedor = {
   id: string; nombre: string; clasificacion: string | null
   categoria: string | null; ciudad: string | null
@@ -385,7 +411,15 @@ export default function DetalleOCPage() {
       justificacion_cantidad: i.justificacion_cantidad ?? null,
     })))
 
-    // Cargar ítems NP para selector y mapa de cantidades (solo si tiene NP origen)
+    // Cargar ítems NP para selector y mapa de cantidades.
+    // Hotfix de producción (2026-11-07): OC-2026-0484 (consolidada desde 4 NPs)
+    // quedó bloqueada con "justificacion_requerida" sin ningún campo para
+    // resolverlo — esta rama solo cubría OCs de 1 sola NP (nota_pedido_id
+    // seteado); en una consolidada (HU-016) nota_pedido_id es NULL y
+    // cantidadNPMap quedaba vacío, así que el backend exigía la
+    // justificación (valida contra items_np real) pero la UI nunca mostraba
+    // el textarea para escribirla. Deuda técnica ya documentada en
+    // sdd-validation.md de HU-016 como "no bloqueante" — resultó serlo.
     if (oc.nota_pedido_id) {
       fetch(`/api/compras/nps/${oc.nota_pedido_id}`)
         .then(r => r.json())
@@ -396,6 +430,28 @@ export default function DetalleOCPage() {
             descripcion: it.descripcion,
             cantidad:    Number(it.cantidad),
           }))
+          setNpItemsEdit(npItems)
+          setCantidadNPMap(npItems.reduce(
+            (acc, it) => ({ ...acc, [it.id]: it.cantidad }),
+            {} as Record<string, number>
+          ))
+        })
+        .catch(console.error)
+    } else if (oc.nps_origen && oc.nps_origen.length > 0) {
+      Promise.all(
+        oc.nps_origen.map(npOrigen =>
+          fetch(`/api/compras/nps/${npOrigen.id}`)
+            .then(r => r.json())
+            .then(data => (data.items ?? []).map((it: { id: string; linea: number; descripcion: string; cantidad: number }): NPItem => ({
+              id:          it.id,
+              linea:       it.linea,
+              descripcion: `${data.np?.numero ?? npOrigen.numero} — ${it.descripcion}`,
+              cantidad:    Number(it.cantidad),
+            })))
+        )
+      )
+        .then(listas => {
+          const npItems = listas.flat()
           setNpItemsEdit(npItems)
           setCantidadNPMap(npItems.reduce(
             (acc, it) => ({ ...acc, [it.id]: it.cantidad }),
@@ -437,12 +493,20 @@ export default function DetalleOCPage() {
     if (!proveedorId) { setErrorEdit('Debe seleccionar un proveedor registrado'); return }
     if (itemsEdit.length === 0)  { setErrorEdit('La OC debe tener al menos un ítem'); return }
     if (itemsEdit.some(i => !String(i.descripcion).trim())) { setErrorEdit('Todos los ítems deben tener descripción'); return }
+    // Hotfix de producción (2026-11-07): este bloque antes solo corría para
+    // `oc?.nota_pedido_id` (OC de 1 sola NP) — una OC consolidada (HU-016)
+    // tiene nota_pedido_id=NULL, así que nunca se pre-validaba en el cliente
+    // y el error llegaba crudo desde el backend sin que el usuario pudiera
+    // corregirlo. Replica exactamente la condición `npLinked` del backend
+    // (app/api/compras/ordenes/[id]/route.ts): enlazada a NP si ya tenía
+    // nota_pedido_id O si alguna línea entrante trae item_np_id.
+    const npLinked = Boolean(oc?.nota_pedido_id) || itemsEdit.some(i => i.item_np_id)
     // CA-02: todos los ítems con NP origen deben tener item_np_id
-    if (oc?.nota_pedido_id && itemsEdit.some(i => !i.item_np_id)) {
+    if (npLinked && itemsEdit.some(i => !i.item_np_id)) {
       setErrorEdit('Todos los ítems deben estar vinculados a una línea de la NP.'); return
     }
     // CA-03: justificación requerida cuando la cantidad difiere de la NP
-    if (oc?.nota_pedido_id) {
+    if (npLinked) {
       const sinJustificacion = itemsEdit.filter(i =>
         i.item_np_id &&
         cantidadNPMap[i.item_np_id] !== undefined &&
@@ -489,7 +553,7 @@ export default function DetalleOCPage() {
         return
       }
       if (data.success) { setEditando(false); cargar() }
-      else setErrorEdit(data.error || 'Error al guardar')
+      else setErrorEdit(mensajeErrorGuardar(data))
     } catch { setErrorEdit('Error de conexión') }
     finally  { setGuardando(false) }
   }
