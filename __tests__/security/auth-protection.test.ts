@@ -3823,6 +3823,89 @@ describe('GET /api/compras/dashboard/cobertura — HU-016 CA-10 (OC consolidada)
   })
 })
 
+describe('GET /api/compras/dashboard/cobertura — regresión 2026-11-10 (items_np/registro_compras sin batching)', () => {
+  const { GET } = require('@/app/api/compras/dashboard/cobertura/route')
+
+  // Spec: hallazgo real contra datos reales de producción (306 NPs, 287 OCs
+  // restauradas en dev:local) — items_np.in('nota_pedido_id', npIds) y
+  // registro_compras.in('id', ocIdsCandidatos) nunca se agruparon en lotes
+  // (a diferencia de items_oc/oca_items, ya corregidos en HU-016), así que
+  // con más de 100 ids ambas excedían el límite de URI de PostgREST/Kong y
+  // devolvían { data: null, error }, ignorado en silencio: total_solicitado
+  // y total_comprometido quedaban en 0 para TODAS las NPs sin excepción.
+  it('agrega correctamente cuando hay más de 100 NPs y más de 100 OCs (fuerza >1 lote en ambas consultas)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+
+    const N = 150 // > LOTE (100) a propósito
+    const npsMock = Array.from({ length: N }, (_, i) => ({
+      id: `np-${i}`, numero: `NP-2026-${i}`, area: 'Operaciones', estado: 'oc_aprobada',
+      prioridad: 'alta', solicitante_nombre: 'Ana', created_at: '2026-01-15T00:00:00Z',
+    }))
+    const itemsNpMock = npsMock.map((np, i) => ({ id: `item-${i}`, nota_pedido_id: np.id, cantidad: 2 }))
+    const itemsOcMock = itemsNpMock.map((item, i) => ({ item_np_id: item.id, cantidad: 2, registro_compras_id: `oc-${i}` }))
+    const ocsMock = itemsOcMock.map((it) => ({ id: it.registro_compras_id }))
+
+    // Simula el comportamiento real de PostgREST: si el `.in(columna, ids)`
+    // recibe más de LOTE (100) ids en una sola llamada, se trata como "URI
+    // too long" (como ocurriría sin el fix) — fuerza a que el test solo pase
+    // si el código real divide en lotes de <=100. `.in()` real recibe 2
+    // argumentos (columna, valores) — el mock debe aceptar ambos.
+    function inLimitado<T>(porId: (ids: string[]) => T[]) {
+      return (_columna: string, ids: string[]) => {
+        if (ids.length > 100) return Promise.resolve({ data: null, error: { message: 'URI too long' } })
+        return Promise.resolve({ data: porId(ids), error: null })
+      }
+    }
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'compras' }, error: null }) }) }) }
+      }
+      if (table === 'notas_pedido') {
+        return { select: () => ({ in: () => Promise.resolve({ data: npsMock, error: null }) }) }
+      }
+      if (table === 'items_np') {
+        return { select: () => ({ in: inLimitado((ids) => itemsNpMock.filter(i => ids.includes(i.nota_pedido_id))) }) }
+      }
+      if (table === 'items_oc') {
+        return { select: () => ({ in: inLimitado((ids) => itemsOcMock.filter(i => ids.includes(i.item_np_id))) }) }
+      }
+      if (table === 'registro_compras') {
+        return {
+          select: () => ({
+            in: (_columna: string, ids: string[]) => ({
+              neq: () => ({
+                neq: () => (ids.length > 100
+                  ? Promise.resolve({ data: null, error: { message: 'URI too long' } })
+                  : Promise.resolve({ data: ocsMock.filter(oc => ids.includes(oc.id)), error: null })),
+              }),
+            }),
+          }),
+        }
+      }
+      if (table === 'oca_items') {
+        return { select: () => ({ in: () => ({ not: () => Promise.resolve({ data: [], error: null }) }) }) }
+      }
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+
+    const req = makeRequest('http://localhost/api/compras/dashboard/cobertura')
+    const res = await GET(req)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    expect(body.nps).toHaveLength(N)
+    // Si cualquiera de las 2 consultas no estuviera en lotes, estos serían 0 para todas.
+    const conSolicitadoCero = body.nps.filter((np: { total_solicitado: number }) => np.total_solicitado === 0)
+    const conComprometidoCero = body.nps.filter((np: { total_comprometido: number }) => np.total_comprometido === 0)
+    expect(conSolicitadoCero).toHaveLength(0)
+    expect(conComprometidoCero).toHaveLength(0)
+    expect(body.nps.every((np: { total_solicitado: number; total_comprometido: number; np_cubierta: boolean }) =>
+      np.np_cubierta === (np.total_comprometido >= np.total_solicitado)
+    )).toBe(true)
+  })
+})
+
 describe('PUT /api/compras/ordenes/[id] — HU-003 enlace y justificación', () => {
   const { PUT } = require('@/app/api/compras/ordenes/[id]/route')
 

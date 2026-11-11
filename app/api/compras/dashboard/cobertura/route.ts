@@ -56,13 +56,32 @@ export async function GET(req: NextRequest) {
 
     const npIds = nps.map(np => np.id)
 
-    // Query 2: ítems de estas NPs
-    const { data: itemsNP } = await adminClient()
-      .from('items_np')
-      .select('id, nota_pedido_id, cantidad')
-      .in('nota_pedido_id', npIds)
+    // Spec: hallazgo real 2026-11-10 (mismo patrón de HU-016 CA-10) — a escala
+    // real de producción (306 NPs calificadas) un solo .in('nota_pedido_id',
+    // npIds) excede el límite de URI del gateway PostgREST/Kong ("URI too
+    // long"); el error se ignoraba en silencio (`const { data }` sin
+    // desestructurar `error`), dejando `itemsNP` en `null` y por lo tanto
+    // total_solicitado=0 para TODAS las NPs sin excepción. El comentario
+    // original de más abajo ("Query 2, cardinalidad menor, no lo necesita")
+    // ya no es cierto a esta escala — se agrupa en lotes igual que items_oc/
+    // oca_items.
+    const LOTE = 100
+    async function itemsNpEnLotes(ids: string[]) {
+      const filas: { id: string; nota_pedido_id: string; cantidad: number }[] = []
+      for (let i = 0; i < ids.length; i += LOTE) {
+        const lote = ids.slice(i, i + LOTE)
+        const { data, error } = await adminClient()
+          .from('items_np')
+          .select('id, nota_pedido_id, cantidad')
+          .in('nota_pedido_id', lote)
+        if (error) { console.error('dashboard/cobertura — error en lote items_np:', error); continue }
+        filas.push(...(data ?? []))
+      }
+      return filas
+    }
 
-    const npItemIds = (itemsNP ?? []).map((item: { id: string }) => item.id)
+    const itemsNP = await itemsNpEnLotes(npIds)
+    const npItemIds = itemsNP.map((item: { id: string }) => item.id)
 
     // Spec: HU-016 CA-10 (mismo criterio que lib/np-cobertura.ts::calcularCoberturaNP,
     // Decisión 6 de sdd-design.md — no se extrae función compartida, es cálculo bulk con
@@ -74,8 +93,8 @@ export async function GET(req: NextRequest) {
     // 300+ ítems) un solo .in('item_np_id', npItemIds) genera una URL que excede el
     // límite de PostgREST/Kong ("URI too long"), Supabase devuelve { data: null, error }
     // y el fetch original lo ignoraba en silencio (comprometido quedaba en 0 para TODAS
-    // las NPs). Se agrupa en lotes — el Query 2 (NPs, cardinalidad menor) no lo necesita.
-    const LOTE = 100
+    // las NPs). Se agrupa en lotes (LOTE ya declarado arriba, reutilizado por
+    // itemsNpEnLotes/itemsOcEnLotes/ocaItemsEnLotes).
     async function itemsOcEnLotes(itemNpIds: string[]) {
       const filas: { item_np_id: string | null; cantidad: number; registro_compras_id: string }[] = []
       for (let i = 0; i < itemNpIds.length; i += LOTE) {
@@ -100,15 +119,26 @@ export async function GET(req: NextRequest) {
 
       // Query 4: cuáles de esas OCs candidatas siguen vigentes
       if (ocIdsCandidatos.length > 0) {
-        const { data: ocsValidas, error: errOcsValidas } = await adminClient()
-          .from('registro_compras')
-          .select('id')
-          .in('id', ocIdsCandidatos)
-          .neq('estado_oc', 'rechazada')
-          .neq('estado_oc', 'cancelada')
-        if (errOcsValidas) console.error('dashboard/cobertura — error al validar OCs:', errOcsValidas)
+        // Spec: hallazgo real 2026-11-10 — mismo patrón que itemsNpEnLotes:
+        // a escala real (287 OCs) un solo .in('id', ocIdsCandidatos) también
+        // excedía el límite de URI ("URI too long", confirmado en el log del
+        // servidor), dejando ocIdsValidos vacío y por lo tanto
+        // total_comprometido=0 para TODAS las NPs sin excepción, sin importar
+        // que items_oc sí tuviera la OC real vinculada.
+        const ocsValidas: { id: string }[] = []
+        for (let i = 0; i < ocIdsCandidatos.length; i += LOTE) {
+          const lote = ocIdsCandidatos.slice(i, i + LOTE)
+          const { data, error } = await adminClient()
+            .from('registro_compras')
+            .select('id')
+            .in('id', lote)
+            .neq('estado_oc', 'rechazada')
+            .neq('estado_oc', 'cancelada')
+          if (error) { console.error('dashboard/cobertura — error en lote registro_compras:', error); continue }
+          ocsValidas.push(...(data ?? []))
+        }
 
-        const ocIdsValidos = new Set((ocsValidas ?? []).map((oc: { id: string }) => oc.id))
+        const ocIdsValidos = new Set(ocsValidas.map((oc: { id: string }) => oc.id))
 
         for (const it of (itemsOCTodos ?? [])) {
           if (!it.item_np_id) continue
@@ -147,12 +177,19 @@ export async function GET(req: NextRequest) {
       const ocaIdsCandidatos = [...new Set(ocaItemsTodos.map(it => it.oca_id))]
 
       if (ocaIdsCandidatos.length > 0) {
-        const { data: ocasValidas, error: errOcasValidas } = await adminClient()
-          .from('oca').select('id, estado').in('id', ocaIdsCandidatos)
-        if (errOcasValidas) console.error('dashboard/cobertura — error al validar OCAs:', errOcasValidas)
+        // Mismo patrón defensivo de lotes que registro_compras/items_np/items_oc
+        // arriba — hoy con 1 sola OCA real no se manifiesta, pero es el mismo
+        // riesgo ya confirmado dos veces en este archivo a escala real.
+        const ocasValidas: { id: string; estado: string }[] = []
+        for (let i = 0; i < ocaIdsCandidatos.length; i += LOTE) {
+          const lote = ocaIdsCandidatos.slice(i, i + LOTE)
+          const { data, error } = await adminClient().from('oca').select('id, estado').in('id', lote)
+          if (error) { console.error('dashboard/cobertura — error en lote oca:', error); continue }
+          ocasValidas.push(...(data ?? []))
+        }
 
         const ocaIdsVivos = new Set(
-          (ocasValidas ?? []).filter(oca => (ESTADOS_OCA_VIVAS as string[]).includes(oca.estado)).map(oca => oca.id)
+          ocasValidas.filter(oca => (ESTADOS_OCA_VIVAS as string[]).includes(oca.estado)).map(oca => oca.id)
         )
 
         for (const it of ocaItemsTodos) {
