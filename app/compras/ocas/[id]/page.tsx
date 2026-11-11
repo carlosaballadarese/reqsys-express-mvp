@@ -81,6 +81,9 @@ type Release = {
   facturado: boolean; numero_factura: string | null
   // Spec: HU-024 CA-03
   alerta_antiguedad: boolean
+  // Spec: fix UX real (2026-11-09) — autorización real por release, ya no
+  // un booleano genérico de página (ver puedeIntentarResolverRelease, retirado)
+  puede_resolver: boolean
 }
 type ReleaseItemForm = { oca_item_id: string; seleccionado: boolean; cantidad: string; precio_unitario: string }
 const RELEASE_ESTADO_LABEL: Record<Release['estado'], string> = {
@@ -434,11 +437,6 @@ export default function DetalleOcaPage() {
   if (cargando) return <div className="text-center py-20 text-slate-400">Cargando...</div>
   if (!oca) return <div className="text-center py-20 text-slate-400">OCA no encontrada</div>
 
-  // Spec: HU-021 — visibilidad de botones Aprobar/Rechazar/Anular en el cliente
-  // es informativa (RN-02 real lo enforcea el backend por área/compras/admin);
-  // se oculta solo para los roles explícitamente de solo lectura en todo el
-  // sistema (gerencia/consulta) para no sugerir una acción que nunca procede.
-  const puedeIntentarResolverRelease = rol !== null && !['gerencia', 'consulta'].includes(rol)
   const puedeGenerarRelease = rol !== null && ROLES_GENERAR_RELEASE.includes(rol)
 
   return (
@@ -799,7 +797,7 @@ export default function DetalleOcaPage() {
                       )}
                     </div>
                     <div className="flex gap-2">
-                      {puedeIntentarResolverRelease && r.estado === 'pendiente_aprobacion' && (
+                      {r.puede_resolver && r.estado === 'pendiente_aprobacion' && (
                         <>
                           <Button className="btn-primary text-xs h-7" onClick={() => setModalResolverRelease({ release: r, decision: 'aprobar' })}>
                             ✓ Aprobar
@@ -809,7 +807,7 @@ export default function DetalleOcaPage() {
                           </Button>
                         </>
                       )}
-                      {puedeIntentarResolverRelease && r.estado === 'aprobado' && (
+                      {r.puede_resolver && r.estado === 'aprobado' && (
                         <Button variant="outline" className="text-xs h-7 text-slate-600" onClick={() => setModalAnularRelease(r)}>
                           Anular
                         </Button>

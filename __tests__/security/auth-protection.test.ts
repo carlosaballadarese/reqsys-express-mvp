@@ -7867,10 +7867,13 @@ describe('GET /api/compras/ocas/[id]/releases', () => {
   const { GET } = require('@/app/api/compras/ocas/[id]/releases/route')
   const ctx = { params: Promise.resolve({ id: 'oca-1' }) }
 
-  function setupMock(opts: { rol?: string | null; releases?: unknown[] } = {}) {
+  function setupMock(opts: { rol?: string | null; releases?: unknown[]; coordinadorMatch?: unknown } = {}) {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'perfiles') return chainForEnmiendas([], opts.rol ? { rol: opts.rol } : null)
       if (table === 'oca_releases') return chainForEnmiendas(opts.releases ?? [{ id: 'release-1', estado: 'aprobado', created_at: '2026-01-01T00:00:00Z' }])
+      // Spec: fix UX real (2026-11-09) — esAutorizadoParaResolverRelease() consulta
+      // coordinadores_area vía .maybeSingle() cuando el rol no es compras/admin.
+      if (table === 'coordinadores_area') return chainForEnmiendas([], null, opts.coordinadorMatch ?? null)
       return chainForEnmiendas([])
     })
   }
@@ -7912,6 +7915,43 @@ describe('GET /api/compras/ocas/[id]/releases', () => {
     const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1/releases'), ctx)
     const body = await res.json()
     expect(body[0].alerta_antiguedad).toBe(false)
+  })
+
+  // Spec: fix UX real (2026-11-09) — hallazgo del usuario en dev:local: un
+  // solicitante sin relación con el área veía igual el botón "Aprobar" de un
+  // release (visibilidad client-side antes "informativa", el backend ya lo
+  // bloqueaba con 403 pero el botón no debía aparecer). `puede_resolver` ahora
+  // reutiliza la misma función de autorización del endpoint `resolver`.
+  it('puede_resolver=true para rol compras sin necesitar coincidencia de coordinador', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({ rol: 'compras', releases: [{ id: 'release-1', estado: 'pendiente_aprobacion', created_at: '2026-01-01T00:00:00Z', aprobador_asignado_id: null }] })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1/releases'), ctx)
+    const body = await res.json()
+    expect(body[0].puede_resolver).toBe(true)
+  })
+
+  it('puede_resolver=true para un rol no privilegiado cuyo email coincide con el coordinador real asignado', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({
+      rol: 'solicitante',
+      releases: [{ id: 'release-1', estado: 'pendiente_aprobacion', created_at: '2026-01-01T00:00:00Z', aprobador_asignado_id: 'coord-1' }],
+      coordinadorMatch: { email: 'test@arlift.com' },
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1/releases'), ctx)
+    const body = await res.json()
+    expect(body[0].puede_resolver).toBe(true)
+  })
+
+  it('puede_resolver=false para un solicitante sin relación con el área del release — caso real encontrado en dev:local', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupMock({
+      rol: 'solicitante',
+      releases: [{ id: 'release-1', estado: 'pendiente_aprobacion', created_at: '2026-01-01T00:00:00Z', aprobador_asignado_id: 'coord-qhse' }],
+      coordinadorMatch: null,
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/ocas/oca-1/releases'), ctx)
+    const body = await res.json()
+    expect(body[0].puede_resolver).toBe(false)
   })
 })
 

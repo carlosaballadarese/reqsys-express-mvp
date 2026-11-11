@@ -6,6 +6,7 @@ import { calcularPresupuestoConsumido, ESTADOS_OCA_ACTIVA } from '@/lib/oca-esta
 import { validarGenerarRelease, type ReleaseItemInput } from '@/lib/oca-release-validaciones'
 import { calcularAprobadorAsignado } from '@/lib/np-area'
 import { calcularAlertaReleasePendiente } from '@/lib/oca-alertas'
+import { esAutorizadoParaResolverRelease } from '@/lib/oca-release-autorizacion'
 
 // Spec: HU-021 RN-01 — quién genera un release
 const ROLES_GENERAR = ['solicitante', 'bodega', 'compras', 'admin', 'asistente_compras']
@@ -148,11 +149,16 @@ export async function GET(
       .from('oca_releases').select('*').eq('oca_id', id).order('created_at', { ascending: false })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    // Spec: HU-024 CA-03
-    const resultado = (releases ?? []).map((r: { created_at: string; estado: string }) => ({
+    // Spec: HU-024 CA-03 + fix UX real (2026-11-09) — `puede_resolver` reutiliza
+    // la MISMA función de autorización que el propio endpoint `resolver` usa
+    // para bloquear, en vez de dejar que el frontend muestre "Aprobar/Rechazar"
+    // a cualquier rol confiando solo en el 403 del backend (hallazgo real:
+    // solicitante/bodega veían el botón para releases que nunca podían resolver).
+    const resultado = await Promise.all((releases ?? []).map(async (r: { created_at: string; estado: string; aprobador_asignado_id: string | null }) => ({
       ...r,
       alerta_antiguedad: calcularAlertaReleasePendiente(r.created_at, r.estado),
-    }))
+      puede_resolver: await esAutorizadoParaResolverRelease(perfil.rol, user.email ?? '', r.aprobador_asignado_id),
+    })))
 
     return NextResponse.json(resultado)
   } catch (err) {
