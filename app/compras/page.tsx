@@ -1,11 +1,16 @@
 'use client'
 
+export const dynamic = 'force-dynamic'
+
 import { useEffect, useState, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
+import type { Rol } from '@/lib/nav-config'
+import { vistasMisNPsVisibles } from '@/lib/vistas-mis-nps'
 
 type NP = {
   id: string
@@ -87,8 +92,42 @@ const ESTADOS = [
   'oca_generada', 'oca_oc_generada', 'cancelada',
 ]
 
+// Spec: SC-009-v2.md CA-01/CA-09 — panel "Vistas", compartido entre el aside
+// de desktop y el overlay de mobile (mismo contenido, distinto contenedor).
+function renderVistas(rol: Rol, userId: string, npsBase: NP[], searchParams: URLSearchParams, onNavegar?: () => void) {
+  return (
+    <nav className="space-y-1">
+      {vistasMisNPsVisibles({ id: userId, rol }).map(v => {
+        const activa = v.esActiva(searchParams)
+        return (
+          <Link
+            key={v.label}
+            href={v.construirHref({ id: userId, rol })}
+            onClick={onNavegar}
+            className={`flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors ${
+              activa ? 'bg-[#1a5252]/10 text-[#1a5252] font-semibold' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <span>{v.label}</span>
+            <span className={`text-xs rounded-full px-2 py-0.5 ${activa ? 'bg-[#1a5252] text-white' : 'bg-slate-100 text-slate-500'}`}>
+              {v.contar(npsBase)}
+            </span>
+          </Link>
+        )
+      })}
+    </nav>
+  )
+}
+
 export default function ComprasPage() {
+  // Spec: SC-008-v3.md — "Vistas guardadas" de Inicio llegan con ?estado=
+  // en la URL; se usa como valor inicial del filtro sin cambiar el
+  // comportamiento por defecto (sin query string, arranca en 'todos' igual que hoy).
+  const searchParams = useSearchParams()
   const [nps, setNps]           = useState<NP[]>([])
+  const [npsBase, setNpsBase]   = useState<NP[]>([])
+  const [filtrosAbiertos, setFiltrosAbiertos]       = useState(false)
+  const [vistasMobileAbiertas, setVistasMobileAbiertas] = useState(false)
   const [cargando, setCargando] = useState(true)
   const [q, setQ]               = useState('')
   const [estado, setEstado]     = useState('todos')
@@ -141,6 +180,25 @@ export default function ComprasPage() {
   }, [estado, area, q])
 
   useEffect(() => { cargar() }, [cargar])
+
+  // Spec: SC-009-v2.md CA-09 — un click en "Vistas" de esta misma pantalla
+  // (ej. desde la tabla ya montada) no remonta el componente, solo cambia
+  // el query string: sin este efecto, `estado` quedaría congelado en el
+  // valor leído al montar y la vista clickeada no se aplicaría ni se
+  // resaltaría. Mismo caso cuando se llega desde /compras/inicio (SC-008).
+  useEffect(() => {
+    setEstado(searchParams.get('estado') ?? 'todos')
+  }, [searchParams])
+
+  // Spec: SC-009-v2.md RN-02 — baseline sin filtro, solo para los contadores
+  // del panel "Vistas"; no sustituye a `cargar()` (que sigue aplicando los
+  // filtros activos a la tabla).
+  useEffect(() => {
+    fetch('/api/compras/nps')
+      .then(r => r.json())
+      .then(data => setNpsBase(Array.isArray(data) ? data : []))
+      .catch(() => {})
+  }, [])
 
   function abrirAsignar(np: NP) {
     setNpAsignar(np)
@@ -221,42 +279,90 @@ export default function ComprasPage() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-6 space-y-4">
-        {/* Filtros */}
-        <Card>
-          <CardContent className="pt-4 pb-4">
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+      <div className="max-w-7xl mx-auto px-6 py-6">
+        <div className="flex flex-col lg:flex-row gap-4">
+          {/* Vistas — acceso rápido (CA-01/CA-09) */}
+          {rol && (
+            <>
+              <button
+                onClick={() => setVistasMobileAbiertas(true)}
+                className="lg:hidden flex items-center gap-2 text-sm font-medium text-slate-600 px-3 py-2 rounded-md border border-slate-200 bg-white w-fit"
+              >
+                ☰ Vistas
+              </button>
+
+              {vistasMobileAbiertas && (
+                <div
+                  className="lg:hidden fixed inset-0 z-[90] bg-black/40"
+                  onClick={() => setVistasMobileAbiertas(false)}
+                >
+                  <aside
+                    onClick={e => e.stopPropagation()}
+                    className="fixed inset-y-0 left-0 w-64 bg-white shadow-xl overflow-y-auto p-3"
+                  >
+                    {renderVistas(rol as Rol, userId, npsBase, searchParams, () => setVistasMobileAbiertas(false))}
+                  </aside>
+                </div>
+              )}
+
+              <aside className="hidden lg:block lg:w-56 shrink-0">
+                <Card>
+                  <CardContent className="p-2">
+                    {renderVistas(rol as Rol, userId, npsBase, searchParams)}
+                  </CardContent>
+                </Card>
+              </aside>
+            </>
+          )}
+
+          {/* Columna central */}
+          <div className="flex-1 min-w-0 space-y-4">
+            <div className="flex gap-2">
               <Input
                 placeholder="Buscar número o solicitante..."
                 value={q}
                 onChange={e => setQ(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && cargar()}
-                className="h-9 text-sm"
+                className="h-9 text-sm flex-1"
               />
-              <select
-                value={estado}
-                onChange={e => setEstado(e.target.value)}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              <Button onClick={cargar} className="h-9 btn-primary shrink-0">Buscar</Button>
+              <Button
+                variant="outline"
+                onClick={() => setFiltrosAbiertos(o => !o)}
+                className="h-9 text-sm shrink-0"
               >
-                {ESTADOS.map(e => (
-                  <option key={e} value={e}>{e === 'todos' ? 'Todos los estados' : (ESTADO_LABEL[e] ?? e)}</option>
-                ))}
-              </select>
-              <select
-                value={area}
-                onChange={e => setArea(e.target.value)}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="todas">Todas las áreas</option>
-                {areas.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
-              </select>
-              <Button onClick={cargar} className="h-9 btn-primary">Buscar</Button>
+                Filtros {filtrosAbiertos ? '▲' : '▼'}
+              </Button>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* Tabla */}
-        <Card>
+            {filtrosAbiertos && (
+              <Card>
+                <CardContent className="pt-4 pb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <select
+                      value={estado}
+                      onChange={e => setEstado(e.target.value)}
+                      className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      {ESTADOS.map(e => (
+                        <option key={e} value={e}>{e === 'todos' ? 'Todos los estados' : (ESTADO_LABEL[e] ?? e)}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={area}
+                      onChange={e => setArea(e.target.value)}
+                      className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="todas">Todas las áreas</option>
+                      {areas.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
+                    </select>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Tabla */}
+            <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-slate-600">
               {cargando ? 'Cargando...' : `${nps.length} registros`}
@@ -393,6 +499,8 @@ export default function ComprasPage() {
             )}
           </CardContent>
         </Card>
+          </div>
+        </div>
       </div>
 
       {/* Modal asignar */}

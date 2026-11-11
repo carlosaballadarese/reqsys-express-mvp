@@ -1,10 +1,15 @@
 'use client'
 
+export const dynamic = 'force-dynamic'
+
 import { Fragment, useEffect, useState, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import type { Rol } from '@/lib/nav-config'
+import { vistasVistaNPVisibles } from '@/lib/vistas-vista-np'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -132,17 +137,51 @@ function construirQueryParams(filtros: Filtros): URLSearchParams {
   return params
 }
 
+// Spec: SC-009-v2.md CA-04/CA-09 — panel "Vistas", compartido entre el aside
+// de desktop y el overlay de mobile (mismo contenido, distinto contenedor).
+function renderVistas(rol: Rol, userId: string, filasBase: FilaVistaNP[], searchParams: URLSearchParams, onNavegar?: () => void) {
+  return (
+    <nav className="space-y-1">
+      {vistasVistaNPVisibles({ id: userId, rol }).map(v => {
+        const activa = v.esActiva(searchParams)
+        return (
+          <Link
+            key={v.label}
+            href={v.construirHref({ id: userId, rol })}
+            onClick={onNavegar}
+            className={`flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors ${
+              activa ? 'bg-[#1a5252]/10 text-[#1a5252] font-semibold' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <span>{v.label}</span>
+            <span className={`text-xs rounded-full px-2 py-0.5 ${activa ? 'bg-[#1a5252] text-white' : 'bg-slate-100 text-slate-500'}`}>
+              {v.contar(filasBase)}
+            </span>
+          </Link>
+        )
+      })}
+    </nav>
+  )
+}
+
 // ─── Página ──────────────────────────────────────────────────────────────────
 
 export default function VistaPorNPPage() {
   const [perfil, setPerfil]         = useState<Perfil | null>(null)
   const [rows, setRows]             = useState<FilaVistaNP[]>([])
+  const [filasBase, setFilasBase]   = useState<FilaVistaNP[]>([])
+  const [filtrosAbiertos, setFiltrosAbiertos]       = useState(false)
+  const [vistasMobileAbiertas, setVistasMobileAbiertas] = useState(false)
   const [compradores, setCompradores] = useState<Comprador[]>([])
   const [acciones, setAcciones]     = useState<AccionCatalogo[]>([])
   const [areas, setAreas]           = useState<{ id: string; nombre: string }[]>([])
   const [cargando, setCargando]     = useState(true)
   const [expandida, setExpandida]   = useState<string | null>(null)
 
+  // Spec: SC-008-v3.md — "Vista guardada" Vencidas por SLA llega con ?sla=
+  // en la URL; se usa como valor inicial sin cambiar el comportamiento por
+  // defecto (sin query string, arranca en 'todos' igual que hoy).
+  const searchParams = useSearchParams()
   const [filtros, setFiltros] = useState({
     area: 'todas', estado: 'todos', accion: 'todas', prioridad: 'todas', sla: 'todos',
     comprador: 'todos', solicitante: '', numero: '', descripcion: '',
@@ -174,6 +213,30 @@ export default function VistaPorNPPage() {
   }, [filtros])
 
   useEffect(() => { cargar() }, [cargar])
+
+  // Spec: SC-009-v2.md CA-09 — un click en "Vistas" de esta misma pantalla no
+  // remonta el componente, solo cambia el query string: sin este efecto, los
+  // filtros estado/sla quedarían congelados en el valor leído al montar.
+  // Mismo caso cuando se llega desde /compras/inicio (SC-008).
+  useEffect(() => {
+    const nuevoEstado = searchParams.get('estado') ?? 'todos'
+    setFiltros(f => ({
+      ...f,
+      estado: nuevoEstado,
+      sla: searchParams.get('sla') ?? 'todos',
+      accion: nuevoEstado === 'en_gestion' ? f.accion : 'todas',
+    }))
+  }, [searchParams])
+
+  // Spec: SC-009-v2.md RN-02 — baseline sin filtro, solo para los contadores
+  // del panel "Vistas"; no sustituye a `cargar()` (que sigue aplicando los
+  // filtros activos a la tabla).
+  useEffect(() => {
+    fetch('/api/compras/nps/vista')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => setFilasBase(data?.rows ?? []))
+      .catch(() => {})
+  }, [])
 
   const rol = perfil?.rol ?? ''
   // Spec CA-04: solo compras/admin reasignan comprador
@@ -227,8 +290,55 @@ export default function VistaPorNPPage() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-6 space-y-4">
-        {/* Filtros */}
+      <div className="max-w-7xl mx-auto px-6 py-6">
+        <div className="flex flex-col lg:flex-row gap-4">
+          {/* Vistas — acceso rápido (CA-04/CA-09) */}
+          {rol && (
+            <>
+              <button
+                onClick={() => setVistasMobileAbiertas(true)}
+                className="lg:hidden flex items-center gap-2 text-sm font-medium text-slate-600 px-3 py-2 rounded-md border border-slate-200 bg-white w-fit"
+              >
+                ☰ Vistas
+              </button>
+
+              {vistasMobileAbiertas && (
+                <div
+                  className="lg:hidden fixed inset-0 z-[90] bg-black/40"
+                  onClick={() => setVistasMobileAbiertas(false)}
+                >
+                  <aside
+                    onClick={e => e.stopPropagation()}
+                    className="fixed inset-y-0 left-0 w-64 bg-white shadow-xl overflow-y-auto p-3"
+                  >
+                    {renderVistas(rol as Rol, perfil?.id ?? '', filasBase, searchParams, () => setVistasMobileAbiertas(false))}
+                  </aside>
+                </div>
+              )}
+
+              <aside className="hidden lg:block lg:w-56 shrink-0">
+                <Card>
+                  <CardContent className="p-2">
+                    {renderVistas(rol as Rol, perfil?.id ?? '', filasBase, searchParams)}
+                  </CardContent>
+                </Card>
+              </aside>
+            </>
+          )}
+
+          {/* Columna central */}
+          <div className="flex-1 min-w-0 space-y-4">
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setFiltrosAbiertos(o => !o)}
+                className="h-9 text-sm"
+              >
+                Filtros {filtrosAbiertos ? '▲' : '▼'}
+              </Button>
+            </div>
+
+            {filtrosAbiertos && (
         <Card>
           <CardContent className="pt-4 pb-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -314,9 +424,10 @@ export default function VistaPorNPPage() {
             </div>
           </CardContent>
         </Card>
+            )}
 
-        {/* Tabla */}
-        <Card>
+            {/* Tabla */}
+            <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-slate-600">
               {cargando ? 'Cargando...' : `${rows.length} registros`}
@@ -501,6 +612,8 @@ export default function VistaPorNPPage() {
             )}
           </CardContent>
         </Card>
+          </div>
+        </div>
       </div>
     </div>
   )
