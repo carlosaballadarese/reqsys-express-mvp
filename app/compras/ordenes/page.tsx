@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -43,10 +44,14 @@ const ESTADO_LABEL: Record<string, string> = {
 const ESTADOS = ['todos', 'en_proceso', 'en_aprobacion_gerencia', 'en_aprobacion_compras', 'rechazada', 'aprobada', 'cancelada']
 
 export default function OrdenesPage() {
+  // Spec: SC-008-v3.md — "Vista guardada" OCs en aprobación de gerencia
+  // llega con ?estado= en la URL; se usa como valor inicial sin cambiar el
+  // comportamiento por defecto (sin query string, arranca en 'todos' igual que hoy).
+  const searchParams = useSearchParams()
   const [ocs, setOcs]           = useState<OC[]>([])
   const [cargando, setCargando] = useState(true)
   const [q, setQ]               = useState('')
-  const [estado, setEstado]     = useState('todos')
+  const [estado, setEstado]     = useState(() => searchParams.get('estado') ?? 'todos')
   const [area, setArea]         = useState('todas')
   const [areas, setAreas]       = useState<{ id: string; nombre: string }[]>([])
 

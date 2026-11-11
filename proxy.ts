@@ -266,9 +266,12 @@ export async function proxy(req: NextRequest) {
     }
 
     // Spec: asistente_compras — NPs, dashboard, ordenes, proveedores, nueva NP, detalle NP
+    // Spec: SC-008-v2.md CA-10 — /compras/inventario ya no está bloqueada;
+    // asistente_compras gana acceso al ícono "Bodega" (sin justificación de
+    // negocio documentada para excluirlo, el backend de inventario tampoco
+    // tiene restricción de rol propia).
     if (rol === 'asistente_compras') {
       const bloqueadas = [
-        '/compras/inventario',
         '/compras/coordinadores',
         '/compras/accesos',
         '/compras/auditoria',

@@ -54,16 +54,12 @@ function LoginForm() {
       return
     }
 
-    const rol = perfil.rol
-    if (rol === 'solicitante') {
-      router.push('/compras/nueva')
-    } else if (rol === 'bodega') {
-      router.push('/compras/inventario')
-    } else if (nextPath && nextPath !== '/login' && nextPath !== '/' && nextPath !== '/compras/nueva') {
-      router.push(nextPath)
-    } else {
-      router.push('/compras/dashboard')
-    }
+    // Spec: SC-008-v3.md CA-13/CA-14 — redirección uniforme para los 8
+    // roles: "Inicio" por defecto, salvo que exista un nextPath real
+    // (deep-link), que siempre tiene prioridad. Antes `solicitante`/`bodega`
+    // nunca respetaban nextPath; ahora lo hacen igual que el resto.
+    const tieneDestinoProfundo = nextPath && nextPath !== '/login' && nextPath !== '/' && nextPath !== '/compras/nueva'
+    router.push(tieneDestinoProfundo ? nextPath : '/compras/inicio')
     router.refresh()
   }
 
