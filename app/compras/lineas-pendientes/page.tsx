@@ -124,8 +124,13 @@ function ModalGenerarOC({ lineas, onClose, onGenerado }: {
       lineas.map(l => (l.proveedor_sugerido ?? '').trim().toLowerCase()).filter(s => s !== '')
     )
     if (sugeridos.size !== 1) return
-    const sugerido = lineas[0].proveedor_sugerido!.trim()
-    if (sugerido.length < 2) return
+    // Fix real (producción, 2026-11-11): `lineas[0]` no es necesariamente la línea
+    // con el valor no vacío (otra línea seleccionada puede tener proveedor_sugerido
+    // null) — asumirlo crasheaba toda la página con un TypeError no capturado dentro
+    // de este useEffect síncrono. Se busca explícitamente la línea con valor real.
+    const lineaConSugerido = lineas.find(l => (l.proveedor_sugerido ?? '').trim() !== '')
+    const sugerido = lineaConSugerido?.proveedor_sugerido?.trim()
+    if (!sugerido || sugerido.length < 2) return
 
     fetch(`/api/compras/proveedores?q=${encodeURIComponent(sugerido)}`)
       .then(r => r.ok ? r.json() : [])
