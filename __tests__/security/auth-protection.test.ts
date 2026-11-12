@@ -5187,6 +5187,7 @@ describe('GET /api/compras/nps/vista', () => {
     chain.in     = noop
     chain.gte    = noop
     chain.lte    = noop
+    chain.is     = noop
     chain.single = jest.fn(() => Promise.resolve({ data: null, error: null }))
     chain.then   = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve)
     return chain
@@ -5409,6 +5410,75 @@ describe('GET /api/compras/nps/vista', () => {
     expect(chainNP.ilike).toHaveBeenCalledWith('solicitante_nombre', '%Ana%')
     expect(chainNP.ilike).toHaveBeenCalledWith('numero', '%NP-2026%')
     expect(chainNP.ilike).toHaveBeenCalledWith('descripcion_general', '%Tuberia%')
+  })
+
+  // Spec: SC-010-v2.md CA-05 — sentinel "sin comprador asignado"
+  it('SC-010 CA-05: comprador=sin_asignar filtra vía .is("asignado_a", null), no .eq()', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let chainNP: any
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        const c = chainAwaitable([])
+        c.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+        return c
+      }
+      if (table === 'notas_pedido') {
+        chainNP = chainAwaitable([])
+        return chainNP
+      }
+      return chainAwaitable([])
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/vista?comprador=sin_asignar'))
+
+    expect(res.status).toBe(200)
+    expect(chainNP.is).toHaveBeenCalledWith('asignado_a', null)
+    expect(chainNP.eq).not.toHaveBeenCalledWith('asignado_a', 'sin_asignar')
+  })
+
+  // Spec: SC-010-v2.md — regresión: comprador='todos' y comprador=<id> siguen igual
+  it('SC-010: comprador=todos sigue sin aplicar ningún filtro de asignado_a (regresión)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let chainNP: any
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        const c = chainAwaitable([])
+        c.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+        return c
+      }
+      if (table === 'notas_pedido') {
+        chainNP = chainAwaitable([])
+        return chainNP
+      }
+      return chainAwaitable([])
+    })
+
+    await GET(makeRequest('http://localhost/api/compras/nps/vista?comprador=todos'))
+
+    expect(chainNP.is).not.toHaveBeenCalledWith('asignado_a', null)
+    expect(chainNP.eq).not.toHaveBeenCalledWith('asignado_a', 'todos')
+  })
+
+  it('SC-010: comprador=<id real> sigue usando .eq("asignado_a", id) sin el sentinel (regresión)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let chainNP: any
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        const c = chainAwaitable([])
+        c.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+        return c
+      }
+      if (table === 'notas_pedido') {
+        chainNP = chainAwaitable([])
+        return chainNP
+      }
+      return chainAwaitable([])
+    })
+
+    await GET(makeRequest('http://localhost/api/compras/nps/vista?comprador=ast-1'))
+
+    expect(chainNP.eq).toHaveBeenCalledWith('asignado_a', 'ast-1')
+    expect(chainNP.is).not.toHaveBeenCalledWith('asignado_a', null)
   })
 
   it('CA-02: el filtro de Acción se ignora si Estado no es en_gestion (RN-05 de HU-009)', async () => {

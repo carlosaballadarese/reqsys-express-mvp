@@ -133,6 +133,13 @@ export default function ComprasPage() {
   const [estado, setEstado]     = useState('todos')
   const [area, setArea]         = useState('todas')
   const [areas, setAreas]       = useState<{ id: string; nombre: string }[]>([])
+  // Spec: SC-010-v2.md CA-01/CA-02/CA-03 — filtros client-side sobre el
+  // baseline ya cargado por `cargar()`, sin ningún query param nuevo de
+  // backend (RN-05).
+  const [prioridadFiltro, setPrioridadFiltro] = useState('todas')
+  const [compradorFiltro, setCompradorFiltro] = useState('todos')
+  const [fechaDesde, setFechaDesde]           = useState('')
+  const [fechaHasta, setFechaHasta]           = useState('')
   const [rol, setRol]           = useState('')
   const [puedeCrearNP, setPuedeCrearNP] = useState(false)
   // Spec: HU-009 CA-15 — necesario para mostrar "Enviar a aprobación" solo en los propios borradores
@@ -199,6 +206,27 @@ export default function ComprasPage() {
       .then(data => setNpsBase(Array.isArray(data) ? data : []))
       .catch(() => {})
   }, [])
+
+  // Spec: SC-010-v2.md CA-01/CA-02/CA-03 — combina los 3 filtros nuevos sobre
+  // `nps` (ya filtrado por estado/area/q en el backend); npsVisibles queda
+  // igual a `nps` cuando los 3 están en su valor por defecto (regresión).
+  const npsVisibles = nps.filter(np =>
+    (prioridadFiltro === 'todas' || np.prioridad === prioridadFiltro) &&
+    (compradorFiltro === 'todos' || np.asignado_a === compradorFiltro) &&
+    (!fechaDesde || np.created_at >= fechaDesde) &&
+    (!fechaHasta || np.created_at <= `${fechaHasta}T23:59:59`)
+  )
+
+  // Spec: SC-010-v2.md Decisión 6 — derivado de npsBase (facetado, mismo
+  // patrón de HU-013 proveedoresDisponibles), no de /api/compras/asistentes
+  // (restringido a compras/admin, 403 para el resto de los 8 roles).
+  const compradoresDisponibles = Array.from(
+    new Map(
+      npsBase
+        .filter(np => np.asignado_a)
+        .map(np => [np.asignado_a as string, np.asignado_nombre ?? np.asignado_a as string])
+    ).entries()
+  ).sort((a, b) => a[1].localeCompare(b[1]))
 
   function abrirAsignar(np: NP) {
     setNpAsignar(np)
@@ -356,6 +384,46 @@ export default function ComprasPage() {
                       <option value="todas">Todas las áreas</option>
                       {areas.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
                     </select>
+                    {/* Spec: SC-010-v2.md CA-01 */}
+                    <select
+                      value={prioridadFiltro}
+                      onChange={e => setPrioridadFiltro(e.target.value)}
+                      className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="todas">Todas las prioridades</option>
+                      {Object.keys(PRIORIDAD_BADGE).map(p => (
+                        <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+                      ))}
+                    </select>
+                    {/* Spec: SC-010-v2.md CA-02 */}
+                    <select
+                      value={compradorFiltro}
+                      onChange={e => setCompradorFiltro(e.target.value)}
+                      className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="todos">Todos los compradores</option>
+                      {compradoresDisponibles.map(([id, nombre]) => (
+                        <option key={id} value={id}>{nombre}</option>
+                      ))}
+                    </select>
+                    {/* Spec: SC-010-v2.md CA-03 — rango desde/hasta */}
+                    <div className="flex gap-2 items-center">
+                      <Input
+                        type="date"
+                        value={fechaDesde}
+                        onChange={e => setFechaDesde(e.target.value)}
+                        className="h-9 text-sm"
+                        aria-label="Fecha de creación desde"
+                      />
+                      <span className="text-slate-400 text-xs shrink-0">a</span>
+                      <Input
+                        type="date"
+                        value={fechaHasta}
+                        onChange={e => setFechaHasta(e.target.value)}
+                        className="h-9 text-sm"
+                        aria-label="Fecha de creación hasta"
+                      />
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -365,13 +433,13 @@ export default function ComprasPage() {
             <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-slate-600">
-              {cargando ? 'Cargando...' : `${nps.length} registros`}
+              {cargando ? 'Cargando...' : `${npsVisibles.length} registros`}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {cargando ? (
               <div className="text-center py-12 text-slate-400">Cargando...</div>
-            ) : nps.length === 0 ? (
+            ) : npsVisibles.length === 0 ? (
               <div className="text-center py-12 text-slate-400">No hay registros con los filtros aplicados.</div>
             ) : (
               <div className="overflow-x-auto">
@@ -394,7 +462,7 @@ export default function ComprasPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {nps.map(np => (
+                    {npsVisibles.map(np => (
                       <tr key={np.id} className="border-b hover:bg-slate-50 transition-colors">
                         <td className="py-3 pr-4">
                           <div className="flex items-center gap-1.5">

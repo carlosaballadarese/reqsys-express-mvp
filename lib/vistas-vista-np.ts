@@ -5,14 +5,17 @@ import type { Rol } from './nav-config'
 
 export type PerfilVista = { id: string; rol: Rol }
 type SlaBadge = 'no_activo' | 'pausado' | 'a_tiempo' | 'vencido'
-type FilaBase = { estado: string; sla_badge: SlaBadge }
+type FilaBase = { estado: string; sla_badge: SlaBadge; asignado_a: string | null }
 
 export type VistaVistaNP = {
   label: string
   rolesVisibles?: Rol[]
   construirHref: (perfil: PerfilVista) => string
-  esActiva: (searchParams: URLSearchParams) => boolean
-  contar: (filas: FilaBase[]) => number
+  // Spec: SC-010 — esActiva/contar ganan userId de forma aditiva (las vistas
+  // preexistentes lo ignoran) para que la vista personal pueda compararlo
+  // contra asignado_a sin crear un tipo de Vista paralelo.
+  esActiva: (searchParams: URLSearchParams, userId: string) => boolean
+  contar: (filas: FilaBase[], userId: string) => number
 }
 
 // Espejo local de ROLES_VISTA de lib/np-vista-query.ts — no se importa
@@ -42,6 +45,16 @@ export const VISTAS_VISTA_NP: VistaVistaNP[] = [
     construirHref: () => '/compras/vista-np?estado=en_gestion',
     esActiva: (sp) => sp.get('estado') === 'en_gestion',
     contar: (filas) => filas.filter(f => f.estado === 'en_gestion').length,
+  },
+  {
+    label: 'En gestión (asignadas a mí)',
+    // Spec: SC-010-v2.md RN-03, ajustado en sdd-design.md Decisión 1 — acotado
+    // a los 3 roles que realmente pueden tener asignado_a (gerencia/consulta
+    // nunca pueden, mostrarles esta vista siempre daría 0).
+    rolesVisibles: ['compras', 'admin', 'asistente_compras'],
+    construirHref: (perfil) => `/compras/vista-np?estado=en_gestion&comprador=${perfil.id}`,
+    esActiva: (sp, userId) => sp.get('estado') === 'en_gestion' && sp.get('comprador') === userId,
+    contar: (filas, userId) => filas.filter(f => f.estado === 'en_gestion' && f.asignado_a === userId).length,
   },
 ]
 

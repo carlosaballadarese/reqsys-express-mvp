@@ -143,7 +143,7 @@ function renderVistas(rol: Rol, userId: string, filasBase: FilaVistaNP[], search
   return (
     <nav className="space-y-1">
       {vistasVistaNPVisibles({ id: userId, rol }).map(v => {
-        const activa = v.esActiva(searchParams)
+        const activa = v.esActiva(searchParams, userId)
         return (
           <Link
             key={v.label}
@@ -155,7 +155,7 @@ function renderVistas(rol: Rol, userId: string, filasBase: FilaVistaNP[], search
           >
             <span>{v.label}</span>
             <span className={`text-xs rounded-full px-2 py-0.5 ${activa ? 'bg-[#1a5252] text-white' : 'bg-slate-100 text-slate-500'}`}>
-              {v.contar(filasBase)}
+              {v.contar(filasBase, userId)}
             </span>
           </Link>
         )
@@ -181,11 +181,23 @@ export default function VistaPorNPPage() {
   // Spec: SC-008-v3.md — "Vista guardada" Vencidas por SLA llega con ?sla=
   // en la URL; se usa como valor inicial sin cambiar el comportamiento por
   // defecto (sin query string, arranca en 'todos' igual que hoy).
+  // Fix real (SC-010, encontrado en caja negra CP-SC-010-030): inicializar
+  // estado/sla/comprador de forma perezosa leyendo searchParams directamente,
+  // en vez de hardcodear 'todos' y depender solo del useEffect de sincronización
+  // de abajo — sin esto, el primer cargar() (con filtros por defecto) corre en
+  // paralelo con el cargar() posterior ya filtrado, y si el fetch sin filtrar
+  // (payload más grande) resuelve después, pisa el resultado correcto con
+  // datos sin filtrar. Afectaba tanto a deep-links como a la Vista nueva.
   const searchParams = useSearchParams()
-  const [filtros, setFiltros] = useState({
-    area: 'todas', estado: 'todos', accion: 'todas', prioridad: 'todas', sla: 'todos',
-    comprador: 'todos', solicitante: '', numero: '', descripcion: '',
-  })
+  const [filtros, setFiltros] = useState(() => ({
+    area: 'todas',
+    estado: searchParams.get('estado') ?? 'todos',
+    accion: 'todas',
+    prioridad: 'todas',
+    sla: searchParams.get('sla') ?? 'todos',
+    comprador: searchParams.get('comprador') ?? 'todos',
+    solicitante: '', numero: '', descripcion: '',
+  }))
 
   useEffect(() => {
     fetch('/api/auth/perfil')
@@ -218,12 +230,17 @@ export default function VistaPorNPPage() {
   // remonta el componente, solo cambia el query string: sin este efecto, los
   // filtros estado/sla quedarían congelados en el valor leído al montar.
   // Mismo caso cuando se llega desde /compras/inicio (SC-008).
+  // Spec: SC-010 — comprador se agrega aquí (bug real encontrado en caja negra,
+  // CP-SC-010-030: la Vista "En gestión (asignadas a mí)" cambiaba la URL y
+  // resaltaba el acceso, pero nunca aplicaba el filtro real por comprador, ni
+  // por self-link ni por deep-link, porque este efecto nunca leía ese param).
   useEffect(() => {
     const nuevoEstado = searchParams.get('estado') ?? 'todos'
     setFiltros(f => ({
       ...f,
       estado: nuevoEstado,
       sla: searchParams.get('sla') ?? 'todos',
+      comprador: searchParams.get('comprador') ?? 'todos',
       accion: nuevoEstado === 'en_gestion' ? f.accion : 'todas',
     }))
   }, [searchParams])
@@ -396,6 +413,8 @@ export default function VistaPorNPPage() {
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm"
               >
                 <option value="todos">Todos los compradores</option>
+                {/* Spec: SC-010 CA-05 — sentinel "sin comprador asignado" (asignado_a IS NULL) */}
+                <option value="sin_asignar">Sin comprador asignado</option>
                 {compradores.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
               </select>
 
