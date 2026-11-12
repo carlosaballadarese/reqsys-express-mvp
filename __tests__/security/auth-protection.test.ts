@@ -5682,18 +5682,99 @@ describe('GET /api/compras/nps/lineas-pendientes', () => {
     }
   )
 
-  it('CA-01: excluye una línea que ya tiene una OC viva', async () => {
+  it('CA-01: excluye una línea que ya tiene una OC viva que cubre el 100%', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     setupLineas({
       rol: 'compras',
       nps: [npBase],
       itemsNp: [itemBase],
-      itemsOc: [{ item_np_id: 'item-1', registro_compras_id: 'oc-1' }],
+      itemsOc: [{ item_np_id: 'item-1', registro_compras_id: 'oc-1', cantidad: 2 }],
       ocs: [{ id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'aprobada' }],
     })
     const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
     const body = await res.json()
     expect(body.rows).toHaveLength(0)
+  })
+
+  it('SC-012 CA-01: una línea con OC viva parcial permanece visible con el saldo correcto', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [npBase],
+      itemsNp: [{ ...itemBase, cantidad: 10 }],
+      itemsOc: [{ item_np_id: 'item-1', registro_compras_id: 'oc-1', cantidad: 6 }],
+      ocs: [{ id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'aprobada' }],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    const body = await res.json()
+    expect(body.rows).toHaveLength(1)
+    expect(body.rows[0].cantidad).toBe(4)
+    expect(body.rows[0].cantidad_total).toBe(10)
+  })
+
+  it('SC-012 RN-02: el saldo suma la cantidad comprometida de 2 OCs vivas distintas sobre la misma línea', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [npBase],
+      itemsNp: [{ ...itemBase, cantidad: 10 }],
+      itemsOc: [
+        { item_np_id: 'item-1', registro_compras_id: 'oc-1', cantidad: 3 },
+        { item_np_id: 'item-1', registro_compras_id: 'oc-2', cantidad: 2 },
+      ],
+      ocs: [
+        { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'aprobada' },
+        { id: 'oc-2', numero_oc: 'OC-2026-0002', estado_oc: 'en_proceso' },
+      ],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    const body = await res.json()
+    expect(body.rows[0].cantidad).toBe(5)
+  })
+
+  it('SC-012: una OC cancelada no resta del saldo aunque otra OC viva sí lo haga', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [npBase],
+      itemsNp: [{ ...itemBase, cantidad: 10 }],
+      itemsOc: [
+        { item_np_id: 'item-1', registro_compras_id: 'oc-1', cantidad: 4 },
+        { item_np_id: 'item-1', registro_compras_id: 'oc-2', cantidad: 100 },
+      ],
+      ocs: [
+        { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'aprobada' },
+        { id: 'oc-2', numero_oc: 'OC-2026-0002', estado_oc: 'cancelada' },
+      ],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    const body = await res.json()
+    expect(body.rows[0].cantidad).toBe(6)
+  })
+
+  it('SC-012 RN-03: una línea cubierta por OCA viva tiene saldo 0 aunque además tenga una OC parcial', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [npBase],
+      itemsNp: [{ ...itemBase, cantidad: 10 }],
+      itemsOc: [{ item_np_id: 'item-1', registro_compras_id: 'oc-1', cantidad: 3 }],
+      ocs: [{ id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'aprobada' }],
+      ocaItems: [{ item_np_id: 'item-1', oca_id: 'oca-1' }],
+      ocas: [{ id: 'oca-1', numero_oca: 'OCA-2026-0001', estado: 'vigente' }],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    const body = await res.json()
+    expect(body.rows).toHaveLength(0)
+  })
+
+  it('SC-012: cantidad_total siempre viaja en la fila, incluso sin ninguna cobertura previa', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({ rol: 'compras', nps: [npBase], itemsNp: [itemBase] })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    const body = await res.json()
+    expect(body.rows[0].cantidad).toBe(itemBase.cantidad)
+    expect(body.rows[0].cantidad_total).toBe(itemBase.cantidad)
   })
 
   it('HU-019 CA-05: excluye una línea que ya tiene una OCA viva', async () => {
@@ -5730,7 +5811,7 @@ describe('GET /api/compras/nps/lineas-pendientes', () => {
       rol: 'compras',
       nps: [npBase],
       itemsNp: [itemBase],
-      itemsOc: [{ item_np_id: 'item-1', registro_compras_id: 'oc-1' }],
+      itemsOc: [{ item_np_id: 'item-1', registro_compras_id: 'oc-1', cantidad: 2 }],
       ocs: [{ id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'cancelada' }],
     })
     const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
@@ -6002,6 +6083,27 @@ describe('GET /api/compras/nps/lineas-pendientes', () => {
       const filasEscritas = ws.addRow.mock.calls.map((c: any[]) => c[0])
       expect(filasEscritas[0].accion).toBe('')
       expect(filasEscritas[0].estado).toBe('OC directa')
+    })
+
+    it('SC-012: la hoja incluye Cantidad Total junto a Cantidad (saldo)', async () => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      setupLineas({
+        rol: 'compras',
+        nps: [npBase],
+        itemsNp: [{ ...itemBase, cantidad: 10 }],
+        itemsOc: [{ item_np_id: 'item-1', registro_compras_id: 'oc-1', cantidad: 6 }],
+        ocs: [{ id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'aprobada' }],
+      })
+      const res = await GET_EXCEL(makeRequest('http://localhost/api/compras/nps/lineas-pendientes/excel'))
+      expect(res.status).toBe(200)
+
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const ExcelJS = require('exceljs').default
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet('cualquiera')
+      const filasEscritas = ws.addRow.mock.calls.map((c: any[]) => c[0])
+      expect(filasEscritas[0].cantidad).toBe(4)
+      expect(filasEscritas[0].cantidad_total).toBe(10)
     })
   })
 })
@@ -6325,7 +6427,7 @@ describe('PATCH /api/compras/nps/lineas-pendientes/[itemId]', () => {
     })
   }
 
-  const itemBase = { id: 'item-1', nota_pedido_id: 'np-1' }
+  const itemBase = { id: 'item-1', nota_pedido_id: 'np-1', cantidad: 2 }
   const npBase = { id: 'np-1', estado: 'aprobada' }
 
   function patchReq(itemId: string, body: any) {
@@ -6362,12 +6464,12 @@ describe('PATCH /api/compras/nps/lineas-pendientes/[itemId]', () => {
     expect(res.status).toBe(409)
   })
 
-  it('devuelve 409 si la línea ya tiene una OC viva (condición de carrera con HU-014)', async () => {
+  it('devuelve 409 si la línea ya tiene una OC viva que cubre el saldo completo (condición de carrera con HU-014)', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     setupPatch({
       rol: 'compras', item: itemBase, np: npBase,
-      itemsOc: [{ registro_compras_id: 'oc-1' }],
-      ocs: [{ estado_oc: 'aprobada' }],
+      itemsOc: [{ registro_compras_id: 'oc-1', cantidad: 2 }],
+      ocs: [{ id: 'oc-1', estado_oc: 'aprobada' }],
     })
     const res = await PATCH(patchReq('item-1', { proveedor_sugerido: 'X' }), { params: Promise.resolve({ itemId: 'item-1' }) })
     expect(res.status).toBe(409)
@@ -6377,10 +6479,21 @@ describe('PATCH /api/compras/nps/lineas-pendientes/[itemId]', () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     setupPatch({
       rol: 'asistente_compras', item: itemBase, np: npBase,
-      itemsOc: [{ registro_compras_id: 'oc-1' }],
-      ocs: [{ estado_oc: 'cancelada' }],
+      itemsOc: [{ registro_compras_id: 'oc-1', cantidad: 2 }],
+      ocs: [{ id: 'oc-1', estado_oc: 'cancelada' }],
     })
     const res = await PATCH(patchReq('item-1', { proveedor_sugerido: 'Z' }), { params: Promise.resolve({ itemId: 'item-1' }) })
+    expect(res.status).toBe(200)
+  })
+
+  it('SC-012: devuelve 200 si la línea tiene una OC viva pero con saldo disponible (cobertura parcial)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupPatch({
+      rol: 'compras', item: { ...itemBase, cantidad: 10 }, np: npBase,
+      itemsOc: [{ registro_compras_id: 'oc-1', cantidad: 6 }],
+      ocs: [{ id: 'oc-1', estado_oc: 'aprobada' }],
+    })
+    const res = await PATCH(patchReq('item-1', { proveedor_sugerido: 'Y' }), { params: Promise.resolve({ itemId: 'item-1' }) })
     expect(res.status).toBe(200)
   })
 

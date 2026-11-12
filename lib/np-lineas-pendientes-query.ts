@@ -1,10 +1,9 @@
 import { adminClient } from '@/lib/supabase/clients'
-import { type Estado } from '@/lib/np-estado'
+import { type Estado, ESTADOS_OC_VIVOS } from '@/lib/np-estado'
 import { obtenerFeriadosEnRango, calcularTranscurridoLote } from '@/lib/np-sla'
 import { puedeVerPrecioNP } from '@/lib/np-precio'
 import {
   clasificarBadgeSLA,
-  ocVivaDeLinea,
   ocaVivaDeLinea,
   aplicarMaskingPrecio,
   calcularSlaDiasSigno,
@@ -47,7 +46,8 @@ export type LineaPendiente = {
   codigo: string | null
   unidad: string
   descripcion: string
-  cantidad: number
+  cantidad: number        // Spec: SC-012 — saldo disponible (cantidad_total - comprometido por OC viva), no la cantidad total
+  cantidad_total: number  // Spec: SC-012 — cantidad original de la línea (items_np.cantidad)
   proveedor_sugerido: string | null
   precio_unitario: number | null
   total_estimado: number | null
@@ -61,6 +61,26 @@ export type ResultadoLineasPendientes = {
   compradoresDisponibles: { id: string; nombre: string }[]
   accionesCatalogo: AccionCatalogo[]
   proveedoresDisponibles: string[]
+}
+
+// Spec: SC-012 RN-02/RN-03/RN-04 — espejo en lote de ItemCobertura
+// (lib/np-cobertura.ts::calcularCoberturaNP()), sin llamar a esa función por NP
+// (evitaría el antipatrón N+1 ya corregido varias veces en este proyecto).
+// Una OCA viva sigue comprometiendo el 100% de la línea (binario, RN-03);
+// de lo contrario, el comprometido es la suma de cantidad de las OCs vivas.
+function calcularSaldoLinea(
+  itemId: string,
+  cantidadTotal: number,
+  ocsPorItem: Map<string, { estado_oc: string; cantidad: number }[]>,
+  ocasPorItem: Map<string, { id: string; numero_oca: string; estado: string }[]>
+): number {
+  if (ocaVivaDeLinea(itemId, ocasPorItem) !== null) return 0
+
+  const comprometido = (ocsPorItem.get(itemId) ?? [])
+    .filter(oc => ESTADOS_OC_VIVOS.includes(oc.estado_oc))
+    .reduce((sum, oc) => sum + Number(oc.cantidad), 0)
+
+  return Math.max(0, cantidadTotal - comprometido)
 }
 
 // Spec: HU-013 CA-02
@@ -120,12 +140,13 @@ export async function obtenerLineasPendientes(
   const itemsNp = itemsNpRaw ?? []
   const itemIds = itemsNp.map((i: any) => i.id)
 
-  // Spec CA-01, mismo criterio "OC viva" que HU-011 RN-02
-  const ocsPorItem = new Map<string, { id: string; numero_oc: string; estado_oc: string }[]>()
+  // Spec CA-01, mismo criterio "OC viva" que HU-011 RN-02; cantidad (SC-012)
+  // necesaria para calcularSaldoLinea().
+  const ocsPorItem = new Map<string, { id: string; numero_oc: string; estado_oc: string; cantidad: number }[]>()
   if (itemIds.length > 0) {
     const { data: itemsOc } = await adminClient()
       .from('items_oc')
-      .select('item_np_id, registro_compras_id')
+      .select('item_np_id, registro_compras_id, cantidad')
       .in('item_np_id', itemIds)
 
     const ocIds = [...new Set((itemsOc ?? []).map((io: any) => io.registro_compras_id))]
@@ -138,7 +159,7 @@ export async function obtenerLineasPendientes(
       const oc = ocPorId.get(io.registro_compras_id)
       if (!oc) continue
       const lista = ocsPorItem.get(io.item_np_id) ?? []
-      lista.push({ id: oc.id, numero_oc: oc.numero_oc, estado_oc: oc.estado_oc })
+      lista.push({ id: oc.id, numero_oc: oc.numero_oc, estado_oc: oc.estado_oc, cantidad: Number(io.cantidad) })
       ocsPorItem.set(io.item_np_id, lista)
     }
   }
@@ -180,13 +201,16 @@ export async function obtenerLineasPendientes(
 
   const npPorId = new Map(npsBase.map((np: any) => [np.id, np]))
 
-  // Spec CA-01 — aplanado a nivel de línea; se descartan las que ya tienen OC viva
+  // Spec: SC-012 CA-01/RN-01 — aplanado a nivel de línea; se descartan las que
+  // no tienen saldo disponible (antes: se descartaba ante cualquier OC viva,
+  // sin mirar cantidad).
   let rows: LineaPendiente[] = []
   for (const item of itemsNp) {
     const np: any = npPorId.get(item.nota_pedido_id)
     if (!np) continue
-    if (ocVivaDeLinea(item.id, ocsPorItem) !== null) continue
-    if (ocaVivaDeLinea(item.id, ocasPorItem) !== null) continue
+    const cantidadTotal = Number(item.cantidad)
+    const saldo = calcularSaldoLinea(item.id, cantidadTotal, ocsPorItem, ocasPorItem)
+    if (saldo <= 0) continue
 
     const verPrecio = puedeVerPrecioNP(rol, np.es_regularizacion ?? false, np.creado_por_id, userId)
     const masked = aplicarMaskingPrecio(item, verPrecio)
@@ -234,7 +258,8 @@ export async function obtenerLineasPendientes(
       codigo:              item.codigo,
       unidad:              item.unidad,
       descripcion:         item.descripcion,
-      cantidad:            item.cantidad,
+      cantidad:            saldo,         // Spec: SC-012 — saldo disponible, no la cantidad total
+      cantidad_total:      cantidadTotal, // Spec: SC-012
       proveedor_sugerido:  item.proveedor_sugerido,
       precio_unitario:     masked.precio_unitario,
       total_estimado:      verPrecio ? np.total_estimado : null,

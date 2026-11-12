@@ -28,7 +28,8 @@ type LineaPendiente = {
   codigo: string | null
   unidad: string
   descripcion: string
-  cantidad: number
+  cantidad: number        // Spec: SC-012 — saldo disponible, no la cantidad total
+  cantidad_total: number  // Spec: SC-012
   proveedor_sugerido: string | null
   precio_unitario: number | null
   total_estimado: number | null
@@ -569,7 +570,17 @@ export default function LineasPendientesPage() {
                           <td className="py-3 pr-4">{fila.solicitante_nombre}</td>
                           <td className="py-3 pr-4">{fila.linea}</td>
                           <td className="py-3 pr-4 max-w-xs truncate" title={fila.descripcion}>{fila.descripcion}</td>
-                          <td className="py-3 pr-4 text-right">{fila.cantidad}</td>
+                          <td className="py-3 pr-4 text-right">
+                            <span className="font-medium">{fila.cantidad}</span>
+                            {fila.cantidad_total > fila.cantidad && (
+                              <p
+                                className="text-[10px] text-amber-600 mt-0.5"
+                                title={`Comprometido: ${fila.cantidad_total - fila.cantidad} de ${fila.cantidad_total} (OC vigente)`}
+                              >
+                                de {fila.cantidad_total}
+                              </p>
+                            )}
+                          </td>
                           <td className="py-3 pr-4">
                             {/* Spec CA-04: edición inline, persiste al perder el foco */}
                             <Input

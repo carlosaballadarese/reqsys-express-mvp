@@ -27,7 +27,7 @@ export async function PATCH(
 
     const { data: item } = await adminClient()
       .from('items_np')
-      .select('id, nota_pedido_id')
+      .select('id, nota_pedido_id, cantidad')
       .eq('id', itemId)
       .single()
 
@@ -47,25 +47,34 @@ export async function PATCH(
       return NextResponse.json({ error: 'linea_ya_no_pendiente' }, { status: 409 })
     }
 
-    // Spec: sdd-design.md, decisión 4 — guard de condición de carrera: si otra
-    // persona ya generó la OC de esta línea mientras la vista estaba abierta
-    // (HU-014 coexiste con esta vista), se rechaza la edición.
+    // Spec: SC-012 — guard de condición de carrera por SALDO, no por presencia de
+    // cualquier OC viva: si otra persona ya generó una OC que cubre el saldo
+    // completo de esta línea mientras la vista estaba abierta (HU-014 coexiste
+    // con esta vista), se rechaza la edición; si queda saldo disponible, se permite.
     const { data: itemsOc } = await adminClient()
       .from('items_oc')
-      .select('registro_compras_id')
+      .select('registro_compras_id, cantidad')
       .eq('item_np_id', itemId)
 
     const ocIds = [...new Set((itemsOc ?? []).map((io: any) => io.registro_compras_id))]
+    let comprometido = 0
     if (ocIds.length > 0) {
       const { data: ocs } = await adminClient()
         .from('registro_compras')
-        .select('estado_oc')
+        .select('id, estado_oc')
         .in('id', ocIds)
 
-      const tieneOcViva = (ocs ?? []).some((oc: any) => ESTADOS_OC_VIVOS.includes(oc.estado_oc))
-      if (tieneOcViva) {
-        return NextResponse.json({ error: 'linea_ya_no_pendiente' }, { status: 409 })
-      }
+      // Emparejado explícito por registro_compras_id — nunca por índice: una
+      // línea puede tener varias filas de items_oc repartidas entre varias OCs.
+      const estadoPorOcId = new Map((ocs ?? []).map((oc: any) => [oc.id, oc.estado_oc]))
+      comprometido = (itemsOc ?? [])
+        .filter((io: any) => ESTADOS_OC_VIVOS.includes(estadoPorOcId.get(io.registro_compras_id) ?? ''))
+        .reduce((sum: number, io: any) => sum + Number(io.cantidad), 0)
+    }
+
+    const saldo = Math.max(0, Number(item.cantidad) - comprometido)
+    if (saldo <= 0) {
+      return NextResponse.json({ error: 'linea_ya_no_pendiente' }, { status: 409 })
     }
 
     await adminClient()
