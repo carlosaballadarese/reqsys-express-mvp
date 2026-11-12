@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import type { Rol } from '@/lib/nav-config'
 import { vistasMisNPsVisibles } from '@/lib/vistas-mis-nps'
+import { toast } from '@/lib/toast'
 
 type NP = {
   id: string
@@ -258,7 +259,7 @@ export default function ComprasPage() {
     const res = await fetch(`/api/compras/nps/${np.id}/enviar-aprobacion`, { method: 'POST' })
     const data = await res.json()
     setEnviandoId(null)
-    if (!res.ok) { alert(data.error ?? 'Error al enviar la NP'); return }
+    if (!res.ok) { toast.error(data.error ?? 'Error al enviar la NP'); return }
     cargar()
   }
 

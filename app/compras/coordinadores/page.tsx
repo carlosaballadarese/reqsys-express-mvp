@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { toast } from '@/lib/toast'
 
 type Coordinador = {
   id: string
@@ -99,7 +100,7 @@ export default function CoordinadoresPage() {
     })
     const data = await res.json()
     if (data.success) cargar()
-    else alert(data.error || 'Error al actualizar área')
+    else toast.error(data.error || 'Error al actualizar área')
   }
 
   useEffect(() => { cargar() }, [])
@@ -170,7 +171,7 @@ export default function CoordinadoresPage() {
     if (!c.area_id) return
     const data = await guardarPut(c.id, { area_id: c.area_id, nombre: c.nombre, email: c.email, activo: !c.activo })
     if (data.success) cargar()
-    else alert(data.error || 'Error al actualizar')
+    else toast.error(data.error || 'Error al actualizar')
   }
 
   async function handleEliminar(id: string) {
@@ -181,7 +182,7 @@ export default function CoordinadoresPage() {
     } else if (res.status === 409) {
       setErrorEliminar({ id, motivos: data.motivos ?? [] })
     } else {
-      alert(data.error || 'Error al eliminar')
+      toast.error(data.error || 'Error al eliminar')
     }
   }
 

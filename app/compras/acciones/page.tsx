@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { toast } from '@/lib/toast'
 
 type Accion = {
   id: string
@@ -89,7 +90,7 @@ export default function AccionesPage() {
     const res  = await fetch(`/api/compras/acciones/${id}`, { method: 'DELETE' })
     const data = await res.json()
     if (data.success) { setEliminandoId(null); cargar() }
-    else alert(data.error || 'Error al eliminar')
+    else toast.error(data.error || 'Error al eliminar')
   }
 
   return (
