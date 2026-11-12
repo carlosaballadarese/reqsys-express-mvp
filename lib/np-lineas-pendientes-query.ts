@@ -129,33 +129,73 @@ export async function obtenerLineasPendientes(
 
   const npIds = npsBase.map((np: any) => np.id)
 
+  // Spec: hallazgo real 2026-11-12 (SC-012, mismo patrón ya corregido en
+  // HU-016 CA-10 / dashboard/cobertura) — a escala real (244 ítems en
+  // dev:local; en producción son varios cientos más) un solo `.in()` con
+  // todos los ids genera una URL que excede el límite de URI del gateway
+  // PostgREST/Kong ("414 URI Too Large"); el error se ignoraba en silencio
+  // (`const { data } = await ...` sin desestructurar `error`), dejando esas
+  // tablas en blanco para TODAS las líneas sin excepción — con el criterio
+  // booleano de HU-013 (¿tiene OC?) esto producía el efecto opuesto al
+  // deseado: líneas con una OC real volvían a aparecer como "pendientes".
+  // Se agrupa en lotes de 100, mismo patrón ya establecido en el proyecto.
+  const LOTE = 100
+  async function enLotes<T>(
+    ids: string[],
+    fn: (lote: string[]) => Promise<{ data: T[] | null; error: { message: string } | null }>
+  ): Promise<T[]> {
+    const filas: T[] = []
+    for (let i = 0; i < ids.length; i += LOTE) {
+      const lote = ids.slice(i, i + LOTE)
+      const { data, error } = await fn(lote)
+      if (error) { console.error('obtenerLineasPendientes — error en lote:', error); continue }
+      filas.push(...(data ?? []))
+    }
+    return filas
+  }
+
   // Spec CA-03 — incluye proveedor_sugerido, no seleccionado por obtenerFilasVista() (HU-011).
   // codigo/unidad (HU-014): requeridos para construir items[] de POST /convertir/[id].
-  const { data: itemsNpRaw } = await adminClient()
-    .from('items_np')
-    .select('id, nota_pedido_id, linea, codigo, unidad, descripcion, cantidad, precio_unitario, accion_id, proveedor_sugerido')
-    .in('nota_pedido_id', npIds)
-    .order('linea')
+  type ItemNpRow = {
+    id: string; nota_pedido_id: string; linea: number; codigo: string | null
+    unidad: string; descripcion: string; cantidad: number; precio_unitario: number | null
+    accion_id: string | null; proveedor_sugerido: string | null
+  }
+  const itemsNp = await enLotes<ItemNpRow>(npIds, async (lote) => {
+    const { data, error } = await adminClient()
+      .from('items_np')
+      .select('id, nota_pedido_id, linea, codigo, unidad, descripcion, cantidad, precio_unitario, accion_id, proveedor_sugerido')
+      .in('nota_pedido_id', lote)
+      .order('linea')
+    return { data, error }
+  })
 
-  const itemsNp = itemsNpRaw ?? []
-  const itemIds = itemsNp.map((i: any) => i.id)
+  const itemIds = itemsNp.map((i) => i.id)
 
   // Spec CA-01, mismo criterio "OC viva" que HU-011 RN-02; cantidad (SC-012)
   // necesaria para calcularSaldoLinea().
   const ocsPorItem = new Map<string, { id: string; numero_oc: string; estado_oc: string; cantidad: number }[]>()
   if (itemIds.length > 0) {
-    const { data: itemsOc } = await adminClient()
-      .from('items_oc')
-      .select('item_np_id, registro_compras_id, cantidad')
-      .in('item_np_id', itemIds)
+    const itemsOc = await enLotes<{ item_np_id: string; registro_compras_id: string; cantidad: number }>(
+      itemIds, async (lote) => {
+        const { data, error } = await adminClient()
+          .from('items_oc')
+          .select('item_np_id, registro_compras_id, cantidad')
+          .in('item_np_id', lote)
+        return { data, error }
+      })
 
-    const ocIds = [...new Set((itemsOc ?? []).map((io: any) => io.registro_compras_id))]
-    const { data: ocs } = ocIds.length > 0
-      ? await adminClient().from('registro_compras').select('id, numero_oc, estado_oc').in('id', ocIds)
-      : { data: [] as { id: string; numero_oc: string; estado_oc: string }[] }
+    const ocIds = [...new Set(itemsOc.map((io) => io.registro_compras_id))]
+    const ocs = ocIds.length > 0
+      ? await enLotes<{ id: string; numero_oc: string; estado_oc: string }>(
+          ocIds, async (lote) => {
+            const { data, error } = await adminClient().from('registro_compras').select('id, numero_oc, estado_oc').in('id', lote)
+            return { data, error }
+          })
+      : []
 
-    const ocPorId = new Map((ocs ?? []).map((oc: any) => [oc.id, oc]))
-    for (const io of (itemsOc ?? [])) {
+    const ocPorId = new Map(ocs.map((oc) => [oc.id, oc]))
+    for (const io of itemsOc) {
       const oc = ocPorId.get(io.registro_compras_id)
       if (!oc) continue
       const lista = ocsPorItem.get(io.item_np_id) ?? []
@@ -168,19 +208,27 @@ export async function obtenerLineasPendientes(
   // la de OC para excluir líneas cubiertas por cualquiera de los dos canales.
   const ocasPorItem = new Map<string, { id: string; numero_oca: string; estado: string }[]>()
   if (itemIds.length > 0) {
-    const { data: ocaItems } = await adminClient()
-      .from('oca_items')
-      .select('item_np_id, oca_id')
-      .in('item_np_id', itemIds)
-      .not('item_np_id', 'is', null)
+    const ocaItems = await enLotes<{ item_np_id: string | null; oca_id: string }>(
+      itemIds, async (lote) => {
+        const { data, error } = await adminClient()
+          .from('oca_items')
+          .select('item_np_id, oca_id')
+          .in('item_np_id', lote)
+          .not('item_np_id', 'is', null)
+        return { data, error }
+      })
 
-    const ocaIds = [...new Set((ocaItems ?? []).map((io: any) => io.oca_id))]
-    const { data: ocasData } = ocaIds.length > 0
-      ? await adminClient().from('oca').select('id, numero_oca, estado').in('id', ocaIds)
-      : { data: [] as { id: string; numero_oca: string; estado: string }[] }
+    const ocaIds = [...new Set(ocaItems.map((io) => io.oca_id))]
+    const ocasData = ocaIds.length > 0
+      ? await enLotes<{ id: string; numero_oca: string; estado: string }>(
+          ocaIds, async (lote) => {
+            const { data, error } = await adminClient().from('oca').select('id, numero_oca, estado').in('id', lote)
+            return { data, error }
+          })
+      : []
 
-    const ocaPorId = new Map((ocasData ?? []).map((oca: any) => [oca.id, oca]))
-    for (const io of (ocaItems ?? [])) {
+    const ocaPorId = new Map(ocasData.map((oca) => [oca.id, oca]))
+    for (const io of ocaItems) {
       if (!io.item_np_id) continue
       const oca = ocaPorId.get(io.oca_id)
       if (!oca) continue

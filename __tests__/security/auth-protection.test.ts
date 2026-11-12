@@ -6415,14 +6415,18 @@ describe('PATCH /api/compras/nps/lineas-pendientes/[itemId]', () => {
     np?: any | null
     itemsOc?: any[]
     ocs?: any[]
+    ocaItems?: any[]
+    ocas?: any[]
   }) {
-    const { rol, item = null, np = null, itemsOc = [], ocs = [] } = opts
+    const { rol, item = null, np = null, itemsOc = [], ocs = [], ocaItems = [], ocas = [] } = opts
     mockFrom.mockImplementation((table: string) => {
       if (table === 'perfiles') return chainFor([], { rol })
       if (table === 'items_np') return chainFor([], item)
       if (table === 'notas_pedido') return chainFor([], np)
       if (table === 'items_oc') return chainFor(itemsOc)
       if (table === 'registro_compras') return chainFor(ocs)
+      if (table === 'oca_items') return chainFor(ocaItems)
+      if (table === 'oca') return chainFor(ocas)
       throw new Error(`tabla no mockeada: ${table}`)
     })
   }
@@ -6497,6 +6501,28 @@ describe('PATCH /api/compras/nps/lineas-pendientes/[itemId]', () => {
     expect(res.status).toBe(200)
   })
 
+  it('SC-012: devuelve 409 si la línea está cubierta por una OCA viva, sin ninguna OC (hallazgo real de caja negra — gap preexistente de HU-019)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupPatch({
+      rol: 'compras', item: itemBase, np: npBase,
+      ocaItems: [{ oca_id: 'oca-1' }],
+      ocas: [{ estado: 'vigente' }],
+    })
+    const res = await PATCH(patchReq('item-1', { proveedor_sugerido: 'X' }), { params: Promise.resolve({ itemId: 'item-1' }) })
+    expect(res.status).toBe(409)
+  })
+
+  it('SC-012: devuelve 200 si la única OCA vinculada está cerrada (no viva)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupPatch({
+      rol: 'compras', item: itemBase, np: npBase,
+      ocaItems: [{ oca_id: 'oca-1' }],
+      ocas: [{ estado: 'cerrada' }],
+    })
+    const res = await PATCH(patchReq('item-1', { proveedor_sugerido: 'X' }), { params: Promise.resolve({ itemId: 'item-1' }) })
+    expect(res.status).toBe(200)
+  })
+
   it('persiste el valor cuando la línea sigue pendiente (CA-04)', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     let updatePayload: any = null
@@ -6513,6 +6539,8 @@ describe('PATCH /api/compras/nps/lineas-pendientes/[itemId]', () => {
       if (table === 'notas_pedido') return chainFor([], npBase)
       if (table === 'items_oc') return chainFor([])
       if (table === 'registro_compras') return chainFor([])
+      if (table === 'oca_items') return chainFor([])
+      if (table === 'oca') return chainFor([])
       throw new Error(`tabla no mockeada: ${table}`)
     })
     const res = await PATCH(

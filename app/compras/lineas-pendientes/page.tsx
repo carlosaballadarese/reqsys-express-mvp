@@ -170,6 +170,14 @@ function ModalGenerarOC({ lineas, onClose, onGenerado }: {
             unidad:          l.unidad,
             cantidad:        l.cantidad,
             precio_unitario: l.precio_unitario ?? 0,
+            // Spec: SC-012 — desvío encontrado en validación de caja negra: `cantidad`
+            // ahora es el saldo disponible, que legítimamente difiere de la cantidad
+            // original de la línea en cuanto hay cobertura previa — HU-003 exige
+            // justificación en ese caso (validarEnlaceYJustificacion). El motivo ya es
+            // conocido por el sistema, no tiene sentido pedírselo al usuario.
+            ...(l.cantidad_total > l.cantidad
+              ? { justificacion_cantidad: `Saldo disponible tras cobertura parcial previa (${l.cantidad} de ${l.cantidad_total})` }
+              : {}),
           })),
         }),
       })

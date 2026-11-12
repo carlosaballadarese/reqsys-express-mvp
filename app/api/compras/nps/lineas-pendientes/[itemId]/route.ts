@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { adminClient } from '@/lib/supabase/clients'
 import { ROLES_LINEAS_PENDIENTES, ESTADOS_LINEAS_PENDIENTES } from '@/lib/np-lineas-pendientes-query'
 import { ESTADOS_OC_VIVOS } from '@/lib/np-estado'
+import { ESTADOS_OCA_VIVAS } from '@/lib/oca-estado'
 
 // Spec: HU-013 CA-04 — edición inline de proveedor_sugerido con persistencia inmediata.
 export async function PATCH(
@@ -72,7 +73,23 @@ export async function PATCH(
         .reduce((sum: number, io: any) => sum + Number(io.cantidad), 0)
     }
 
-    const saldo = Math.max(0, Number(item.cantidad) - comprometido)
+    // Spec: hallazgo real de validación (SC-012, CP-SC-012-020) — gap preexistente
+    // de HU-019: este guard nunca consideró cobertura por OCA (solo por OC), a
+    // diferencia de GET /lineas-pendientes y de prellenado-oca, que sí lo hacían.
+    // Mismo criterio binario que RN-03: una OCA viva cubre el 100% de la línea.
+    const { data: ocaItems } = await adminClient()
+      .from('oca_items')
+      .select('oca_id')
+      .eq('item_np_id', itemId)
+
+    let tieneOcaViva = false
+    const ocaIds = [...new Set((ocaItems ?? []).map((oi: any) => oi.oca_id))]
+    if (ocaIds.length > 0) {
+      const { data: ocas } = await adminClient().from('oca').select('estado').in('id', ocaIds)
+      tieneOcaViva = (ocas ?? []).some((oca: any) => (ESTADOS_OCA_VIVAS as string[]).includes(oca.estado))
+    }
+
+    const saldo = tieneOcaViva ? 0 : Math.max(0, Number(item.cantidad) - comprometido)
     if (saldo <= 0) {
       return NextResponse.json({ error: 'linea_ya_no_pendiente' }, { status: 409 })
     }
