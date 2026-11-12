@@ -54,7 +54,7 @@ export default function ProveedoresPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="page-header px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+        <div className="max-w-[1600px] mx-auto flex items-center justify-between">
           <h1 className="text-lg font-bold">Proveedores</h1>
           <div className="flex gap-2">
             <a href="/api/exportar/proveedores" download>
@@ -67,7 +67,7 @@ export default function ProveedoresPage() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-6 space-y-4">
+      <div className="max-w-[1600px] mx-auto px-6 py-6 space-y-4">
         {/* Filtros */}
         <Card>
           <CardContent className="pt-4 pb-4">

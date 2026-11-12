@@ -287,7 +287,7 @@ export default function VistaPorNPPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="page-header">
-        <div className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
+        <div className="max-w-[1600px] mx-auto px-6 py-6 flex items-center justify-between">
           <div>
             <h1 className="text-white text-xl font-bold">Vista por NP</h1>
             <p className="text-blue-300 text-xs mt-0.5">Estado, Prioridad, SLA y Acciones de gestión de todas las NPs</p>
@@ -307,7 +307,7 @@ export default function VistaPorNPPage() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-6">
+      <div className="max-w-[1600px] mx-auto px-6 py-6">
         <div className="flex flex-col lg:flex-row gap-4">
           {/* Vistas — acceso rápido (CA-04/CA-09) */}
           {rol && (

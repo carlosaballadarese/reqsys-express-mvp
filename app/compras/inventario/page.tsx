@@ -88,9 +88,9 @@ export default function InventarioPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="page-header px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+        <div className="max-w-[1600px] mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <h1 className="text-lg font-bold">Inventario</h1>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <a href="/api/exportar/inventario" download>
               <Button variant="outline" className="bg-transparent border-white/40 text-white hover:bg-white/10 text-sm">⬇ Excel</Button>
             </a>
@@ -102,7 +102,7 @@ export default function InventarioPage() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-6 space-y-4">
+      <div className="max-w-[1600px] mx-auto px-6 py-6 space-y-4">
         {/* Filtros */}
         <Card>
           <CardContent className="pt-4 pb-4">

@@ -84,7 +84,7 @@ export default function DashboardPage() {
 
       {/* Header */}
       <div className="page-header px-6 py-4">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+        <div className="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-lg font-bold">Dashboard — Notas de Pedido</h1>
             <p className="text-blue-300 text-xs mt-0.5">{scopeLabel} · {kpis.total} NPs en total</p>
@@ -125,7 +125,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+      <div className="max-w-[1600px] mx-auto px-6 py-6 space-y-6">
 
         {/* ── KPIs — CA-01: sin "Total Estimado" ── */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">

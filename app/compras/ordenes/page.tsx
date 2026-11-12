@@ -173,7 +173,7 @@ export default function OrdenesPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="page-header px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+        <div className="max-w-[1600px] mx-auto flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold">Órdenes de Compra</h1>
           </div>
@@ -188,7 +188,7 @@ export default function OrdenesPage() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-6">
+      <div className="max-w-[1600px] mx-auto px-6 py-6">
         <div className="flex flex-col lg:flex-row gap-4">
           {/* Vistas — acceso rápido */}
           {rol && (

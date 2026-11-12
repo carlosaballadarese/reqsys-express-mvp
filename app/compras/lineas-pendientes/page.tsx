@@ -347,13 +347,13 @@ export default function LineasPendientesPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="page-header">
-        <div className="max-w-7xl mx-auto px-6 py-6">
+        <div className="max-w-[1600px] mx-auto px-6 py-6">
           <h1 className="text-white text-xl font-bold">Líneas Pendientes de OC</h1>
           <p className="text-blue-300 text-xs mt-0.5">Líneas de NP aprobadas o en gestión que aún no tienen Orden de Compra</p>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-6 space-y-4">
+      <div className="max-w-[1600px] mx-auto px-6 py-6 space-y-4">
         {/* Filtros */}
         <Card>
           <CardContent className="pt-4 pb-4">
