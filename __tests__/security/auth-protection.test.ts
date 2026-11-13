@@ -5990,6 +5990,29 @@ describe('GET /api/compras/nps/lineas-pendientes', () => {
     expect(body.rows[0].total_estimado).toBe(500)
   })
 
+  it('SC-013 RN-01: las líneas de 2 NPs llegan ordenadas por N° de NP ascendente y, dentro de cada NP, por línea ascendente, sin importar el orden de los fixtures', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const npA = { ...npBase, id: 'np-a', numero: 'NP-2026-0010' }
+    const npB = { ...npBase, id: 'np-b', numero: 'NP-2026-0030' }
+    setupLineas({
+      rol: 'compras',
+      // Fixtures deliberadamente en orden inverso / intercalado — el `.sort()` final
+      // de obtenerLineasPendientes() debe reordenarlos sin importar cómo llegan.
+      nps: [npB, npA],
+      itemsNp: [
+        { ...itemBase, id: 'item-b2', nota_pedido_id: 'np-b', linea: 2 },
+        { ...itemBase, id: 'item-a1', nota_pedido_id: 'np-a', linea: 1 },
+        { ...itemBase, id: 'item-b1', nota_pedido_id: 'np-b', linea: 1 },
+        { ...itemBase, id: 'item-a2', nota_pedido_id: 'np-a', linea: 2 },
+      ],
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes'))
+    const body = await res.json()
+    expect(body.rows.map((r: any) => `${r.np_numero}-${r.linea}`)).toEqual([
+      'NP-2026-0010-1', 'NP-2026-0010-2', 'NP-2026-0030-1', 'NP-2026-0030-2',
+    ])
+  })
+
   // ── HU-015: exportación Excel — reutiliza chainAwaitable/setupLineas/npBase/itemBase ──
 
   describe('GET /api/compras/nps/lineas-pendientes/excel', () => {
@@ -6064,6 +6087,33 @@ describe('GET /api/compras/nps/lineas-pendientes', () => {
       expect(fila.sla).toBe('Vencido')
       expect(fila.sla_dias).toMatch(/^-/)         // signo negativo por estar vencido
       expect(fila.estado).toBe('En gestión')
+    })
+
+    it('SC-013 CA-08: hereda el mismo orden NP asc + línea asc que la vista JSON, sin ningún .order()/.sort() propio en este route handler', async () => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      const npA = { ...npBase, id: 'np-a', numero: 'NP-2026-0010' }
+      const npB = { ...npBase, id: 'np-b', numero: 'NP-2026-0030' }
+      setupLineas({
+        rol: 'compras',
+        nps: [npB, npA],
+        itemsNp: [
+          { ...itemBase, id: 'item-b2', nota_pedido_id: 'np-b', linea: 2 },
+          { ...itemBase, id: 'item-a1', nota_pedido_id: 'np-a', linea: 1 },
+          { ...itemBase, id: 'item-b1', nota_pedido_id: 'np-b', linea: 1 },
+          { ...itemBase, id: 'item-a2', nota_pedido_id: 'np-a', linea: 2 },
+        ],
+      })
+      const res = await GET_EXCEL(makeRequest('http://localhost/api/compras/nps/lineas-pendientes/excel'))
+      expect(res.status).toBe(200)
+
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const ExcelJS = require('exceljs').default
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet('cualquiera')
+      const filasEscritas = ws.addRow.mock.calls.map((c: any[]) => c[0])
+      expect(filasEscritas.map((f: any) => `${f.numero_np}-${f.linea}`)).toEqual([
+        'NP-2026-0010-1', 'NP-2026-0010-2', 'NP-2026-0030-1', 'NP-2026-0030-2',
+      ])
     })
 
     it('CA-02: la Acción va vacía cuando la línea no tiene ninguna asignada (ej. Estado oc_directa)', async () => {

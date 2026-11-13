@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, Fragment } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -40,6 +40,19 @@ type LineaPendiente = {
 
 type Comprador = { id: string; nombre: string }
 type Perfil = { id: string; nombre: string; rol: string; email: string }
+
+// Spec: SC-013 — construcciones derivadas, solo en memoria del cliente (sin persistencia).
+type GrupoNP = {
+  np_id: string
+  np_numero: string
+  np_created_at: string
+  solicitante_nombre: string
+  proveedorSugeridoCabecera: string | null   // RN-02: null si las líneas de la NP no comparten valor
+  lineas: LineaPendiente[]
+}
+
+type SortCampo = 'linea' | 'descripcion' | 'proveedor' | 'fecha'
+type Sort = { campo: SortCampo; direccion: 'asc' | 'desc' } | null
 
 // ─── Constantes visuales (espejo de vista-np/page.tsx, mismo criterio de
 // duplicar mapas pequeños en cada 'use client' en vez de importarlos de un
@@ -99,6 +112,57 @@ function construirQueryParams(filtros: Filtros): URLSearchParams {
   if (filtros.proveedor !== 'todos') params.set('proveedor', filtros.proveedor)
   if (filtros.material) params.set('material', filtros.material)
   return params
+}
+
+// Spec: SC-013 RN-02 — agrupa por NP asumiendo que `rows` ya viene ordenada por
+// NP+línea desde el backend; si no lo estuviera, la agrupación igual sería correcta
+// (usa un Map por np_id), solo cambiaría el orden entre grupos.
+function agruparPorNP(rows: LineaPendiente[]): GrupoNP[] {
+  const grupos: GrupoNP[] = []
+  const indice = new Map<string, GrupoNP>()
+  for (const r of rows) {
+    let g = indice.get(r.np_id)
+    if (!g) {
+      g = {
+        np_id: r.np_id, np_numero: r.np_numero, np_created_at: r.np_created_at,
+        solicitante_nombre: r.solicitante_nombre, proveedorSugeridoCabecera: null, lineas: [],
+      }
+      indice.set(r.np_id, g)
+      grupos.push(g)
+    }
+    g.lineas.push(r)
+  }
+  for (const g of grupos) {
+    const valores = new Set(
+      g.lineas.map(l => (l.proveedor_sugerido ?? '').trim()).filter(v => v !== '')
+    )
+    g.proveedorSugeridoCabecera = valores.size === 1 ? [...valores][0] : null
+  }
+  return grupos
+}
+
+// Spec: SC-013 — clic en un encabezado de columna aplana la vista (ver Decisión de
+// diseño 3 de sdd-design.md); vuelve a la vista agrupada al recargar (RN-03) o con
+// el botón "Agrupar por NP".
+function ordenarFilasPlano(rows: LineaPendiente[], sort: Sort): LineaPendiente[] {
+  if (!sort) return rows
+  const factor = sort.direccion === 'asc' ? 1 : -1
+  return [...rows].sort((a, b) => {
+    switch (sort.campo) {
+      case 'linea':       return (a.linea - b.linea) * factor
+      case 'descripcion': return a.descripcion.localeCompare(b.descripcion) * factor
+      case 'proveedor':   return (a.proveedor_sugerido ?? '').localeCompare(b.proveedor_sugerido ?? '') * factor
+      case 'fecha':       return a.np_created_at.localeCompare(b.np_created_at) * factor
+    }
+  })
+}
+
+function fechaCorta(iso: string) {
+  return new Date(iso).toLocaleDateString('es-EC')
+}
+
+function esLineaExcepcional(fila: LineaPendiente) {
+  return fila.prioridad === 'excepcional' && fila.estado === 'oc_directa'
 }
 
 // ─── Modal Generar OC (HU-014) ────────────────────────────────────────────────
@@ -264,6 +328,9 @@ export default function LineasPendientesPage() {
   const [editando, setEditando]     = useState<Record<string, string>>({})
   const [modalAbierto, setModalAbierto] = useState(false)
   const [mensaje, setMensaje]       = useState<string | null>(null)
+  // Spec: SC-013 — sort/colapso son estado de presentación puro, sin persistencia (RN-03)
+  const [sort, setSort]             = useState<Sort>(null)
+  const [gruposColapsados, setGruposColapsados] = useState<Set<string>>(new Set())
 
   // Spec: HU-014 CA-01 — 1 sola línea/NP genera OC directo (convertir/[id]); HU-016
   // CA-01/CA-02 levanta la restricción de "una sola NP": 2+ NPs son elegibles para
@@ -291,6 +358,30 @@ export default function LineasPendientesPage() {
     : []
   const npAsignadaAOtro = npsAjenasSeleccion.length > 0
 
+  // Spec: SC-013 — vista agrupada por defecto (RN-01/RN-02); al ordenar por columna
+  // se aplana (Decisión de diseño 3, sdd-design.md). `rows` ya llega ordenada por
+  // NP asc + línea asc desde el backend.
+  const vistaAgrupada = sort === null
+  const grupos        = vistaAgrupada ? agruparPorNP(rows) : []
+  const filasPlanas   = vistaAgrupada ? [] : ordenarFilasPlano(rows, sort)
+
+  function alternarOrden(campo: SortCampo) {
+    setSort(prev =>
+      prev?.campo === campo
+        ? { campo, direccion: prev.direccion === 'asc' ? 'desc' : 'asc' }
+        : { campo, direccion: 'asc' }
+    )
+  }
+
+  function alternarColapso(npId: string) {
+    setGruposColapsados(prev => {
+      const next = new Set(prev)
+      if (next.has(npId)) next.delete(npId)
+      else next.add(npId)
+      return next
+    })
+  }
+
   const [filtros, setFiltros] = useState<Filtros>({
     area: 'todas', estado: 'todos', accion: 'todas', prioridad: 'todas', sla: 'todos',
     comprador: 'todos', proveedor: 'todos', material: '',
@@ -316,6 +407,9 @@ export default function LineasPendientesPage() {
         setAcciones(data.accionesCatalogo ?? [])
         setProveedores(data.proveedoresDisponibles ?? [])
         setSeleccion(new Set())
+        // Spec: SC-013 RN-03 — toda nueva carga restablece el orden por defecto
+        setSort(null)
+        setGruposColapsados(new Set())
       }
     } finally {
       setCargando(false)
@@ -351,6 +445,82 @@ export default function LineasPendientesPage() {
     if (res.ok) {
       setRows(prev => prev.map(r => r.item_id === itemId ? { ...r, proveedor_sugerido: valor } : r))
     }
+  }
+
+  // Spec: SC-013 — indicador visual ▲/▼ en el encabezado de columna activo en sort
+  function flechaOrden(campo: SortCampo) {
+    if (sort?.campo !== campo) return null
+    return sort.direccion === 'asc' ? ' ▲' : ' ▼'
+  }
+
+  // Spec: SC-013 — celdas compartidas entre la vista agrupada (sub-fila) y la vista
+  // plana, para no duplicar el markup de cada columna de línea en ambos modos.
+  function celdasInicio(fila: LineaPendiente) {
+    const excepcional = esLineaExcepcional(fila)
+    return [
+      <td key="chk" className="py-3 pr-2">
+        <input
+          type="checkbox"
+          checked={seleccion.has(fila.item_id)}
+          onChange={() => toggleSeleccion(fila.item_id)}
+          aria-label={`Seleccionar línea ${fila.linea} de ${fila.np_numero}`}
+        />
+      </td>,
+      <td key="prio" className="py-3 pr-4">
+        <span
+          className={`inline-block w-2.5 h-2.5 rounded-full ${PRIORIDAD_DOT[fila.prioridad]} ${excepcional ? 'animate-pulse' : ''}`}
+          title={PRIORIDAD_LABEL[fila.prioridad]}
+        />
+        {excepcional && <p className="text-[10px] font-semibold text-red-700 mt-1">⚠ EMERGENCIA</p>}
+      </td>,
+    ]
+  }
+
+  function celdasResto(fila: LineaPendiente) {
+    return [
+      <td key="linea" className="py-3 pr-4">{fila.linea}</td>,
+      <td key="desc" className="py-3 pr-4 max-w-xs truncate" title={fila.descripcion}>{fila.descripcion}</td>,
+      <td key="cant" className="py-3 pr-4 text-right">
+        <span className="font-medium">{fila.cantidad}</span>
+        {fila.cantidad_total > fila.cantidad && (
+          <p
+            className="text-[10px] text-amber-600 mt-0.5"
+            title={`Comprometido: ${fila.cantidad_total - fila.cantidad} de ${fila.cantidad_total} (OC vigente)`}
+          >
+            de {fila.cantidad_total}
+          </p>
+        )}
+      </td>,
+      <td key="prov" className="py-3 pr-4">
+        {/* Spec CA-04: edición inline, persiste al perder el foco */}
+        <Input
+          value={editando[fila.item_id] ?? fila.proveedor_sugerido ?? ''}
+          onChange={e => setEditando(prev => ({ ...prev, [fila.item_id]: e.target.value }))}
+          onBlur={e => persistirProveedorSugerido(fila.item_id, e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+          className="h-8 text-xs min-w-[140px]"
+        />
+      </td>,
+      <td key="pu" className="py-3 pr-4 text-right">
+        {fila.precio_unitario !== null ? usd(fila.precio_unitario) : '—'}
+      </td>,
+      <td key="tot" className="py-3 pr-4 text-right font-medium">
+        {fila.total_estimado !== null ? usd(fila.total_estimado) : '—'}
+      </td>,
+      <td key="sla" className="py-3 pr-4">
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${SLA_BADGE_CLASS[fila.sla_badge]}`}>
+          {SLA_LABEL[fila.sla_badge]}
+        </span>
+      </td>,
+      <td key="est" className="py-3 pr-4">
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${ESTADO_BADGE[fila.estado] ?? 'bg-slate-100 text-slate-700'}`}>
+          {ESTADO_LABEL[fila.estado] ?? fila.estado}
+        </span>
+      </td>,
+      <td key="acc" className="py-3 pr-4">
+        {fila.accion ? fila.accion.descripcion : <span className="text-slate-300">—</span>}
+      </td>,
+    ]
   }
 
   return (
@@ -503,25 +673,108 @@ export default function LineasPendientesPage() {
             <CardTitle className="text-sm text-slate-600">
               {cargando ? 'Cargando...' : `${rows.length} líneas pendientes`}
             </CardTitle>
-            {/* Spec: HU-015 CA-01/CA-03 — exporta respetando los filtros activos */}
-            <Button
-              variant="outline"
-              disabled={rows.length === 0}
-              onClick={() => {
-                const params = construirQueryParams(filtros)
-                window.location.href = `/api/compras/nps/lineas-pendientes/excel?${params.toString()}`
-              }}
-              className="h-8 text-xs"
-            >
-              ⬇ Exportar a Excel
-            </Button>
+            <div className="flex gap-2">
+              {/* Spec: SC-013 — escape hatch de vuelta a la vista agrupada sin recargar */}
+              {!vistaAgrupada && (
+                <Button variant="outline" onClick={() => setSort(null)} className="h-8 text-xs">
+                  🔄 Agrupar por NP
+                </Button>
+              )}
+              {/* Spec: HU-015 CA-01/CA-03 — exporta respetando los filtros activos */}
+              <Button
+                variant="outline"
+                disabled={rows.length === 0}
+                onClick={() => {
+                  const params = construirQueryParams(filtros)
+                  window.location.href = `/api/compras/nps/lineas-pendientes/excel?${params.toString()}`
+                }}
+                className="h-8 text-xs"
+              >
+                ⬇ Exportar a Excel
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {cargando ? (
               <div className="text-center py-12 text-slate-400">Cargando...</div>
             ) : rows.length === 0 ? (
               <div className="text-center py-12 text-slate-400">No hay líneas pendientes con los filtros aplicados.</div>
+            ) : vistaAgrupada ? (
+              // Spec: SC-013 RN-01/RN-02 — vista agrupada por defecto, expandida (CA)
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-slate-500 text-xs uppercase">
+                      <th className="text-left py-3 pr-2 w-8">
+                        <input
+                          type="checkbox"
+                          checked={seleccion.size === rows.length}
+                          onChange={toggleSeleccionTodas}
+                          aria-label="Seleccionar todas"
+                        />
+                      </th>
+                      <th className="text-left py-3 pr-4">Prioridad</th>
+                      <th className="text-left py-3 pr-4 cursor-pointer select-none" onClick={() => alternarOrden('linea')}>Línea{flechaOrden('linea')}</th>
+                      <th className="text-left py-3 pr-4 cursor-pointer select-none" onClick={() => alternarOrden('descripcion')}>Descripción{flechaOrden('descripcion')}</th>
+                      <th className="text-right py-3 pr-4">Cantidad</th>
+                      <th className="text-left py-3 pr-4 cursor-pointer select-none" onClick={() => alternarOrden('proveedor')}>Proveedor sugerido{flechaOrden('proveedor')}</th>
+                      <th className="text-right py-3 pr-4">Precio Unit.</th>
+                      <th className="text-right py-3 pr-4">Total NP</th>
+                      <th className="text-left py-3 pr-4">SLA</th>
+                      <th className="text-left py-3 pr-4">Estado</th>
+                      <th className="text-left py-3 pr-4">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {grupos.map(g => (
+                      <Fragment key={g.np_id}>
+                        {/* Spec: RN-02 — cabecera por NP, expandida por defecto, contraíble;
+                            número y fecha son clicables por separado (navegar / ordenar) */}
+                        <tr
+                          className="border-b bg-slate-100 hover:bg-slate-200 cursor-pointer"
+                          onClick={() => alternarColapso(g.np_id)}
+                        >
+                          <td colSpan={11} className="py-2 px-3">
+                            <div className="flex flex-wrap items-center gap-4">
+                              <span className="font-semibold text-[#1a5252]">
+                                {gruposColapsados.has(g.np_id) ? '▶' : '▼'}{' '}
+                                <Link
+                                  href={`/compras/${g.np_id}`}
+                                  className="hover:underline"
+                                  onClick={e => e.stopPropagation()}
+                                >
+                                  {g.np_numero}
+                                </Link>
+                              </span>
+                              <button
+                                type="button"
+                                className="text-xs text-slate-500 underline decoration-dotted hover:text-slate-700"
+                                onClick={e => { e.stopPropagation(); alternarOrden('fecha') }}
+                                title="Ordenar por fecha"
+                              >
+                                📅 {fechaCorta(g.np_created_at)}{flechaOrden('fecha')}
+                              </button>
+                              <span className="text-xs text-slate-600">{g.solicitante_nombre}</span>
+                              <span className="text-xs text-slate-600">{g.proveedorSugeridoCabecera ?? '—'}</span>
+                              <span className="text-xs text-slate-400 ml-auto">
+                                {g.lineas.length} línea{g.lineas.length !== 1 ? 's' : ''}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                        {!gruposColapsados.has(g.np_id) && g.lineas.map(fila => (
+                          <tr key={fila.item_id} className={`border-b hover:bg-slate-50 ${esLineaExcepcional(fila) ? 'bg-red-50' : ''}`}>
+                            {celdasInicio(fila)}
+                            {celdasResto(fila)}
+                          </tr>
+                        ))}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ) : (
+              // Spec: SC-013 Decisión de diseño 3 — vista plana al ordenar por columna
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -536,11 +789,12 @@ export default function LineasPendientesPage() {
                       </th>
                       <th className="text-left py-3 pr-4">Prioridad</th>
                       <th className="text-left py-3 pr-4">NP</th>
+                      <th className="text-left py-3 pr-4 cursor-pointer select-none" onClick={() => alternarOrden('fecha')}>Fecha NP{flechaOrden('fecha')}</th>
                       <th className="text-left py-3 pr-4">Solicitante</th>
-                      <th className="text-left py-3 pr-4">Línea</th>
-                      <th className="text-left py-3 pr-4">Descripción</th>
+                      <th className="text-left py-3 pr-4 cursor-pointer select-none" onClick={() => alternarOrden('linea')}>Línea{flechaOrden('linea')}</th>
+                      <th className="text-left py-3 pr-4 cursor-pointer select-none" onClick={() => alternarOrden('descripcion')}>Descripción{flechaOrden('descripcion')}</th>
                       <th className="text-right py-3 pr-4">Cantidad</th>
-                      <th className="text-left py-3 pr-4">Proveedor sugerido</th>
+                      <th className="text-left py-3 pr-4 cursor-pointer select-none" onClick={() => alternarOrden('proveedor')}>Proveedor sugerido{flechaOrden('proveedor')}</th>
                       <th className="text-right py-3 pr-4">Precio Unit.</th>
                       <th className="text-right py-3 pr-4">Total NP</th>
                       <th className="text-left py-3 pr-4">SLA</th>
@@ -549,78 +803,19 @@ export default function LineasPendientesPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map(fila => {
-                      const esExcepcional = fila.prioridad === 'excepcional' && fila.estado === 'oc_directa'
-                      return (
-                        <tr key={fila.item_id} className={`border-b hover:bg-slate-50 ${esExcepcional ? 'bg-red-50' : ''}`}>
-                          <td className="py-3 pr-2">
-                            <input
-                              type="checkbox"
-                              checked={seleccion.has(fila.item_id)}
-                              onChange={() => toggleSeleccion(fila.item_id)}
-                              aria-label={`Seleccionar línea ${fila.linea} de ${fila.np_numero}`}
-                            />
-                          </td>
-                          <td className="py-3 pr-4">
-                            <span
-                              className={`inline-block w-2.5 h-2.5 rounded-full ${PRIORIDAD_DOT[fila.prioridad]} ${esExcepcional ? 'animate-pulse' : ''}`}
-                              title={PRIORIDAD_LABEL[fila.prioridad]}
-                            />
-                            {esExcepcional && (
-                              <p className="text-[10px] font-semibold text-red-700 mt-1">⚠ EMERGENCIA</p>
-                            )}
-                          </td>
-                          <td className="py-3 pr-4">
-                            <Link href={`/compras/${fila.np_id}`} className="font-medium text-[#1a5252] hover:underline">
-                              {fila.np_numero}
-                            </Link>
-                          </td>
-                          <td className="py-3 pr-4">{fila.solicitante_nombre}</td>
-                          <td className="py-3 pr-4">{fila.linea}</td>
-                          <td className="py-3 pr-4 max-w-xs truncate" title={fila.descripcion}>{fila.descripcion}</td>
-                          <td className="py-3 pr-4 text-right">
-                            <span className="font-medium">{fila.cantidad}</span>
-                            {fila.cantidad_total > fila.cantidad && (
-                              <p
-                                className="text-[10px] text-amber-600 mt-0.5"
-                                title={`Comprometido: ${fila.cantidad_total - fila.cantidad} de ${fila.cantidad_total} (OC vigente)`}
-                              >
-                                de {fila.cantidad_total}
-                              </p>
-                            )}
-                          </td>
-                          <td className="py-3 pr-4">
-                            {/* Spec CA-04: edición inline, persiste al perder el foco */}
-                            <Input
-                              value={editando[fila.item_id] ?? fila.proveedor_sugerido ?? ''}
-                              onChange={e => setEditando(prev => ({ ...prev, [fila.item_id]: e.target.value }))}
-                              onBlur={e => persistirProveedorSugerido(fila.item_id, e.target.value)}
-                              onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-                              className="h-8 text-xs min-w-[140px]"
-                            />
-                          </td>
-                          <td className="py-3 pr-4 text-right">
-                            {fila.precio_unitario !== null ? usd(fila.precio_unitario) : '—'}
-                          </td>
-                          <td className="py-3 pr-4 text-right font-medium">
-                            {fila.total_estimado !== null ? usd(fila.total_estimado) : '—'}
-                          </td>
-                          <td className="py-3 pr-4">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${SLA_BADGE_CLASS[fila.sla_badge]}`}>
-                              {SLA_LABEL[fila.sla_badge]}
-                            </span>
-                          </td>
-                          <td className="py-3 pr-4">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${ESTADO_BADGE[fila.estado] ?? 'bg-slate-100 text-slate-700'}`}>
-                              {ESTADO_LABEL[fila.estado] ?? fila.estado}
-                            </span>
-                          </td>
-                          <td className="py-3 pr-4">
-                            {fila.accion ? fila.accion.descripcion : <span className="text-slate-300">—</span>}
-                          </td>
-                        </tr>
-                      )
-                    })}
+                    {filasPlanas.map(fila => (
+                      <tr key={fila.item_id} className={`border-b hover:bg-slate-50 ${esLineaExcepcional(fila) ? 'bg-red-50' : ''}`}>
+                        {celdasInicio(fila)}
+                        <td className="py-3 pr-4">
+                          <Link href={`/compras/${fila.np_id}`} className="font-medium text-[#1a5252] hover:underline">
+                            {fila.np_numero}
+                          </Link>
+                        </td>
+                        <td className="py-3 pr-4">{fechaCorta(fila.np_created_at)}</td>
+                        <td className="py-3 pr-4">{fila.solicitante_nombre}</td>
+                        {celdasResto(fila)}
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

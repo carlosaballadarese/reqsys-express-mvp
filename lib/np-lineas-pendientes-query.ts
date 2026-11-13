@@ -107,10 +107,13 @@ export async function obtenerLineasPendientes(
 
   const SELECT_NP = 'id, numero, created_at, area, solicitante_nombre, prioridad, estado, asignado_a, asignado_nombre, total_estimado, es_regularizacion, creado_por_id, sla_iniciado_en, sla_pausado_desde, sla_pausado_acumulado_seg'
 
-  // Spec CA-01 — baseline fijo: solo Estados donde puede existir una línea pendiente
+  // Spec CA-01 — baseline fijo: solo Estados donde puede existir una línea pendiente.
+  // Spec: SC-013 RN-01 — orden por número de NP ascendente (la más antigua primero).
+  // Nota: esto documenta la intención, pero NO es por sí solo lo que garantiza el orden
+  // final de `rows` — ver el `.sort()` explícito antes del `return` más abajo.
   let query = adminClient().from('notas_pedido').select(SELECT_NP)
     .in('estado', ESTADOS_LINEAS_PENDIENTES)
-    .order('created_at', { ascending: false })
+    .order('numero', { ascending: true })
 
   if (area && area !== 'todas') query = query.eq('area', area)
   if (estado && estado !== 'todos') query = query.eq('estado', estado)
@@ -342,6 +345,14 @@ export async function obtenerLineasPendientes(
     const buscado = material.toLowerCase()
     rows = rows.filter((r) => r.descripcion.toLowerCase().includes(buscado))
   }
+
+  // Spec: SC-013 RN-01/CA-07/CA-08 — garantía real del orden (NP asc + línea asc).
+  // Los lotes de `items_np` (enLotes(), SC-012) pueden traer ítems de varias NPs a la
+  // vez, ordenados solo por `.order('linea')` *dentro* del lote — el `.order('numero')`
+  // de la consulta de NPs no se propaga por sí solo al arreglo aplanado. Este `.sort()`
+  // explícito es el único punto donde se implementa el orden, una sola vez, heredado
+  // sin cambio de código tanto por la pantalla como por GET .../excel (HU-015).
+  rows.sort((a, b) => a.np_numero.localeCompare(b.np_numero) || a.linea - b.linea)
 
   return { rows, compradoresDisponibles, accionesCatalogo, proveedoresDisponibles }
 }
