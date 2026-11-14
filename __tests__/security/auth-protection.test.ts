@@ -5867,7 +5867,7 @@ describe('GET /api/compras/nps/lineas-pendientes', () => {
     expect(body.rows[0].unidad).toBe('UND')
   })
 
-  it('CA-02: filtro de Proveedor opera a nivel de línea (ilike sobre proveedor_sugerido, no sobre la NP)', async () => {
+  it('SC-014 CA-03: filtro de Proveedor opera a nivel de línea con selección múltiple exacta (no substring)', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     setupLineas({
       rol: 'compras',
@@ -5877,11 +5877,47 @@ describe('GET /api/compras/nps/lineas-pendientes', () => {
         { ...itemBase, id: 'item-2', linea: 2, proveedor_sugerido: 'Repuestos del Valle' },
       ],
     })
-    const url = 'http://localhost/api/compras/nps/lineas-pendientes?proveedor=' + encodeURIComponent('Ferretería')
+    const url = 'http://localhost/api/compras/nps/lineas-pendientes?proveedores=' + encodeURIComponent('Ferretería Central')
     const res = await GET(makeRequest(url))
     const body = await res.json()
     expect(body.rows).toHaveLength(1)
     expect(body.rows[0].item_id).toBe('item-1')
+  })
+
+  it('SC-014 CA-03: filtro de Proveedor con 2 valores seleccionados incluye líneas de ambos', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [npBase],
+      itemsNp: [
+        { ...itemBase, id: 'item-1', proveedor_sugerido: 'Ferretería Central' },
+        { ...itemBase, id: 'item-2', linea: 2, proveedor_sugerido: 'Repuestos del Valle' },
+        { ...itemBase, id: 'item-3', linea: 3, proveedor_sugerido: 'Otro Proveedor' },
+      ],
+    })
+    const url = 'http://localhost/api/compras/nps/lineas-pendientes?proveedores='
+      + encodeURIComponent('Ferretería Central') + ',' + encodeURIComponent('Repuestos del Valle')
+    const res = await GET(makeRequest(url))
+    const body = await res.json()
+    expect(body.rows.map((r: any) => r.item_id).sort()).toEqual(['item-1', 'item-2'])
+  })
+
+  it('SC-014 CA-04/RN-02: sinProveedor=true combina con OR junto al filtro de proveedores', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupLineas({
+      rol: 'compras',
+      nps: [npBase],
+      itemsNp: [
+        { ...itemBase, id: 'item-1', proveedor_sugerido: 'Ferretería Central' },
+        { ...itemBase, id: 'item-2', linea: 2, proveedor_sugerido: null },
+        { ...itemBase, id: 'item-3', linea: 3, proveedor_sugerido: 'Otro Proveedor' },
+      ],
+    })
+    const url = 'http://localhost/api/compras/nps/lineas-pendientes?proveedores='
+      + encodeURIComponent('Ferretería Central') + '&sinProveedor=true'
+    const res = await GET(makeRequest(url))
+    const body = await res.json()
+    expect(body.rows.map((r: any) => r.item_id).sort()).toEqual(['item-1', 'item-2'])
   })
 
   it('CA-02: filtro de Material/Descripción opera sobre la descripción de la línea', async () => {
@@ -5910,10 +5946,49 @@ describe('GET /api/compras/nps/lineas-pendientes', () => {
         { ...itemBase, id: 'item-2', linea: 2, proveedor_sugerido: 'Repuestos del Valle' },
       ],
     })
-    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes?proveedor=Ferretería'))
+    const res = await GET(makeRequest('http://localhost/api/compras/nps/lineas-pendientes?proveedores=' + encodeURIComponent('Ferretería Central')))
     const body = await res.json()
     expect(body.rows).toHaveLength(1) // el filtro sí acota las filas
     expect(body.proveedoresDisponibles.sort()).toEqual(['Ferretería Central', 'Repuestos del Valle']) // pero la lista de opciones no se autoelimina
+  })
+
+  it('SC-014 CA-01: filtro por 2 npNumeros acota rows a solo esas NPs; npsDisponibles sigue sin acotar', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const npA = { ...npBase, id: 'np-a', numero: 'NP-2026-0010' }
+    const npB = { ...npBase, id: 'np-b', numero: 'NP-2026-0030' }
+    const npC = { ...npBase, id: 'np-c', numero: 'NP-2026-0050' }
+    setupLineas({
+      rol: 'compras',
+      nps: [npA, npB, npC],
+      itemsNp: [
+        { ...itemBase, id: 'item-a', nota_pedido_id: 'np-a' },
+        { ...itemBase, id: 'item-b', nota_pedido_id: 'np-b' },
+        { ...itemBase, id: 'item-c', nota_pedido_id: 'np-c' },
+      ],
+    })
+    const url = 'http://localhost/api/compras/nps/lineas-pendientes?npNumeros=' + encodeURIComponent('NP-2026-0010,NP-2026-0030')
+    const res = await GET(makeRequest(url))
+    const body = await res.json()
+    expect(body.rows.map((r: any) => r.np_numero).sort()).toEqual(['NP-2026-0010', 'NP-2026-0030'])
+    expect(body.npsDisponibles.sort()).toEqual(['NP-2026-0010', 'NP-2026-0030', 'NP-2026-0050']) // no se autolimita
+  })
+
+  it('SC-014 Decisión 2: proveedoresDisponibles sí se acota cuando ya hay un filtro de NP activo (faceted real)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const npA = { ...npBase, id: 'np-a', numero: 'NP-2026-0010' }
+    const npB = { ...npBase, id: 'np-b', numero: 'NP-2026-0030' }
+    setupLineas({
+      rol: 'compras',
+      nps: [npA, npB],
+      itemsNp: [
+        { ...itemBase, id: 'item-a', nota_pedido_id: 'np-a', proveedor_sugerido: 'Ferretería Central' },
+        { ...itemBase, id: 'item-b', nota_pedido_id: 'np-b', proveedor_sugerido: 'Repuestos del Valle' },
+      ],
+    })
+    const url = 'http://localhost/api/compras/nps/lineas-pendientes?npNumeros=' + encodeURIComponent('NP-2026-0010')
+    const res = await GET(makeRequest(url))
+    const body = await res.json()
+    expect(body.proveedoresDisponibles).toEqual(['Ferretería Central']) // acotado por el filtro de NP ya aplicado
   })
 
   it('CA-01: la query base restringe notas_pedido a los 3 Estados con líneas potencialmente pendientes', async () => {

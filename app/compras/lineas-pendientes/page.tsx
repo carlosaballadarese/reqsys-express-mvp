@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, Fragment } from 'react'
+import { useEffect, useState, useCallback, useRef, Fragment } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -96,11 +96,15 @@ function usd(n: number) {
 
 type Filtros = {
   area: string; estado: string; accion: string; prioridad: string; sla: string
-  comprador: string; proveedor: string; material: string
+  comprador: string; material: string
+  npNumeros: string[]      // Spec: SC-014 CA-01
+  proveedores: string[]    // Spec: SC-014 CA-03 — antes `proveedor: string` (valor único + sentinel 'todos')
+  sinProveedor: boolean    // Spec: SC-014 CA-04
 }
 
 // Spec: HU-013 CA-02 — mismo patrón que HU-012 en Vista por NP (construirQueryParams
-// compartido), preparado para un futuro botón de exportación (HU-015).
+// compartido), preparado para un futuro botón de exportación (HU-015). SC-014: los 3
+// filtros nuevos se serializan como CSV (npNumeros/proveedores) o 'true' (sinProveedor).
 function construirQueryParams(filtros: Filtros): URLSearchParams {
   const params = new URLSearchParams()
   if (filtros.area !== 'todas') params.set('area', filtros.area)
@@ -109,7 +113,9 @@ function construirQueryParams(filtros: Filtros): URLSearchParams {
   if (filtros.prioridad !== 'todas') params.set('prioridad', filtros.prioridad)
   if (filtros.sla !== 'todos') params.set('sla', filtros.sla)
   if (filtros.comprador !== 'todos') params.set('comprador', filtros.comprador)
-  if (filtros.proveedor !== 'todos') params.set('proveedor', filtros.proveedor)
+  if (filtros.npNumeros.length > 0) params.set('npNumeros', filtros.npNumeros.join(','))
+  if (filtros.proveedores.length > 0) params.set('proveedores', filtros.proveedores.join(','))
+  if (filtros.sinProveedor) params.set('sinProveedor', 'true')
   if (filtros.material) params.set('material', filtros.material)
   return params
 }
@@ -163,6 +169,94 @@ function fechaCorta(iso: string) {
 
 function esLineaExcepcional(fila: LineaPendiente) {
   return fila.prioridad === 'excepcional' && fila.estado === 'oc_directa'
+}
+
+// ─── Controles de selección múltiple (SC-014) ─────────────────────────────────
+
+// Spec: SC-014 — checkbox con soporte de estado indeterminado; el DOM no lo expone
+// como prop JSX, hay que setearlo imperativamente vía ref. Usado en la cabecera de
+// cada NP (seleccionadosEnGrupo > 0 && < total ⇒ indeterminate).
+function CheckboxTriEstado({ checked, indeterminate, onChange, ariaLabel }: {
+  checked: boolean
+  indeterminate: boolean
+  onChange: (e: React.MouseEvent) => void
+  ariaLabel: string
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => { if (ref.current) ref.current.indeterminate = indeterminate }, [indeterminate])
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      onChange={() => {}}
+      onClick={onChange}
+      aria-label={ariaLabel}
+    />
+  )
+}
+
+// Spec: SC-014 CA-01/CA-03 — dropdown de selección múltiple con buscador, reutilizado
+// para el filtro de N° de NP y el de Proveedor sugerido (Fase 1: "Dropdown con
+// checkboxes + buscador", confirmado por el usuario).
+function MultiSelectDropdown({ label, opciones, seleccionados, onChange }: {
+  label: string
+  opciones: string[]
+  seleccionados: string[]
+  onChange: (vals: string[]) => void
+}) {
+  const [abierto, setAbierto] = useState(false)
+  const [busqueda, setBusqueda] = useState('')
+  const wrapperRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) setAbierto(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  const filtradas = opciones.filter(o => o.toLowerCase().includes(busqueda.toLowerCase()))
+
+  function toggle(valor: string) {
+    onChange(seleccionados.includes(valor) ? seleccionados.filter(v => v !== valor) : [...seleccionados, valor])
+  }
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setAbierto(a => !a)}
+        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-left"
+      >
+        {label}{seleccionados.length > 0 ? ` (${seleccionados.length})` : ''}
+      </button>
+      {abierto && (
+        <div className="absolute z-50 mt-1 w-64 bg-white border border-slate-200 rounded-md shadow-lg">
+          <Input
+            value={busqueda}
+            onChange={e => setBusqueda(e.target.value)}
+            placeholder="Buscar..."
+            className="h-8 text-xs m-1 w-[calc(100%-0.5rem)]"
+          />
+          <ul className="max-h-56 overflow-y-auto text-sm">
+            {filtradas.length === 0 && (
+              <li className="px-3 py-2 text-slate-400 text-xs italic">Sin coincidencias</li>
+            )}
+            {filtradas.map(o => (
+              <li key={o} className="px-2 py-1 hover:bg-blue-50">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={seleccionados.includes(o)} onChange={() => toggle(o)} />
+                  {o}
+                </label>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ─── Modal Generar OC (HU-014) ────────────────────────────────────────────────
@@ -322,9 +416,14 @@ export default function LineasPendientesPage() {
   const [compradores, setCompradores] = useState<Comprador[]>([])
   const [acciones, setAcciones]     = useState<AccionCatalogo[]>([])
   const [proveedores, setProveedores] = useState<string[]>([])
+  const [npsDisponibles, setNpsDisponibles] = useState<string[]>([])
   const [areas, setAreas]           = useState<{ id: string; nombre: string }[]>([])
   const [cargando, setCargando]     = useState(true)
   const [seleccion, setSeleccion]   = useState<Set<string>>(new Set())
+  // Spec: SC-014 Decisión 3 — acumula TODAS las filas vistas en la sesión (no solo las
+  // seleccionadas), para que la selección sobreviva a un cambio de filtro posterior.
+  const [cacheLineas, setCacheLineas] = useState<Map<string, LineaPendiente>>(new Map())
+  const [panelSeleccionadasAbierto, setPanelSeleccionadasAbierto] = useState(false)
   const [editando, setEditando]     = useState<Record<string, string>>({})
   const [modalAbierto, setModalAbierto] = useState(false)
   const [mensaje, setMensaje]       = useState<string | null>(null)
@@ -336,9 +435,16 @@ export default function LineasPendientesPage() {
   // CA-01/CA-02 levanta la restricción de "una sola NP": 2+ NPs son elegibles para
   // consolidar si comparten el mismo proveedor_sugerido no vacío, o si el proveedor
   // sugerido está vacío en cualquiera de las líneas seleccionadas.
-  const filasSeleccionadas = rows.filter(r => seleccion.has(r.item_id))
+  // Spec: SC-014 RN-03/Decisión 3 — se derivan de `cacheLineas`, no de `rows`, para que
+  // sigan correctas aunque la línea ya no esté en el filtro actual.
+  const filasSeleccionadas = [...seleccion]
+    .map(id => cacheLineas.get(id))
+    .filter((r): r is LineaPendiente => !!r)
   const npIdsSeleccionados = new Set(filasSeleccionadas.map(r => r.np_id))
   const esConsolidacion    = npIdsSeleccionados.size > 1
+  // Spec: SC-014 Decisión 4 — ámbito "todo lo visible actualmente", usado por el checkbox
+  // de encabezado de tabla (ya corregido en toggleSeleccionTodas() a unión/diferencia).
+  const todasVisiblesSeleccionadas = rows.length > 0 && rows.every(r => seleccion.has(r.item_id))
 
   const proveedoresSugeridosSeleccion = new Set(
     filasSeleccionadas.map(r => (r.proveedor_sugerido ?? '').trim()).filter(v => v !== '')
@@ -384,7 +490,8 @@ export default function LineasPendientesPage() {
 
   const [filtros, setFiltros] = useState<Filtros>({
     area: 'todas', estado: 'todos', accion: 'todas', prioridad: 'todas', sla: 'todos',
-    comprador: 'todos', proveedor: 'todos', material: '',
+    comprador: 'todos', material: '',
+    npNumeros: [], proveedores: [], sinProveedor: false,
   })
 
   useEffect(() => {
@@ -406,7 +513,14 @@ export default function LineasPendientesPage() {
         setCompradores(data.compradoresDisponibles ?? [])
         setAcciones(data.accionesCatalogo ?? [])
         setProveedores(data.proveedoresDisponibles ?? [])
-        setSeleccion(new Set())
+        setNpsDisponibles(data.npsDisponibles ?? [])
+        // Spec: SC-014 RN-03 — ya NO se vacía `seleccion` aquí (antes: setSeleccion(new Set())).
+        // La cache acumula todo lo visto para que la selección sobreviva al cambio de filtro.
+        setCacheLineas(prev => {
+          const next = new Map(prev)
+          for (const r of (data.rows ?? [])) next.set(r.item_id, r)
+          return next
+        })
         // Spec: SC-013 RN-03 — toda nueva carga restablece el orden por defecto
         setSort(null)
         setGruposColapsados(new Set())
@@ -427,8 +541,32 @@ export default function LineasPendientesPage() {
     })
   }
 
+  // Spec: SC-014 Decisión 4 — fix real: antes reemplazaba toda la selección por la de
+  // `rows`, lo que borraría silenciosamente líneas seleccionadas bajo un filtro anterior
+  // (contrario a RN-03). Pasa a ser unión/diferencia, nunca reemplazo.
   function toggleSeleccionTodas() {
-    setSeleccion(prev => prev.size === rows.length ? new Set() : new Set(rows.map(r => r.item_id)))
+    const idsVisibles = rows.map(r => r.item_id)
+    const todasSeleccionadas = idsVisibles.length > 0 && idsVisibles.every(id => seleccion.has(id))
+    setSeleccion(prev => {
+      const next = new Set(prev)
+      idsVisibles.forEach(id => todasSeleccionadas ? next.delete(id) : next.add(id))
+      return next
+    })
+  }
+
+  // Spec: SC-014 CA-05 — ámbito "todo lo visible actualmente bajo el filtro", solo-unión.
+  function seleccionarTodoLoFiltrado() {
+    setSeleccion(prev => {
+      const next = new Set(prev)
+      rows.forEach(r => next.add(r.item_id))
+      return next
+    })
+  }
+
+  // Spec: SC-014 CA-05 — única acción que vacía la selección completa, incluso lo no
+  // visible bajo el filtro actual (a diferencia de deschequear el checkbox de tabla).
+  function limpiarSeleccion() {
+    setSeleccion(new Set())
   }
 
   // Spec CA-04 — persiste al perder el foco; 409 significa que otra persona ya
@@ -594,15 +732,31 @@ export default function LineasPendientesPage() {
                 {compradores.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
               </select>
 
-              {/* Spec CA-02: dinámico, según proveedor_sugerido presente en las líneas pendientes */}
-              <select
-                value={filtros.proveedor}
-                onChange={e => setFiltros(f => ({ ...f, proveedor: e.target.value }))}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              >
-                <option value="todos">Todos los proveedores</option>
-                {proveedores.map(p => <option key={p} value={p}>{p}</option>)}
-              </select>
+              {/* Spec: SC-014 CA-01 — selección múltiple de N° de NP, con buscador */}
+              <MultiSelectDropdown
+                label="N° de NP"
+                opciones={npsDisponibles}
+                seleccionados={filtros.npNumeros}
+                onChange={vals => setFiltros(f => ({ ...f, npNumeros: vals }))}
+              />
+
+              {/* Spec: SC-014 CA-03 — selección múltiple de Proveedor sugerido, dinámico */}
+              <MultiSelectDropdown
+                label="Proveedor sugerido"
+                opciones={proveedores}
+                seleccionados={filtros.proveedores}
+                onChange={vals => setFiltros(f => ({ ...f, proveedores: vals }))}
+              />
+
+              {/* Spec: SC-014 CA-04 — combina con OR junto al filtro de proveedores (RN-02) */}
+              <label className="flex items-center gap-2 h-9 px-3 text-sm text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={filtros.sinProveedor}
+                  onChange={e => setFiltros(f => ({ ...f, sinProveedor: e.target.checked }))}
+                />
+                Sin proveedor sugerido
+              </label>
 
               <Input
                 placeholder="Material / Descripción..."
@@ -629,9 +783,10 @@ export default function LineasPendientesPage() {
         {seleccion.size > 0 && (
           <Card className="border-[#c9a840] bg-amber-50/50">
             <CardContent className="py-3 flex items-center justify-between text-sm">
+              {/* Spec: SC-014 Decisión 5 — formato siempre explícito (antes: el conteo de
+                  NP solo aparecía con 2+ NPs seleccionadas) */}
               <span>
-                {seleccion.size} línea(s) seleccionada(s)
-                {esConsolidacion ? ` — ${npIdsSeleccionados.size} NPs` : ''}
+                {seleccion.size} línea(s) de {npIdsSeleccionados.size} NP(s)
               </span>
               {proveedoresEnConflicto ? (
                 <span className="text-xs text-red-600 font-medium">
@@ -674,6 +829,33 @@ export default function LineasPendientesPage() {
               {cargando ? 'Cargando...' : `${rows.length} líneas pendientes`}
             </CardTitle>
             <div className="flex gap-2">
+              {/* Spec: SC-014 CA-01/CA-05 — ámbito "todo lo visible actualmente", solo-unión */}
+              <Button
+                variant="outline"
+                disabled={rows.length === 0}
+                onClick={seleccionarTodoLoFiltrado}
+                className="h-8 text-xs"
+              >
+                Seleccionar todo lo filtrado
+              </Button>
+              {/* Spec: SC-014 CA-05 — única acción que limpia toda la selección, incluso
+                  lo no visible bajo el filtro actual */}
+              <Button
+                variant="outline"
+                disabled={seleccion.size === 0}
+                onClick={limpiarSeleccion}
+                className="h-8 text-xs"
+              >
+                Limpiar selección
+              </Button>
+              {/* Spec: SC-014 CA-07 — panel colapsable, no reemplaza la tabla */}
+              <Button
+                variant="outline"
+                onClick={() => setPanelSeleccionadasAbierto(a => !a)}
+                className="h-8 text-xs"
+              >
+                📋 Seleccionadas ({seleccion.size})
+              </Button>
               {/* Spec: SC-013 — escape hatch de vuelta a la vista agrupada sin recargar */}
               {!vistaAgrupada && (
                 <Button variant="outline" onClick={() => setSort(null)} className="h-8 text-xs">
@@ -694,6 +876,39 @@ export default function LineasPendientesPage() {
               </Button>
             </div>
           </CardHeader>
+          {/* Spec: SC-014 CA-07 — panel "Seleccionadas", colapsable, no reemplaza la tabla.
+              Lee de cacheLineas (vía filasSeleccionadas), sin consulta nueva al backend. */}
+          {panelSeleccionadasAbierto && (
+            <CardContent className="py-3 border-b bg-slate-50">
+              {filasSeleccionadas.length === 0 ? (
+                <p className="text-sm text-slate-400">Sin líneas seleccionadas.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {filasSeleccionadas.map(f => (
+                        <tr key={f.item_id} className="border-b">
+                          <td className="py-1 pr-3 font-medium text-[#1a5252]">{f.np_numero}</td>
+                          <td className="py-1 pr-3">L{f.linea}</td>
+                          <td className="py-1 pr-3 max-w-xs truncate" title={f.descripcion}>{f.descripcion}</td>
+                          <td className="py-1 pr-3 text-right">{f.cantidad}</td>
+                          <td className="py-1 text-right">
+                            <button
+                              type="button"
+                              onClick={() => setSeleccion(prev => { const n = new Set(prev); n.delete(f.item_id); return n })}
+                              className="text-xs text-red-600 hover:underline"
+                            >
+                              Quitar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          )}
           <CardContent>
             {cargando ? (
               <div className="text-center py-12 text-slate-400">Cargando...</div>
@@ -708,7 +923,7 @@ export default function LineasPendientesPage() {
                       <th className="text-left py-3 pr-2 w-8">
                         <input
                           type="checkbox"
-                          checked={seleccion.size === rows.length}
+                          checked={todasVisiblesSeleccionadas}
                           onChange={toggleSeleccionTodas}
                           aria-label="Seleccionar todas"
                         />
@@ -726,7 +941,21 @@ export default function LineasPendientesPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {grupos.map(g => (
+                    {grupos.map(g => {
+                      // Spec: SC-014 CA-02 — checkbox de cabecera tri-estado, ámbito: esta NP
+                      const idsGrupo = g.lineas.map(l => l.item_id)
+                      const seleccionadosEnGrupo = idsGrupo.filter(id => seleccion.has(id)).length
+                      const estadoGrupo: 'vacio' | 'parcial' | 'completo' =
+                        seleccionadosEnGrupo === 0 ? 'vacio' : seleccionadosEnGrupo === idsGrupo.length ? 'completo' : 'parcial'
+                      function toggleGrupo(e: React.MouseEvent) {
+                        e.stopPropagation()
+                        setSeleccion(prev => {
+                          const next = new Set(prev)
+                          idsGrupo.forEach(id => estadoGrupo === 'completo' ? next.delete(id) : next.add(id))
+                          return next
+                        })
+                      }
+                      return (
                       <Fragment key={g.np_id}>
                         {/* Spec: RN-02 — cabecera por NP, expandida por defecto, contraíble;
                             número y fecha son clicables por separado (navegar / ordenar) */}
@@ -736,6 +965,12 @@ export default function LineasPendientesPage() {
                         >
                           <td colSpan={11} className="py-2 px-3">
                             <div className="flex flex-wrap items-center gap-4">
+                              <CheckboxTriEstado
+                                checked={estadoGrupo === 'completo'}
+                                indeterminate={estadoGrupo === 'parcial'}
+                                onChange={toggleGrupo}
+                                ariaLabel={`Seleccionar todas las líneas de ${g.np_numero}`}
+                              />
                               <span className="font-semibold text-[#1a5252]">
                                 {gruposColapsados.has(g.np_id) ? '▶' : '▼'}{' '}
                                 <Link
@@ -769,7 +1004,8 @@ export default function LineasPendientesPage() {
                           </tr>
                         ))}
                       </Fragment>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -782,7 +1018,7 @@ export default function LineasPendientesPage() {
                       <th className="text-left py-3 pr-2 w-8">
                         <input
                           type="checkbox"
-                          checked={seleccion.size === rows.length}
+                          checked={todasVisiblesSeleccionadas}
                           onChange={toggleSeleccionTodas}
                           aria-label="Seleccionar todas"
                         />

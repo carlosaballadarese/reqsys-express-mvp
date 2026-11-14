@@ -27,7 +27,9 @@ export type FiltrosLineasPendientes = {
   comprador?: string | null
   accionId?: string | null
   slaFiltro?: SlaBadge | null
-  proveedor?: string | null
+  npNumeros?: string[]      // Spec: SC-014 CA-01
+  proveedores?: string[]    // Spec: SC-014 CA-03 — antes `proveedor?: string | null` (un solo valor)
+  sinProveedor?: boolean    // Spec: SC-014 CA-04
   material?: string | null
 }
 
@@ -61,6 +63,7 @@ export type ResultadoLineasPendientes = {
   compradoresDisponibles: { id: string; nombre: string }[]
   accionesCatalogo: AccionCatalogo[]
   proveedoresDisponibles: string[]
+  npsDisponibles: string[]   // Spec: SC-014 CA-01
 }
 
 // Spec: SC-012 RN-02/RN-03/RN-04 — espejo en lote de ItemCobertura
@@ -83,17 +86,19 @@ function calcularSaldoLinea(
   return Math.max(0, cantidadTotal - comprometido)
 }
 
-// Spec: HU-013 CA-02
+// Spec: HU-013 CA-02; SC-014 CA-01/CA-03/CA-04 (npNumeros/proveedores/sinProveedor)
 export function parsearFiltrosLineasPendientes(searchParams: URLSearchParams): FiltrosLineasPendientes {
   return {
-    area:       searchParams.get('area'),
-    estado:     searchParams.get('estado'),
-    prioridad:  searchParams.get('prioridad'),
-    comprador:  searchParams.get('comprador'),
-    accionId:   searchParams.get('accion'),
-    slaFiltro:  searchParams.get('sla') as SlaBadge | null,
-    proveedor:  searchParams.get('proveedor')?.trim(),
-    material:   searchParams.get('material')?.trim(),
+    area:         searchParams.get('area'),
+    estado:       searchParams.get('estado'),
+    prioridad:    searchParams.get('prioridad'),
+    comprador:    searchParams.get('comprador'),
+    accionId:     searchParams.get('accion'),
+    slaFiltro:    searchParams.get('sla') as SlaBadge | null,
+    npNumeros:    searchParams.get('npNumeros')?.split(',').map((s) => s.trim()).filter(Boolean) ?? [],
+    proveedores:  searchParams.get('proveedores')?.split(',').map((s) => s.trim()).filter(Boolean) ?? [],
+    sinProveedor: searchParams.get('sinProveedor') === 'true',
+    material:     searchParams.get('material')?.trim(),
   }
 }
 
@@ -103,7 +108,7 @@ export async function obtenerLineasPendientes(
   userId: string,
   rol: string
 ): Promise<ResultadoLineasPendientes> {
-  const { area, estado, prioridad, comprador, accionId, slaFiltro, proveedor, material } = filtros
+  const { area, estado, prioridad, comprador, accionId, slaFiltro, npNumeros, proveedores, sinProveedor, material } = filtros
 
   const SELECT_NP = 'id, numero, created_at, area, solicitante_nombre, prioridad, estado, asignado_a, asignado_nombre, total_estimado, es_regularizacion, creado_por_id, sla_iniciado_en, sla_pausado_desde, sla_pausado_acumulado_seg'
 
@@ -127,7 +132,7 @@ export async function obtenerLineasPendientes(
   const catalogoMap = new Map<string, AccionCatalogo>(accionesCatalogo.map((a) => [a.id, a]))
 
   if (!npsBase || npsBase.length === 0) {
-    return { rows: [], compradoresDisponibles, accionesCatalogo, proveedoresDisponibles: [] }
+    return { rows: [], compradoresDisponibles, accionesCatalogo, proveedoresDisponibles: [], npsDisponibles: [] }
   }
 
   const npIds = npsBase.map((np: any) => np.id)
@@ -331,15 +336,30 @@ export async function obtenerLineasPendientes(
     rows = rows.filter((f) => f.sla_badge === slaFiltro)
   }
 
+  // Spec: SC-014 Decisión 2 — npsDisponibles se calcula ANTES del filtro propio de NP
+  // (faceted search: el dropdown de NP no se autolimita con su propia selección).
+  const npsDisponibles = [...new Set(rows.map((r) => r.np_numero))].sort()
+
+  if (npNumeros && npNumeros.length > 0) {
+    const set = new Set(npNumeros)
+    rows = rows.filter((r) => set.has(r.np_numero))
+  }
+
   // Spec: decisión de diseño — proveedoresDisponibles se calcula ANTES del filtro
-  // propio de Proveedor/Material (faceted search: la opción elegida no se autoelimina).
+  // propio de Proveedor/Material (faceted search: la opción elegida no se autoelimina),
+  // pero DESPUÉS del filtro de NP (SC-014 Decisión 2: si ya se filtró por NP, el
+  // dropdown de proveedor solo debe ofrecer los proveedores de esas NPs).
   const proveedoresDisponibles = [...new Set(
     rows.map((r) => r.proveedor_sugerido).filter((p): p is string => !!p && p.trim() !== '')
   )].sort()
 
-  if (proveedor) {
-    const buscado = proveedor.toLowerCase()
-    rows = rows.filter((r) => (r.proveedor_sugerido ?? '').toLowerCase().includes(buscado))
+  // Spec: SC-014 CA-03/CA-04/RN-02 — proveedores[] y sinProveedor se combinan con OR.
+  if ((proveedores && proveedores.length > 0) || sinProveedor) {
+    const set = new Set(proveedores ?? [])
+    rows = rows.filter((r) => {
+      const val = (r.proveedor_sugerido ?? '').trim()
+      return val === '' ? !!sinProveedor : set.has(val)
+    })
   }
   if (material) {
     const buscado = material.toLowerCase()
@@ -354,5 +374,5 @@ export async function obtenerLineasPendientes(
   // sin cambio de código tanto por la pantalla como por GET .../excel (HU-015).
   rows.sort((a, b) => a.np_numero.localeCompare(b.np_numero) || a.linea - b.linea)
 
-  return { rows, compradoresDisponibles, accionesCatalogo, proveedoresDisponibles }
+  return { rows, compradoresDisponibles, accionesCatalogo, proveedoresDisponibles, npsDisponibles }
 }
