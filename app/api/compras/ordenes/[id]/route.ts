@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { autoCompletarNP, calcularCoberturaNP } from '@/lib/np-cobertura'
 import { actualizarEstadoNP } from '@/lib/np-estado'
 import { agruparItemsPorNP, validarYVerificarPorNP, npsAfectadasPorEdicion, type ItemConNP } from '@/lib/np-multi-oc'
+import { resolverNpOrigenPorItem, adjuntarNpOrigen } from '@/lib/oc-np-origen'
 
 
 export async function GET(
@@ -56,7 +57,12 @@ export async function GET(
     }
   }
 
-  return NextResponse.json({ oc, items: items ?? [], ...(nps_origen ? { nps_origen } : {}) })
+  // Spec: SC-015 — adjunta np_id/np_numero/np_linea por ítem (trazabilidad por línea,
+  // independiente de nps_origen que ya resuelve HU-016 a nivel de OC completa).
+  const mapaOrigen   = await resolverNpOrigenPorItem(items ?? [])
+  const itemsOrigen  = adjuntarNpOrigen(items ?? [], mapaOrigen)
+
+  return NextResponse.json({ oc, items: itemsOrigen, ...(nps_origen ? { nps_origen } : {}) })
 }
 
 export async function PUT(

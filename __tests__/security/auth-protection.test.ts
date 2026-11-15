@@ -4156,7 +4156,9 @@ describe('GET /api/compras/ordenes/[id] — HU-016 nps_origen', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'registro_compras') return chainFor([], { id: 'oc-multi', numero_oc: 'OC-2026-0300', nota_pedido_id: null })
       if (table === 'items_oc')         return chainFor([{ item_np_id: 'item-a1' }, { item_np_id: 'item-b1' }])
-      if (table === 'items_np')         return chainFor([{ nota_pedido_id: 'np-a' }, { nota_pedido_id: 'np-b' }])
+      // Spec: SC-015 — id/linea agregados para que resolverNpOrigenPorItem() resuelva por línea
+      // sobre el mismo fixture que ya usa la resolución de nps_origen (HU-016, a nivel de OC).
+      if (table === 'items_np')         return chainFor([{ id: 'item-a1', nota_pedido_id: 'np-a', linea: 3 }, { id: 'item-b1', nota_pedido_id: 'np-b', linea: 5 }])
       if (table === 'notas_pedido')     return chainFor([{ id: 'np-a', numero: 'NP-2026-0100' }, { id: 'np-b', numero: 'NP-2026-0101' }])
       throw new Error(`tabla no mockeada: ${table}`)
     })
@@ -4164,17 +4166,100 @@ describe('GET /api/compras/ordenes/[id] — HU-016 nps_origen', () => {
     const body = await res.json()
     expect(body.nps_origen).toHaveLength(2)
     expect(body.nps_origen.map((n: { numero: string }) => n.numero).sort()).toEqual(['NP-2026-0100', 'NP-2026-0101'])
+
+    // Spec: SC-015 CA — cada ítem trae su propio origen por línea (np_id/np_numero/np_linea)
+    const itemA = body.items.find((i: { item_np_id: string }) => i.item_np_id === 'item-a1')
+    const itemB = body.items.find((i: { item_np_id: string }) => i.item_np_id === 'item-b1')
+    expect(itemA).toMatchObject({ np_id: 'np-a', np_numero: 'NP-2026-0100', np_linea: 3 })
+    expect(itemB).toMatchObject({ np_id: 'np-b', np_numero: 'NP-2026-0101', np_linea: 5 })
   })
 
-  it('OC single-NP (nota_pedido_id set) no incluye nps_origen — comportamiento sin cambios', async () => {
+  it('OC single-NP (nota_pedido_id set) no incluye nps_origen, pero sí resuelve el origen por línea (SC-015)', async () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'registro_compras') return chainFor([], { id: 'oc-single', numero_oc: 'OC-2026-0301', nota_pedido_id: 'np-single' })
       if (table === 'items_oc')         return chainFor([{ item_np_id: 'item-x' }])
+      if (table === 'items_np')         return chainFor([{ id: 'item-x', nota_pedido_id: 'np-single', linea: 7 }])
+      if (table === 'notas_pedido')     return chainFor([{ id: 'np-single', numero: 'NP-2026-0200' }])
       throw new Error(`tabla no mockeada: ${table}`)
     })
     const res = await GET(makeRequest('http://localhost/api/compras/ordenes/oc-single'), { params: Promise.resolve({ id: 'oc-single' }) })
     const body = await res.json()
     expect(body.nps_origen).toBeUndefined()
+    expect(body.items[0]).toMatchObject({ np_id: 'np-single', np_numero: 'NP-2026-0200', np_linea: 7 })
+  })
+
+  it('ítem sin item_np_id (agregado manualmente, sin NP de origen) resuelve np_numero/np_id/np_linea en null (SC-015)', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'registro_compras') return chainFor([], { id: 'oc-manual', numero_oc: 'OC-2026-0302', nota_pedido_id: null })
+      if (table === 'items_oc')         return chainFor([{ item_np_id: null }])
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/ordenes/oc-manual'), { params: Promise.resolve({ id: 'oc-manual' }) })
+    const body = await res.json()
+    expect(body.items[0]).toMatchObject({ np_id: null, np_numero: null, np_linea: null })
+  })
+})
+
+// Spec: SC-015 — lib/oc-np-origen.ts, unidad pura (sin pasar por ninguna ruta HTTP).
+describe('lib/oc-np-origen.ts — resolverNpOrigenPorItem / adjuntarNpOrigen', () => {
+  function chainIn(data: unknown) {
+    const chain: any = {}
+    chain.select = jest.fn(() => chain)
+    chain.in     = jest.fn(() => chain)
+    chain.then   = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve)
+    return chain
+  }
+
+  it('resuelve item_np_id -> {np_id, np_numero, np_linea} para un set simple', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'items_np')     return chainIn([{ id: 'i1', nota_pedido_id: 'np-1', linea: 2 }])
+      if (table === 'notas_pedido') return chainIn([{ id: 'np-1', numero: 'NP-2026-0050' }])
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const { resolverNpOrigenPorItem } = require('@/lib/oc-np-origen')
+    const mapa = await resolverNpOrigenPorItem([{ item_np_id: 'i1' }])
+    expect(mapa['i1']).toEqual({ np_id: 'np-1', np_numero: 'NP-2026-0050', np_linea: 2 })
+  })
+
+  it('no consulta ninguna tabla cuando todos los item_np_id son null (short-circuit)', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      throw new Error(`no debería consultarse ninguna tabla, se intentó: ${table}`)
+    })
+    const { resolverNpOrigenPorItem } = require('@/lib/oc-np-origen')
+    const mapa = await resolverNpOrigenPorItem([{ item_np_id: null }, { item_np_id: null }])
+    expect(mapa).toEqual({})
+  })
+
+  it('agrupa en lotes de 100 — 150 item_np_id no exceden el límite de un solo .in()', async () => {
+    const ids150 = Array.from({ length: 150 }, (_, i) => `item-${i}`)
+    const itemsNpLote1 = ids150.slice(0, 100).map((id, i) => ({ id, nota_pedido_id: 'np-x', linea: i + 1 }))
+    const itemsNpLote2 = ids150.slice(100).map((id, i) => ({ id, nota_pedido_id: 'np-x', linea: i + 101 }))
+    let llamadasItemsNp = 0
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'items_np') {
+        llamadasItemsNp++
+        return chainIn(llamadasItemsNp === 1 ? itemsNpLote1 : itemsNpLote2)
+      }
+      if (table === 'notas_pedido') return chainIn([{ id: 'np-x', numero: 'NP-2026-0099' }])
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+    const { resolverNpOrigenPorItem } = require('@/lib/oc-np-origen')
+    const mapa = await resolverNpOrigenPorItem(ids150.map(id => ({ item_np_id: id })))
+    expect(llamadasItemsNp).toBe(2) // 150 ids -> 2 lotes de hasta 100
+    expect(Object.keys(mapa)).toHaveLength(150)
+    expect(mapa['item-0']).toEqual({ np_id: 'np-x', np_numero: 'NP-2026-0099', np_linea: 1 })
+    expect(mapa['item-149']).toEqual({ np_id: 'np-x', np_numero: 'NP-2026-0099', np_linea: 150 })
+  })
+
+  it('adjuntarNpOrigen deja np_id/np_numero/np_linea en null cuando el ítem no tiene item_np_id o no se resolvió', () => {
+    const { adjuntarNpOrigen } = require('@/lib/oc-np-origen')
+    const resultado = adjuntarNpOrigen(
+      [{ item_np_id: null }, { item_np_id: 'sin-match' }, { item_np_id: 'i1' }],
+      { i1: { np_id: 'np-1', np_numero: 'NP-2026-0050', np_linea: 2 } }
+    )
+    expect(resultado[0]).toMatchObject({ np_id: null, np_numero: null, np_linea: null })
+    expect(resultado[1]).toMatchObject({ np_id: null, np_numero: null, np_linea: null })
+    expect(resultado[2]).toMatchObject({ np_id: 'np-1', np_numero: 'NP-2026-0050', np_linea: 2 })
   })
 })
 
@@ -4490,6 +4575,60 @@ describe('GET /api/compras/ordenes/[id]/excel — SC-001 CA-02/CA-08/CA-09', () 
 
     const valoresEscritos = ws.getCell.mock.results.map((r: any) => r.value.value)
     expect(valoresEscritos).toContain('APROBACIÓN DE COMPRA')
+  })
+
+  // Spec: SC-015 — columna "NP Origen" por línea en el Excel de OC. El contenido real de
+  // la celda (header + valor "NP-xxxx / Lx") se escribe vía ws.getRow(row).getCell(...),
+  // que el mock de exceljs no retiene entre llamadas (cada getRow() crea un getCell nuevo)
+  // — se valida con un `.xlsx` real en la ejecución de caja negra (Fase 5), no aquí. Este
+  // test cubre el WIRING: que la resolución de NP origen (items_np + notas_pedido) se
+  // ejecuta sin errores dentro de la ruta real y la respuesta sigue siendo 200.
+  it('resuelve NP origen (items_np + notas_pedido) sin errores y responde 200 (wiring, SC-015)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'registro_compras') {
+        const chain = mockChainVacio()
+        chain.single = jest.fn(() => Promise.resolve({
+          data: {
+            id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'aprobada', valor_total: 100,
+            proveedor: 'ACME', proveedor_ruc: '1792345678001', creado_por_id: null,
+            creado_por_nombre: 'Compras Test', created_at: '2026-07-01T00:00:00Z',
+            aprobado_por_nombre: 'Claudia Sánchez', aprobado_por_rol: 'compras',
+            aprobado_en: '2026-07-05T15:30:00Z', aprobador_np_nombre: null, aprobador_np_area: null,
+          },
+          error: null,
+        }))
+        return chain
+      }
+      if (table === 'items_oc') {
+        const chain = mockChainVacio()
+        chain.then = (resolve: any) => Promise.resolve({
+          data: [{ linea: 1, item_np_id: 'item-sc015', descripcion: 'Bomba', unidad: 'EA', cantidad: 2, precio_unitario: 10 }],
+          error: null,
+        }).then(resolve)
+        return chain
+      }
+      if (table === 'items_np')     return { select: () => ({ in: () => Promise.resolve({ data: [{ id: 'item-sc015', nota_pedido_id: 'np-sc015', linea: 4 }], error: null }) }) }
+      if (table === 'notas_pedido') return { select: () => ({ in: () => Promise.resolve({ data: [{ id: 'np-sc015', numero: 'NP-2026-0777' }], error: null }) }) }
+      if (table === 'configuracion_empresa') {
+        const chain = mockChainVacio()
+        chain.single = jest.fn(() => Promise.resolve({ data: {}, error: null }))
+        return chain
+      }
+      if (table === 'perfiles') {
+        const chain = mockChainVacio()
+        chain.single = jest.fn(() => Promise.resolve({ data: null, error: null }))
+        return chain
+      }
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+
+    const res = await GET(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/excel'),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toContain('spreadsheetml')
   })
 })
 

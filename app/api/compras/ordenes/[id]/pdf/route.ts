@@ -3,6 +3,7 @@ import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { OCDocument } from '@/lib/oc-pdf'
+import { resolverNpOrigenPorItem, adjuntarNpOrigen } from '@/lib/oc-np-origen'
 import React from 'react'
 
 export async function GET(
@@ -39,9 +40,13 @@ export async function GET(
     const appUrl   = process.env.NEXT_PUBLIC_APP_URL ?? 'https://reqsys-express.vercel.app'
     const logoUrl  = `${appUrl}/logo_arlift.png`
 
+    // Spec: SC-015 — adjunta NP origen por línea antes de renderizar.
+    const mapaOrigen  = await resolverNpOrigenPorItem(items ?? [])
+    const itemsOrigen = adjuntarNpOrigen(items ?? [], mapaOrigen)
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const element = React.createElement(OCDocument, {
-      oc, items: items ?? [], empresa: empresa ?? {}, logoUrl, creadorCargo,
+      oc, items: itemsOrigen, empresa: empresa ?? {}, logoUrl, creadorCargo,
     }) as any
 
     const buffer = await renderToBuffer(element)

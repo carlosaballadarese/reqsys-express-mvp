@@ -3,6 +3,7 @@ import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import ExcelJS from 'exceljs'
 import { resolverEtiquetaAprobador, AREA_COMPRAS_FIJA } from '@/lib/oc-utils'
+import { resolverNpOrigenPorItem, adjuntarNpOrigen } from '@/lib/oc-np-origen'
 
 function usd(n: number) { return `$${Number(n).toFixed(2)}` }
 function fmtDate(s: string | null) {
@@ -66,10 +67,14 @@ export async function GET(
       else if (perfil?.rol === 'admin')        creadorCargo = 'Administrador'
     }
 
+    // Spec: SC-015 — resuelve NP origen por línea antes de escribir la hoja.
+    const mapaOrigen  = await resolverNpOrigenPorItem(items ?? [])
+    const itemsOrigen = adjuntarNpOrigen(items ?? [], mapaOrigen)
+
     const wb = new ExcelJS.Workbook()
     const ws = wb.addWorksheet('OC')
 
-    // Anchos de columna: A..J (10 cols)
+    // Anchos de columna: A..K (11 cols) — K (NP Origen) agregada por SC-015
     ws.columns = [
       { width: 6  },  // A: ITEM #
       { width: 10 },  // B: TIPO
@@ -81,6 +86,7 @@ export async function GET(
       { width: 13 },  // H: P.UNIT
       { width: 13 },  // I: TOTAL
       { width: 13 },  // J: FECHA ENTREGA
+      { width: 16 },  // K: NP ORIGEN (SC-015)
     ]
 
     let row = 1
@@ -114,7 +120,7 @@ export async function GET(
     row++
 
     // ── Sección: INFORMACIÓN GENERAL ────────────────────────────────────────
-    ws.mergeCells(`A${row}:J${row}`)
+    ws.mergeCells(`A${row}:K${row}`)
     ws.getCell(`A${row}`).value = 'INFORMACIÓN GENERAL'
     ws.getCell(`A${row}`).style = headerStyle()
     ws.getRow(row).height = 16
@@ -124,7 +130,7 @@ export async function GET(
     ws.mergeCells(`A${row}:E${row}`)
     ws.getCell(`A${row}`).value  = 'PROVEEDOR'
     ws.getCell(`A${row}`).style  = headerStyle(TEAL2)
-    ws.mergeCells(`F${row}:J${row}`)
+    ws.mergeCells(`F${row}:K${row}`)
     ws.getCell(`F${row}`).value  = 'FACTURAR A'
     ws.getCell(`F${row}`).style  = headerStyle(TEAL2)
     ws.getRow(row).height = 14
@@ -158,7 +164,7 @@ export async function GET(
       // Empresa
       r.getCell('F').value = empRows[i][0]
       r.getCell('F').style = { font: { bold: true, size: 8 }, border: allBorder() }
-      ws.mergeCells(`G${row + i}:J${row + i}`)
+      ws.mergeCells(`G${row + i}:K${row + i}`)
       r.getCell('G').value = empRows[i][1] ?? '—'
       r.getCell('G').style = { font: { size: 8 }, border: allBorder() }
       r.height = 14
@@ -166,18 +172,18 @@ export async function GET(
     row += provRows.length
 
     // ── Sección: DETALLE DE ÍTEMS ────────────────────────────────────────────
-    ws.mergeCells(`A${row}:J${row}`)
+    ws.mergeCells(`A${row}:K${row}`)
     ws.getCell(`A${row}`).value = 'DETALLE DE ÍTEMS REQUERIDOS'
     ws.getCell(`A${row}`).style = headerStyle()
     ws.getRow(row).height = 16
     row++
 
-    // Cabecera tabla ítems
+    // Cabecera tabla ítems — K: "NP ORIGEN" agregada por SC-015
     const thRow = ws.getRow(row)
     const hdrs = ['ITEM #', 'TIPO', 'CÓDIGO', 'DESCRIPCIÓN DEL BIEN O SERVICIO',
                   'UNIDAD', 'QTY SOLIC.', 'INFORMACIÓN ADICIONAL',
-                  'P. UNIT. (USD)', 'TOTAL (USD)', 'FECHA ENTREGA']
-    const cols = ['A','B','C','D','E','F','G','H','I','J']
+                  'P. UNIT. (USD)', 'TOTAL (USD)', 'FECHA ENTREGA', 'NP ORIGEN']
+    const cols = ['A','B','C','D','E','F','G','H','I','J','K']
     hdrs.forEach((h, i) => {
       thRow.getCell(cols[i]).value = h
       thRow.getCell(cols[i]).style = headerStyle(TEAL2)
@@ -186,17 +192,20 @@ export async function GET(
     row++
 
     // Filas de ítems
-    ;(items ?? []).forEach((it: any) => {
+    itemsOrigen.forEach((it: any) => {
       const r = ws.getRow(row)
       const total = Number(it.cantidad) * Number(it.precio_unitario)
+      // Spec: SC-015 RN-02 — texto plano, sin hipervínculo (Excel estático)
+      const npOrigenTexto = it.np_numero ? `${it.np_numero} / L${it.np_linea}` : '—'
       const vals = [
         it.linea, it.tipo ?? '', it.codigo ?? '', it.descripcion,
         it.unidad, it.cantidad, it.informacion_adicional ?? '',
         usd(Number(it.precio_unitario)), usd(total), fmtDate(it.fecha_entrega),
+        npOrigenTexto,
       ]
       vals.forEach((v, i) => {
         r.getCell(cols[i]).value = v
-        r.getCell(cols[i]).style = cellStyle(false, i >= 7 ? 'right' : i === 0 ? 'center' : 'left')
+        r.getCell(cols[i]).style = cellStyle(false, i >= 7 && i <= 9 ? 'right' : i === 0 ? 'center' : 'left')
       })
       r.height = 20
       row++
@@ -207,13 +216,13 @@ export async function GET(
     ws.mergeCells(`A${row}:H${row}`)
     ws.getCell(`A${row}`).value = 'VALOR TOTAL DEL REQUERIMIENTO (USD) — sin IVA:'
     ws.getCell(`A${row}`).style = { font: { bold: true, size: 9 }, alignment: { horizontal: 'right' }, border: allBorder() }
-    ws.mergeCells(`I${row}:J${row}`)
+    ws.mergeCells(`I${row}:K${row}`)
     ws.getCell(`I${row}`).value = usd(subtotal)
     ws.getCell(`I${row}`).style = { font: { bold: true, size: 9, color: { argb: `FF${TEAL2}` } }, alignment: { horizontal: 'right' }, border: allBorder() }
     ws.getRow(row).height = 16
     row++
 
-    ws.mergeCells(`A${row}:J${row}`)
+    ws.mergeCells(`A${row}:K${row}`)
     ws.getCell(`A${row}`).value = 'EL VALOR DE IVA SERÁ INCLUIDO CONFORME SEA APLICABLE EN LA FACTURA DEL PROVEEDOR POSTERIOR A LA EMISIÓN DE LA ORDEN DE COMPRA'
     ws.getCell(`A${row}`).style = { font: { italic: true, size: 7, color: { argb: 'FF64748b' } }, alignment: { horizontal: 'center', wrapText: true }, border: allBorder() }
     ws.getRow(row).height = 16
@@ -221,13 +230,13 @@ export async function GET(
 
     // ── Condiciones mínimas ──────────────────────────────────────────────────
     row++
-    ws.mergeCells(`A${row}:J${row}`)
+    ws.mergeCells(`A${row}:K${row}`)
     ws.getCell(`A${row}`).value = 'CONDICIONES MÍNIMAS PARA PROVEEDORES (certificaciones, normas, fichas técnicas, etc.)'
     ws.getCell(`A${row}`).style = headerStyle()
     ws.getRow(row).height = 16
     row++
 
-    ws.mergeCells(`A${row}:J${row + 2}`)
+    ws.mergeCells(`A${row}:K${row + 2}`)
     ws.getCell(`A${row}`).value = oc.condiciones_minimas ?? ''
     ws.getCell(`A${row}`).style = { font: { size: 8 }, alignment: { wrapText: true, vertical: 'top' }, border: allBorder() }
     ws.getRow(row).height = 50
@@ -235,7 +244,7 @@ export async function GET(
 
     // ── Aprobaciones ─────────────────────────────────────────────────────────
     row++
-    ws.mergeCells(`A${row}:J${row}`)
+    ws.mergeCells(`A${row}:K${row}`)
     ws.getCell(`A${row}`).value = 'APROBACIONES'
     ws.getCell(`A${row}`).style = headerStyle()
     ws.getRow(row).height = 14
@@ -243,12 +252,13 @@ export async function GET(
 
     // Spec CA-06/CA-07/CA-08/CA-10: 4 bloques, cada uno con Nombre/Área/Rol/Fecha/Firma
     // (Coordinador del Área sin Fecha — RN-04; Recibido y Confirmado usa Razón Social/RUC)
+    // Spec SC-015: último bloque ensanchado de H:J a H:K para absorber la columna K nueva.
     const aprobadorEtiqueta = resolverEtiquetaAprobador(oc.aprobado_por_rol ?? null)
     const aprobCols = [
       ['A', 'B', 'ELABORADO POR'],
       ['C', 'D', 'APROBADO POR\nCOORDINADOR DEL ÁREA'],
       ['E', 'G', 'APROBACIÓN DE COMPRA'],
-      ['H', 'J', 'RECIBIDO Y CONFIRMADO (PROVEEDOR)'],
+      ['H', 'K', 'RECIBIDO Y CONFIRMADO (PROVEEDOR)'],
     ] as const
     aprobCols.forEach(([from, to, lbl]) => {
       ws.mergeCells(`${from}${row}:${to}${row}`)

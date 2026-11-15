@@ -96,7 +96,9 @@ function FilaFirmante({ label, value, esFirma }: { label: string; value: string;
   )
 }
 
-const COL = { num:'4%', tipo:'8%', cod:'9%', desc:'25%', und:'5%', qty:'5%', info:'17%', pu:'9%', tot:'9%', fecha:'9%' }
+// Spec: SC-015 — se redistribuyen anchos para ceder espacio a "NP ORIGEN" (nueva), sin
+// alterar el contenido de las columnas existentes (layout aprobado en SC-001).
+const COL = { num:'4%', tipo:'7%', cod:'8%', desc:'20%', und:'5%', qty:'4%', info:'13%', pu:'8%', tot:'9%', fecha:'7%', origen:'15%' }
 
 export function OCDocument({ oc, items, empresa, logoUrl, creadorCargo }: {
   oc: any; items: any[]; empresa: any; logoUrl: string; creadorCargo: string
@@ -164,6 +166,7 @@ export function OCDocument({ oc, items, empresa, logoUrl, creadorCargo }: {
               ['DESCRIPCIÓN DEL BIEN O SERVICIO',COL.desc],['UNIDAD',COL.und],
               ['QTY SOLIC.',COL.qty],['INFORMACIÓN ADICIONAL',COL.info],
               ['P. UNIT. (USD)',COL.pu],['TOTAL (USD)',COL.tot],['FECHA ENTREGA',COL.fecha],
+              ['NP ORIGEN',COL.origen],
             ] as [string, string][]).map(([lbl, w]) => (
               <Text key={lbl} style={{ ...styles.thCell, width: w }}>{lbl}</Text>
             ))}
@@ -180,6 +183,10 @@ export function OCDocument({ oc, items, empresa, logoUrl, creadorCargo }: {
               <Text style={{ ...styles.tdCell, width: COL.pu }}>{usd(Number(it.precio_unitario))}</Text>
               <Text style={{ ...styles.tdCell, width: COL.tot }}>{usd(Number(it.cantidad) * Number(it.precio_unitario))}</Text>
               <Text style={{ ...styles.tdCell, width: COL.fecha, fontSize: 6 }}>{fmtDate(it.fecha_entrega)}</Text>
+              {/* Spec: SC-015 RN-02 — texto plano, sin enlace (PDF estático) */}
+              <Text style={{ ...styles.tdCell, width: COL.origen, fontSize: 6 }}>
+                {it.np_numero ? `${it.np_numero} / L${it.np_linea}` : '—'}
+              </Text>
             </View>
           ))}
         </View>

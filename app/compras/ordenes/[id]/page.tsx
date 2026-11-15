@@ -79,6 +79,10 @@ type ItemOC = {
   informacion_adicional: string | null
   fecha_entrega: string | null
   justificacion_cantidad: string | null
+  // Spec: SC-015 — trazabilidad por línea (null si el ítem no tiene NP de origen)
+  np_id?: string | null
+  np_numero?: string | null
+  np_linea?: number | null
 }
 
 type NPItem = {
@@ -86,6 +90,9 @@ type NPItem = {
   linea: number
   descripcion: string
   cantidad: number
+  // Spec: SC-015 — permite derivar en vivo el indicador de NP origen en modo edición
+  np_id: string
+  np_numero: string
 }
 
 // Hotfix de producción (2026-11-07): el PUT de edición devuelve códigos de
@@ -429,6 +436,8 @@ export default function DetalleOCPage() {
             linea:       it.linea,
             descripcion: it.descripcion,
             cantidad:    Number(it.cantidad),
+            np_id:       oc.nota_pedido_id as string,
+            np_numero:   data.np?.numero ?? '',
           }))
           setNpItemsEdit(npItems)
           setCantidadNPMap(npItems.reduce(
@@ -447,6 +456,8 @@ export default function DetalleOCPage() {
               linea:       it.linea,
               descripcion: `${data.np?.numero ?? npOrigen.numero} — ${it.descripcion}`,
               cantidad:    Number(it.cantidad),
+              np_id:       npOrigen.id,
+              np_numero:   data.np?.numero ?? npOrigen.numero,
             })))
         )
       )
@@ -945,7 +956,8 @@ export default function DetalleOCPage() {
                         <th className="text-right py-2 pr-3">P. Unit.</th>
                         <th className="text-right py-2 pr-3">Total</th>
                         <th className="text-left py-2 pr-3">Fecha Entrega</th>
-                        <th className="text-left py-2">Justificación Cantidad</th>
+                        <th className="text-left py-2 pr-3">Justificación Cantidad</th>
+                        <th className="text-left py-2">NP Origen</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -960,7 +972,13 @@ export default function DetalleOCPage() {
                           <td className="py-2 pr-3 text-right">${Number(item.precio_unitario).toFixed(2)}</td>
                           <td className="py-2 pr-3 text-right font-medium">${((Number(item.cantidad) || 0) * (Number(item.precio_unitario) || 0)).toFixed(2)}</td>
                           <td className="py-2 pr-3 text-xs text-slate-500">{item.fecha_entrega ? new Date(item.fecha_entrega).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
-                          <td className="py-2 text-xs text-slate-500">{item.justificacion_cantidad ?? '—'}</td>
+                          <td className="py-2 pr-3 text-xs text-slate-500">{item.justificacion_cantidad ?? '—'}</td>
+                          {/* Spec: SC-015 — enlace solo en pantalla (RN-02) */}
+                          <td className="py-2 text-xs">
+                            {item.np_numero
+                              ? <Link href={`/compras/${item.np_id}`} className="text-teal-700 hover:underline">{item.np_numero} / L{item.np_linea}</Link>
+                              : <span className="text-slate-400">—</span>}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -969,10 +987,12 @@ export default function DetalleOCPage() {
                         <td colSpan={8} className="py-2 pr-3 text-right font-semibold">Subtotal</td>
                         <td className="py-2 pr-3 text-right font-bold text-blue-700">${totalOC.toFixed(2)}</td>
                         <td></td>
+                        <td></td>
                       </tr>
                       <tr className="bg-slate-50">
                         <td colSpan={8} className="py-1 pr-3 text-right text-slate-500 text-xs">IVA 15%</td>
                         <td className="py-1 pr-3 text-right text-slate-500 text-xs">${ivaOC.toFixed(2)}</td>
+                        <td></td>
                         <td></td>
                       </tr>
                     </tfoot>
@@ -1068,6 +1088,22 @@ export default function DetalleOCPage() {
                         <Label className="text-xs text-slate-500">Información Adicional</Label>
                         <Input value={item.informacion_adicional ?? ''} onChange={e => setItemEdit(i, 'informacion_adicional', e.target.value || null)} className="h-7 text-xs mt-0.5" placeholder="Especificaciones, notas..." />
                       </div>
+                      {/* Spec: SC-015 — indicador de solo lectura, derivado en vivo del ítem de
+                          NP actualmente vinculado (con fallback al dato servido por el GET) */}
+                      {item.item_np_id && (() => {
+                        const candidato = npItemsEdit.find(n => n.id === item.item_np_id)
+                        const numero = candidato?.np_numero || item.np_numero
+                        const linea  = candidato?.linea ?? item.np_linea
+                        const npId   = candidato?.np_id ?? item.np_id
+                        return (
+                          <p className="pl-7 text-xs text-slate-500">
+                            NP origen:{' '}
+                            {numero
+                              ? <Link href={`/compras/${npId}`} className="text-teal-700 hover:underline">{numero} / L{linea}</Link>
+                              : '—'}
+                          </p>
+                        )
+                      })()}
                       {/* CA-06: selector de ítem NP cuando hay NP origen */}
                       {npItemsEdit.length > 0 && (
                         <div className="pl-7">
