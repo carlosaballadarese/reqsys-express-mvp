@@ -8,12 +8,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { formatNumeroOc } from '@/lib/oc-utils'
+import { SelectorLineasNPModal, type ItemAgregado } from '@/components/SelectorLineasNPModal'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 type OC = {
   id: string
-  numero_oc: string
+  numero_oc: string | null
   numero_np: string | null
   nota_pedido_id: string | null
   // Spec: HU-016 — solo presente cuando nota_pedido_id es NULL (OC consolidada);
@@ -322,6 +324,8 @@ export default function DetalleOCPage() {
   const [proveedorSnap, setProveedorSnap] = useState<Partial<Proveedor>>({})
   const [form, setForm]               = useState<Record<string, string>>({})
   const [itemsEdit, setItemsEdit]     = useState<ItemOC[]>([])
+  // Spec: SC-016 — "Agregar líneas de NP"
+  const [selectorNPAbierto, setSelectorNPAbierto] = useState(false)
   const [npItemsEdit, setNpItemsEdit] = useState<NPItem[]>([])
   const [cantidadNPMap, setCantidadNPMap] = useState<Record<string, number>>({})
 
@@ -496,6 +500,30 @@ export default function DetalleOCPage() {
 
   function eliminarItem(i: number) { setItemsEdit(prev => prev.filter((_, idx) => idx !== i)) }
 
+  // Spec: SC-016 RN-04 — fusiona las líneas elegidas en el modal con las ya
+  // existentes (nunca las reemplaza); el guardado real sigue ocurriendo con
+  // el botón "Guardar Cambios" ya existente, que persiste el array completo
+  // vía PUT (ya soporta reemplazo total de ítems desde HU-016).
+  function agregarLineasDeNP(items: ItemAgregado[]) {
+    setItemsEdit(prev => [
+      ...prev,
+      ...items.map((it, idx) => ({
+        item_np_id:             it.item_np_id,
+        codigo:                 it.codigo ?? '',
+        descripcion:            it.descripcion,
+        unidad:                 it.unidad,
+        cantidad:               it.cantidad,
+        precio_unitario:        it.precio_unitario,
+        tipo:                   null,
+        informacion_adicional:  null,
+        fecha_entrega:          null,
+        justificacion_cantidad: it.justificacion_cantidad ?? null,
+        linea:                  prev.length + idx + 1,
+      } as ItemOC)),
+    ])
+    setSelectorNPAbierto(false)
+  }
+
   const totalEdit         = itemsEdit.reduce((acc, it) => acc + (parseFloat(String(it.cantidad)) || 0) * (parseFloat(String(it.precio_unitario)) || 0), 0)
   const valorRetenidoEdit = Number(form.valor_retenido) || 0
   const ivaEdit           = totalEdit * 0.15
@@ -609,8 +637,8 @@ export default function DetalleOCPage() {
     try {
       const res  = await fetch(`/api/compras/ordenes/${id}/enviar-aprobacion`, { method: 'POST' })
       const data = await res.json()
-      if (data.success) { setMsgEnvio(`OC enviada a aprobación de ${data.aprobador}`); cargar() }
-      else setErrEnvio(data.error || 'Error al enviar')
+      if (data.success) { setMsgEnvio(`OC ${data.numero_oc ?? ''} enviada a aprobación de ${data.aprobador}`); cargar() }
+      else setErrEnvio(data.message || data.error || 'Error al enviar')
     } catch { setErrEnvio('Error de conexión') }
     finally   { setEnviando(false) }
   }
@@ -653,7 +681,14 @@ export default function DetalleOCPage() {
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div>
             <Link href="/compras/ordenes" className="text-blue-300 text-xs hover:text-white">← Órdenes de Compra</Link>
-            <h1 className="text-xl font-bold mt-1">{oc.numero_oc}</h1>
+            <h1 className="text-xl font-bold mt-1">
+              {formatNumeroOc(oc.numero_oc)}
+              {/* Spec: SC-016 RN-07 — alerta de 30+ días en_proceso */}
+              {oc.estado_oc === 'en_proceso' &&
+                Math.floor((Date.now() - new Date(oc.created_at).getTime()) / 86400000) >= 30 && (
+                <span className="ml-2 text-xs font-semibold text-red-300 align-middle">⚠ 30+ días en proceso</span>
+              )}
+            </h1>
             {oc.nota_pedido_id && oc.numero_np ? (
               <p className="text-blue-300 text-xs mt-0.5">
                 Originada de{' '}
@@ -737,8 +772,10 @@ export default function DetalleOCPage() {
                   <>
                     {msgEnvio && <span className="text-xs text-green-600">{msgEnvio}</span>}
                     {errEnvio && <span className="text-xs text-red-600">{errEnvio}</span>}
+                    {/* Spec: SC-016 Decisión 4/RN-03 — relabel "Enviar a Aprobación" →
+                        "Emitir OC"; mismo endpoint, ahora asigna numero_oc si faltaba */}
                     <Button onClick={handleEnviarAprobacion} disabled={enviando} className="h-8 btn-primary text-sm">
-                      {enviando ? 'Enviando...' : 'Enviar a Aprobación'}
+                      {enviando ? 'Emitiendo...' : 'Emitir OC'}
                     </Button>
                   </>
                 )}
@@ -764,7 +801,7 @@ export default function DetalleOCPage() {
             <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4 space-y-4">
               <h2 className="text-base font-bold text-red-700">Cancelar Orden de Compra</h2>
               <p className="text-sm text-slate-600">
-                Esta acción cancelará la OC <span className="font-semibold">{oc.numero_oc}</span> y liberará
+                Esta acción cancelará la OC <span className="font-semibold">{formatNumeroOc(oc.numero_oc)}</span> y liberará
                 las unidades comprometidas en la NP de origen. Es una acción permanente.
               </p>
               {oc.estado_oc === 'aprobada' && (
@@ -898,7 +935,7 @@ export default function DetalleOCPage() {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
-                  <div><p className="text-xs text-slate-500">Número OC</p><p className="font-mono font-medium">{oc.numero_oc}</p></div>
+                  <div><p className="text-xs text-slate-500">Número OC</p><p className="font-mono font-medium">{formatNumeroOc(oc.numero_oc)}</p></div>
                   {oc.numero_cotizacion && <div><p className="text-xs text-slate-500">N° Cotización</p><p className="font-medium">{oc.numero_cotizacion}</p></div>}
                   <div><p className="text-xs text-slate-500">Fecha OC</p><p className="font-medium">{oc.fecha_oc ? new Date(oc.fecha_oc).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</p></div>
                   <div><p className="text-xs text-slate-500">Área</p><p className="font-medium">{oc.area ?? '—'}</p></div>
@@ -1008,7 +1045,7 @@ export default function DetalleOCPage() {
           <Card className="border-blue-200">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base text-blue-800">Editando {oc.numero_oc}</CardTitle>
+                <CardTitle className="text-base text-blue-800">Editando {formatNumeroOc(oc.numero_oc)}</CardTitle>
                 <button onClick={() => setEditando(false)} className="text-xs text-slate-500 hover:underline">Cancelar</button>
               </div>
             </CardHeader>
@@ -1018,7 +1055,11 @@ export default function DetalleOCPage() {
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-sm font-medium text-slate-700">Ítems</p>
-                  <button type="button" onClick={agregarItem} className="text-xs text-blue-600 hover:underline font-medium">+ Agregar ítem</button>
+                  <div className="flex gap-3">
+                    {/* Spec: SC-016 — "Agregar líneas de NP" (Mejora 3, función 4) */}
+                    <button type="button" onClick={() => setSelectorNPAbierto(true)} className="text-xs text-blue-600 hover:underline font-medium">+ Agregar líneas de NP</button>
+                    <button type="button" onClick={agregarItem} className="text-xs text-blue-600 hover:underline font-medium">+ Agregar ítem</button>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   {itemsEdit.map((item, i) => (
@@ -1181,7 +1222,7 @@ export default function DetalleOCPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label className="text-xs">Número de OC</Label>
-                  <div className="mt-1 h-8 px-3 flex items-center rounded-md border border-slate-200 bg-slate-50 text-sm font-mono text-blue-700 font-medium">{oc.numero_oc}</div>
+                  <div className="mt-1 h-8 px-3 flex items-center rounded-md border border-slate-200 bg-slate-50 text-sm font-mono text-blue-700 font-medium">{formatNumeroOc(oc.numero_oc)}</div>
                 </div>
                 <div>
                   <Label className="text-xs">N° Cotización</Label>
@@ -1317,6 +1358,15 @@ export default function DetalleOCPage() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* Spec: SC-016 — "Agregar líneas de NP" */}
+        {selectorNPAbierto && (
+          <SelectorLineasNPModal
+            proveedorInicial={oc.proveedor}
+            onClose={() => setSelectorNPAbierto(false)}
+            onAgregar={agregarLineasDeNP}
+          />
         )}
       </div>
     </div>

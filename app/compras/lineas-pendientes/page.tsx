@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { ProveedorSearch, type Proveedor } from '@/components/ProveedorSearch'
+import { formatNumeroOc } from '@/lib/oc-utils'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,8 @@ type LineaPendiente = {
   sla_badge: SlaBadge
   sla_dias_signo: number | null
   accion: AccionCatalogo | null
+  // Spec: SC-016 — marca "En OC en proceso N° ___"
+  oc_en_proceso: { id: string; numero_oc: string | null } | null
 }
 
 type Comprador = { id: string; nombre: string }
@@ -267,7 +270,7 @@ function MultiSelectDropdown({ label, opciones, seleccionados, onChange }: {
 function ModalGenerarOC({ lineas, onClose, onGenerado }: {
   lineas: LineaPendiente[]
   onClose: () => void
-  onGenerado: (numeroOc: string) => void
+  onGenerado: (numeroOc: string | null) => void
 }) {
   const npIdsModal = new Set(lineas.map(l => l.np_id))
   const esConsolidacion = npIdsModal.size > 1
@@ -628,6 +631,16 @@ export default function LineasPendientesPage() {
             de {fila.cantidad_total}
           </p>
         )}
+        {/* Spec: SC-016 — marca "En OC en proceso N° ___" (regla de negocio 6) */}
+        {fila.oc_en_proceso && (
+          <Link
+            href={`/compras/ordenes/${fila.oc_en_proceso.id}`}
+            onClick={e => e.stopPropagation()}
+            className="block text-[10px] font-medium text-amber-700 bg-amber-100 rounded px-1 mt-0.5 hover:underline"
+          >
+            En OC en proceso N° {formatNumeroOc(fila.oc_en_proceso.numero_oc)}
+          </Link>
+        )}
       </td>,
       <td key="prov" className="py-3 pr-4">
         {/* Spec CA-04: edición inline, persiste al perder el foco */}
@@ -800,8 +813,10 @@ export default function LineasPendientesPage() {
                 </span>
               ) : (
                 <div className="flex gap-2">
+                  {/* Spec: SC-016 Decisión 4 — relabel de "Generar OC"/"Consolidar en
+                      OC": el resultado real siempre ha sido dejar la OC en_proceso */}
                   <Button onClick={() => setModalAbierto(true)} className="h-8 btn-primary text-xs">
-                    {esConsolidacion ? 'Consolidar en OC' : 'Generar OC'}
+                    Guardar en proceso
                   </Button>
                   {/* Spec: HU-019 CA-01 — solo con líneas de UNA sola NP seleccionada */}
                   {!esConsolidacion && (
@@ -1068,7 +1083,8 @@ export default function LineasPendientesPage() {
           onGenerado={(numeroOc) => {
             setModalAbierto(false)
             setSeleccion(new Set())
-            setMensaje(`OC ${numeroOc} generada correctamente`)
+            // Spec: SC-016 — numero_oc queda null hasta "Emitir OC" (RN-01).
+            setMensaje(numeroOc ? `OC ${numeroOc} generada correctamente` : 'OC guardada en proceso — sin número asignado todavía')
             cargar() // Spec CA-05: las líneas convertidas desaparecen de la vista
           }}
         />

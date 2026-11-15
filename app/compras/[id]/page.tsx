@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { ProveedorSearch, type Proveedor } from '@/components/ProveedorSearch'
+import { formatNumeroOc } from '@/lib/oc-utils'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ type NP = {
 
 type OCVinculada = {
   id: string
-  numero_oc: string
+  numero_oc: string | null
   proveedor: string
   valor_total: number
   estado_oc: string
@@ -297,7 +298,7 @@ type ItemOC = {
 // ─── Formulario conversión a OC (parcial / multi-OC) ─────────────────────────
 
 function FormularioOC({ np, itemsNP, onConvertida, cobertura }: {
-  np: NP; itemsNP: Item[]; onConvertida: (numeroOC: string) => void
+  np: NP; itemsNP: Item[]; onConvertida: (numeroOC: string | null) => void
   cobertura: CoberturaResult | null
 }) {
   const [enviando, setEnviando]           = useState(false)
@@ -1390,7 +1391,7 @@ export default function DetalleNPPage() {
                         <tr key={oc.id} className="border-b last:border-0 hover:bg-slate-50">
                           <td className="py-2 pr-4">
                             <Link href={`/compras/ordenes/${oc.id}`} className="font-mono font-medium text-blue-700 hover:underline">
-                              {oc.numero_oc}
+                              {formatNumeroOc(oc.numero_oc)}
                             </Link>
                           </td>
                           <td className="py-2 pr-4 text-slate-700">{oc.proveedor}</td>
@@ -1768,7 +1769,7 @@ export default function DetalleNPPage() {
         {/* Formulario conversión — múltiples OCs desde la misma NP */}
         {ESTADOS_NP_ABIERTA_A_OC.includes(np.estado) &&
           (['compras', 'admin'].includes(rol) || (rol === 'asistente_compras' && np.asignado_a === userId)) && (
-          <FormularioOC np={np} itemsNP={items} cobertura={cobertura} onConvertida={(numeroOC) => { setUltimaOC(numeroOC); cargar() }} />
+          <FormularioOC np={np} itemsNP={items} cobertura={cobertura} onConvertida={(numeroOC) => { setUltimaOC(numeroOC ?? 'guardada en proceso — sin número asignado todavía'); cargar() }} />
         )}
 
         {np.convertida && (

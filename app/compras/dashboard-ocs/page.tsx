@@ -9,6 +9,7 @@ import {
   KpiCard, BarRow, PieChart, CoberturaBar, usd,
   OC_ESTADO_HEX, type NpCobertura,
 } from '../dashboard/_shared'
+import { formatNumeroOc } from '@/lib/oc-utils'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -579,7 +580,7 @@ export default function DashboardOcsPage() {
                                   className="font-mono text-xs text-[#1a5252] font-semibold hover:underline"
                                   onClick={e => { e.stopPropagation() }}
                                 >
-                                  {oc.numero_oc}
+                                  {formatNumeroOc(oc.numero_oc)}
                                 </a>
                               </td>
                               <td className="py-2 pr-3 text-xs">

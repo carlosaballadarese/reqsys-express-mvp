@@ -1006,6 +1006,26 @@ describe('GET /api/compras/ordenes', () => {
     const res = await GET(makeRequest('http://localhost/api/compras/ordenes'))
     expect(res.status).toBe(200)
   })
+
+  // Spec: SC-016 — filtro estructurado por proveedor + alerta_antiguedad por fila
+  it('aplica el filtro ?proveedor= con match exacto (no ilike) y adjunta alerta_antiguedad', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const eqCalls: [string, string][] = []
+    const chain: any = mockChainVacio()
+    chain.eq = jest.fn((campo: string, valor: string) => { eqCalls.push([campo, valor]); return chain })
+    const hace45dias = new Date(Date.now() - 45 * 86400000).toISOString()
+    chain.then = (resolve: any) => Promise.resolve({
+      data: [{ id: 'oc-1', estado_oc: 'en_proceso', created_at: hace45dias, proveedor: 'FERROIDEAL' }],
+      error: null,
+    }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+
+    const res = await GET(makeRequest('http://localhost/api/compras/ordenes?proveedor=FERROIDEAL'))
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(eqCalls).toContainEqual(['proveedor', 'FERROIDEAL'])
+    expect(body[0].alerta_antiguedad).toBe(true)
+  })
 })
 
 describe('POST /api/compras/ordenes', () => {
@@ -1034,6 +1054,41 @@ describe('POST /api/compras/ordenes', () => {
       })
     )
     expect(res.status).toBe(403)
+  })
+
+  // Spec: SC-016 RN-01 — numeración diferida a la emisión (los 3 caminos de
+  // creación insertan con numero_oc: null, no solo convertir/consolidar).
+  it('SC-016 RN-01: crea la OC con numero_oc: null (manual, no vía NP)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let insertPayload: any = null
+    mockFrom.mockImplementation((table: string) => {
+      const chain = mockChainVacio()
+      if (table === 'perfiles') {
+        chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras', nombre: 'Juan' }, error: null }))
+        return chain
+      }
+      if (table === 'proveedores') {
+        chain.single = jest.fn(() => Promise.resolve({ data: { nombre: 'Prov X', ruc: null, direccion: null, telefono: null, email: null, contacto: null }, error: null }))
+        return chain
+      }
+      if (table === 'registro_compras') {
+        chain.insert = jest.fn((payload: any) => { insertPayload = payload; return { select: () => ({ single: () => Promise.resolve({ data: { id: 'oc-new' }, error: null }) }) } })
+        return chain
+      }
+      return chain
+    })
+
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/ordenes', {
+        method: 'POST',
+        body: JSON.stringify({ proveedor_id: 'prov-1', items: [{ descripcion: 'X', unidad: 'EA', cantidad: 1, precio_unitario: 10 }] }),
+      })
+    )
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(insertPayload.numero_oc).toBeNull()
+    expect(body.numero_oc).toBeNull()
+    expect(mockAdminClientRpc).not.toHaveBeenCalled()
   })
 })
 
@@ -1166,6 +1221,118 @@ describe('POST /api/compras/ordenes/[id]/enviar-aprobacion', () => {
       { params: Promise.resolve({ id: 'oc-123' }) }
     )
     expect(res.status).toBe(403)
+  })
+
+  // Spec: SC-016 RN-03 — "Emitir OC" asigna numero_oc solo si la OC no tiene uno.
+  it('SC-016 RN-03: asigna numero_oc vía RPC cuando la OC no tiene uno (numeración diferida)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let updatePayload: any = null
+    mockFrom.mockImplementation((table: string) => {
+      const chain = mockChainVacio()
+      if (table === 'perfiles') {
+        chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras', nombre: 'Juan', email: 'juan@test.com' }, error: null }))
+        return chain
+      }
+      if (table === 'registro_compras') {
+        chain.single = jest.fn(() => Promise.resolve({
+          data: { id: 'oc-123', numero_oc: null, estado_oc: 'en_proceso', valor_total: 100, proveedor: 'Prov X', area: 'TI', creado_por_id: 'user-123', nota_pedido_id: null },
+          error: null,
+        }))
+        chain.update = jest.fn((payload: any) => { updatePayload = payload; return { eq: jest.fn(() => Promise.resolve({ data: null, error: null })) } })
+        return chain
+      }
+      if (table === 'items_oc') {
+        chain.eq = jest.fn(() => Promise.resolve({ data: [{ linea: 1, descripcion: 'Bomba', cantidad: 5, precio_unitario: 10, unidad: 'EA' }], error: null }))
+        return chain
+      }
+      return chain
+    })
+    mockAdminClientRpc.mockResolvedValueOnce({ data: 1, error: null })
+
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-123/enviar-aprobacion', { method: 'POST' }),
+      { params: Promise.resolve({ id: 'oc-123' }) }
+    )
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.numero_oc).toMatch(/^OC-\d{4}-0001$/)
+    expect(updatePayload.numero_oc).toMatch(/^OC-\d{4}-0001$/)
+    expect(mockAdminClientRpc).toHaveBeenCalledWith('siguiente_numero_oc', expect.any(Object))
+  })
+
+  // Spec: SC-016 RN-02 — retrocompatibilidad: OCs en_proceso que YA tenían
+  // numero_oc (creadas antes del deploy) lo conservan, sin reasignar.
+  it('SC-016 RN-02: no reasigna numero_oc si la OC ya tenía uno (retrocompatibilidad)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let updatePayload: any = null
+    mockFrom.mockImplementation((table: string) => {
+      const chain = mockChainVacio()
+      if (table === 'perfiles') {
+        chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras', nombre: 'Juan', email: 'juan@test.com' }, error: null }))
+        return chain
+      }
+      if (table === 'registro_compras') {
+        chain.single = jest.fn(() => Promise.resolve({
+          data: { id: 'oc-123', numero_oc: 'OC-2026-0005', estado_oc: 'en_proceso', valor_total: 100, proveedor: 'Prov X', area: 'TI', creado_por_id: 'user-123', nota_pedido_id: null },
+          error: null,
+        }))
+        chain.update = jest.fn((payload: any) => { updatePayload = payload; return { eq: jest.fn(() => Promise.resolve({ data: null, error: null })) } })
+        return chain
+      }
+      if (table === 'items_oc') {
+        chain.eq = jest.fn(() => Promise.resolve({ data: [{ linea: 1, descripcion: 'Bomba', cantidad: 5, precio_unitario: 10, unidad: 'EA' }], error: null }))
+        return chain
+      }
+      return chain
+    })
+
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-123/enviar-aprobacion', { method: 'POST' }),
+      { params: Promise.resolve({ id: 'oc-123' }) }
+    )
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.numero_oc).toBe('OC-2026-0005')
+    expect(updatePayload.numero_oc).toBe('OC-2026-0005')
+    expect(mockAdminClientRpc).not.toHaveBeenCalled()
+  })
+
+  // Spec: SC-016 Decisión 12 — valida cantidad/precio/unidad por línea antes
+  // de emitir (regla de negocio 4 del documento fuente, acotada).
+  it('SC-016 Decisión 12: 400 lineas_invalidas si alguna línea tiene cantidad 0', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let updateLlamado = false
+    mockFrom.mockImplementation((table: string) => {
+      const chain = mockChainVacio()
+      if (table === 'perfiles') {
+        chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras', nombre: 'Juan', email: 'juan@test.com' }, error: null }))
+        return chain
+      }
+      if (table === 'registro_compras') {
+        chain.single = jest.fn(() => Promise.resolve({
+          data: { id: 'oc-123', numero_oc: null, estado_oc: 'en_proceso', valor_total: 100, proveedor: 'Prov X', area: 'TI', creado_por_id: 'user-123', nota_pedido_id: null },
+          error: null,
+        }))
+        chain.update = jest.fn(() => { updateLlamado = true; return { eq: jest.fn(() => Promise.resolve({ data: null, error: null })) } })
+        return chain
+      }
+      if (table === 'items_oc') {
+        chain.eq = jest.fn(() => Promise.resolve({ data: [{ linea: 1, descripcion: 'Bomba', cantidad: 0, precio_unitario: 10, unidad: 'EA' }], error: null }))
+        return chain
+      }
+      return chain
+    })
+
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-123/enviar-aprobacion', { method: 'POST' }),
+      { params: Promise.resolve({ id: 'oc-123' }) }
+    )
+    const body = await res.json()
+    expect(res.status).toBe(400)
+    expect(body.error).toBe('lineas_invalidas')
+    expect(body.lineas).toEqual([1])
+    expect(updateLlamado).toBe(false)
+    expect(mockAdminClientRpc).not.toHaveBeenCalled()
   })
 })
 
@@ -2279,6 +2446,46 @@ describe('resolverEtiquetaAprobador — mapeo rol → etiqueta y cargo', () => {
     const r = resolverEtiquetaAprobador(null)
     expect(r.titulo).toContain('GERENTE GENERAL')
     expect(r.cargo).toContain('Gerente General')
+  })
+})
+
+// Spec: SC-016 Decisión 1 — fallback de presentación cuando numero_oc es null
+describe('formatNumeroOc — fallback de presentación (SC-016)', () => {
+  const { formatNumeroOc } = require('@/lib/oc-utils')
+
+  it('retorna el número real cuando no es null', () => {
+    expect(formatNumeroOc('OC-2026-0001')).toBe('OC-2026-0001')
+  })
+
+  it('retorna "— sin asignar —" cuando es null o undefined', () => {
+    expect(formatNumeroOc(null)).toBe('— sin asignar —')
+    expect(formatNumeroOc(undefined)).toBe('— sin asignar —')
+  })
+})
+
+// Spec: SC-016 RN-07 — alerta de antigüedad para OCs en_proceso
+describe('calcularAlertaAntiguedadOC — alerta de 30 días (SC-016)', () => {
+  const { calcularAlertaAntiguedadOC } = require('@/lib/oc-alertas')
+  const AHORA = new Date('2026-11-15T00:00:00Z').getTime()
+
+  it('false si el estado no es en_proceso, sin importar la antigüedad', () => {
+    const hace60dias = new Date(AHORA - 60 * 86400000).toISOString()
+    expect(calcularAlertaAntiguedadOC(hace60dias, 'aprobada', AHORA)).toBe(false)
+  })
+
+  it('false si en_proceso tiene menos de 30 días', () => {
+    const hace29dias = new Date(AHORA - 29 * 86400000).toISOString()
+    expect(calcularAlertaAntiguedadOC(hace29dias, 'en_proceso', AHORA)).toBe(false)
+  })
+
+  it('true (AVL) si en_proceso tiene exactamente 30 días', () => {
+    const hace30dias = new Date(AHORA - 30 * 86400000).toISOString()
+    expect(calcularAlertaAntiguedadOC(hace30dias, 'en_proceso', AHORA)).toBe(true)
+  })
+
+  it('true si en_proceso tiene más de 30 días', () => {
+    const hace45dias = new Date(AHORA - 45 * 86400000).toISOString()
+    expect(calcularAlertaAntiguedadOC(hace45dias, 'en_proceso', AHORA)).toBe(true)
   })
 })
 
@@ -6983,7 +7190,10 @@ describe('POST /api/compras/ordenes/consolidar', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.success).toBe(true)
-    expect(body.numero_oc).toBe('OC-2026-0001')
+    // Spec: SC-016 RN-01 — numeración diferida a la emisión; la OC se crea
+    // sin número (antes: 'OC-2026-0001' asignado de inmediato).
+    expect(body.numero_oc).toBeNull()
+    expect(insertPayloadOC.numero_oc).toBeNull()
     expect(insertPayloadOC.nota_pedido_id).toBeNull()
     expect(insertPayloadOC.numero_np).toBe('NP-2026-0100, NP-2026-0101')
   })

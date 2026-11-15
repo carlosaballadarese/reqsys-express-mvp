@@ -35,7 +35,7 @@ export type LineaVistaNP = {
   cantidad: number
   precio_unitario: number | null
   accion: AccionCatalogo | null
-  oc: { id: string; numero_oc: string } | null
+  oc: { id: string; numero_oc: string | null } | null
 }
 
 export type FilaVistaNP = {
@@ -149,7 +149,7 @@ export async function obtenerFilasVista(
   const itemIds = itemsNp.map((i: any) => i.id)
 
   // Spec CA-03, RN-02 (HU-011) — solo OCs vivas cubren una línea a estos efectos
-  const ocsPorItem = new Map<string, { id: string; numero_oc: string; estado_oc: string }[]>()
+  const ocsPorItem = new Map<string, { id: string; numero_oc: string | null; estado_oc: string }[]>()
   if (itemIds.length > 0) {
     const { data: itemsOc } = await adminClient()
       .from('items_oc')
@@ -159,7 +159,7 @@ export async function obtenerFilasVista(
     const ocIds = [...new Set((itemsOc ?? []).map((io: any) => io.registro_compras_id))]
     const { data: ocs } = ocIds.length > 0
       ? await adminClient().from('registro_compras').select('id, numero_oc, estado_oc').in('id', ocIds)
-      : { data: [] as { id: string; numero_oc: string; estado_oc: string }[] }
+      : { data: [] as { id: string; numero_oc: string | null; estado_oc: string }[] }
 
     const ocPorId = new Map((ocs ?? []).map((oc: any) => [oc.id, oc]))
     for (const io of (itemsOc ?? [])) {

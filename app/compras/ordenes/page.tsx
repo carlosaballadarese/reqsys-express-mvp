@@ -11,10 +11,11 @@ import { Button } from '@/components/ui/button'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import type { Rol } from '@/lib/nav-config'
 import { vistasOrdenesVisibles, EN_APROBACION } from '@/lib/vistas-ordenes'
+import { formatNumeroOc } from '@/lib/oc-utils'
 
 type OC = {
   id: string
-  numero_oc: string
+  numero_oc: string | null
   numero_np: string | null
   proveedor: string
   area: string | null
@@ -24,6 +25,7 @@ type OC = {
   estado_oc: string
   fecha_oc: string | null
   created_at: string
+  alerta_antiguedad?: boolean
 }
 
 const ESTADO_BADGE: Record<string, string> = {
@@ -95,6 +97,10 @@ export default function OrdenesPage() {
   const [estado, setEstado]     = useState(() => searchParams.get('estado') ?? 'todos')
   const [area, setArea]         = useState('todas')
   const [areas, setAreas]       = useState<{ id: string; nombre: string }[]>([])
+  // Spec: SC-016 — filtro estructurado por proveedor (Vista "En proceso"),
+  // poblado por faceta a partir de las OCs ya cargadas (ocsBase), sin
+  // endpoint nuevo — mismo patrón ya usado en lib/np-lineas-pendientes-query.ts.
+  const [proveedor, setProveedor] = useState('todos')
   const [rol, setRol]           = useState('')
 
   useEffect(() => {
@@ -112,8 +118,9 @@ export default function OrdenesPage() {
 
     const paramsBase = () => {
       const p = new URLSearchParams()
-      if (area !== 'todas') p.set('area', area)
-      if (q.trim())         p.set('q', q.trim())
+      if (area      !== 'todas') p.set('area', area)
+      if (proveedor !== 'todos') p.set('proveedor', proveedor)
+      if (q.trim())               p.set('q', q.trim())
       return p
     }
 
@@ -147,7 +154,7 @@ export default function OrdenesPage() {
       .then(r => r.json())
       .then(data => { setOcs(Array.isArray(data) ? data : []); setCargando(false) })
       .catch(() => setCargando(false))
-  }, [estado, area, q])
+  }, [estado, area, proveedor, q])
 
   useEffect(() => { cargar() }, [cargar])
 
@@ -265,6 +272,17 @@ export default function OrdenesPage() {
                       <option value="todas">Todas las áreas</option>
                       {areas.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
                     </select>
+                    {/* Spec: SC-016 — filtro estructurado por proveedor */}
+                    <select
+                      value={proveedor}
+                      onChange={e => setProveedor(e.target.value)}
+                      className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="todos">Todos los proveedores</option>
+                      {[...new Set(ocsBase.map(o => o.proveedor))].filter(Boolean).sort().map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
                   </div>
                 </CardContent>
               </Card>
@@ -294,6 +312,7 @@ export default function OrdenesPage() {
                           <th className="text-right py-3 pr-4">Total</th>
                           <th className="text-right py-3 pr-4">A Pagar</th>
                           <th className="text-left py-3 pr-4">Estado</th>
+                          <th className="text-left py-3 pr-4">Antigüedad</th>
                           <th className="text-left py-3">Fecha OC</th>
                         </tr>
                       </thead>
@@ -302,7 +321,7 @@ export default function OrdenesPage() {
                           <tr key={oc.id} className="border-b hover:bg-slate-50 transition-colors">
                             <td className="py-3 pr-4">
                               <Link href={`/compras/ordenes/${oc.id}`} className="font-mono font-medium text-blue-700 hover:underline">
-                                {oc.numero_oc}
+                                {formatNumeroOc(oc.numero_oc)}
                               </Link>
                             </td>
                             <td className="py-3 pr-4 font-mono text-xs text-slate-500">
@@ -319,6 +338,16 @@ export default function OrdenesPage() {
                               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${ESTADO_BADGE[oc.estado_oc] ?? 'bg-slate-100 text-slate-600'}`}>
                                 {ESTADO_LABEL[oc.estado_oc] ?? oc.estado_oc}
                               </span>
+                            </td>
+                            {/* Spec: SC-016 RN-07 — días transcurridos desde la creación,
+                                alerta visual a partir de 30 días en_proceso */}
+                            <td className="py-3 pr-4 text-xs">
+                              {oc.estado_oc === 'en_proceso' ? (
+                                <span className={oc.alerta_antiguedad ? 'text-red-600 font-semibold' : 'text-slate-500'}>
+                                  {Math.floor((Date.now() - new Date(oc.created_at).getTime()) / 86400000)} día(s)
+                                  {oc.alerta_antiguedad && ' ⚠'}
+                                </span>
+                              ) : <span className="text-slate-300">—</span>}
                             </td>
                             <td className="py-3 text-slate-500 text-xs">
                               {oc.fecha_oc

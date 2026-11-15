@@ -75,7 +75,7 @@ export function accionAgregadaDeFila(
   return acciones.find(a => a.orden === ordenMin) ?? null
 }
 
-export type OcDeLinea = { id: string; numero_oc: string }
+export type OcDeLinea = { id: string; numero_oc: string | null }
 
 // Spec: HU-011 CA-03, RN-02 — N° de OC de una línea considerando solo OCs vivas
 // (mismo criterio ESTADOS_OC_VIVOS que actualizarEstadoNP()). Una OC rechazada o
@@ -84,7 +84,7 @@ export type OcDeLinea = { id: string; numero_oc: string }
 // /compras/ordenes/[id].
 export function ocVivaDeLinea(
   itemNpId: string,
-  ocsPorItem: Map<string, { id: string; numero_oc: string; estado_oc: string }[]>
+  ocsPorItem: Map<string, { id: string; numero_oc: string | null; estado_oc: string }[]>
 ): OcDeLinea | null {
   const ocs = ocsPorItem.get(itemNpId) ?? []
   const viva = ocs.find(oc => ESTADOS_OC_VIVOS.includes(oc.estado_oc))

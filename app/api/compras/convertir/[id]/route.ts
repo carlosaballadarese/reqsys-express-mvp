@@ -115,11 +115,8 @@ export async function POST(
       }
     }
 
-    const year = new Date().getFullYear()
-    const { data: seqData, error: seqError } = await adminClient().rpc('siguiente_numero_oc', { p_year: year })
-    if (seqError || seqData === null)
-      return NextResponse.json({ error: 'Error al generar número de OC' }, { status: 500 })
-    const numero_oc = `OC-${year}-${String(seqData).padStart(4, '0')}`
+    // Spec: SC-016 — numeración diferida a la emisión (RN-01).
+    const numero_oc: string | null = null
 
     const valorTotal    = Number(valor_total)    || 0
     const valorRetenido = Number(valor_retenido) || 0
@@ -222,7 +219,7 @@ export async function POST(
       accion:     'convertir_np_a_oc',
       entidad:    'orden_compra',
       entidad_id: oc.id,
-      referencia: numero_oc,
+      referencia: numero_oc ?? undefined,
       detalle:    { numero_np: np.numero, proveedor: prov.nombre, items_count: items.length },
     })
 

@@ -32,6 +32,16 @@ export const VISTAS_ORDENES: VistaOrdenes[] = [
     contar: (ocs) => ocs.length,
   },
   {
+    // Spec: SC-016 — hace explícito un estado que hoy ya es el default de
+    // toda OC nueva ("en_proceso"), sin cambio de backend (GET .../ordenes
+    // ya soporta ?estado=en_proceso).
+    label: 'En proceso',
+    estados: ['en_proceso'],
+    construirHref: () => '/compras/ordenes?estado=en_proceso',
+    esActiva: (sp) => sp.get('estado') === 'en_proceso',
+    contar: (ocs) => ocs.filter(oc => oc.estado_oc === 'en_proceso').length,
+  },
+  {
     label: 'En aprobación',
     estados: EN_APROBACION,
     construirHref: () => '/compras/ordenes?estado=en_aprobacion',

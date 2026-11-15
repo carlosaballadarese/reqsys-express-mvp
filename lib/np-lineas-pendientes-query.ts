@@ -56,6 +56,9 @@ export type LineaPendiente = {
   sla_badge: SlaBadge
   sla_dias_signo: number | null
   accion: AccionCatalogo | null
+  // Spec: SC-016 — marca "En OC en proceso N° ___" (regla de negocio 6 del
+  // documento fuente); primera OC en_proceso que reclama saldo de esta línea.
+  oc_en_proceso: { id: string; numero_oc: string | null } | null
 }
 
 export type ResultadoLineasPendientes = {
@@ -182,7 +185,7 @@ export async function obtenerLineasPendientes(
 
   // Spec CA-01, mismo criterio "OC viva" que HU-011 RN-02; cantidad (SC-012)
   // necesaria para calcularSaldoLinea().
-  const ocsPorItem = new Map<string, { id: string; numero_oc: string; estado_oc: string; cantidad: number }[]>()
+  const ocsPorItem = new Map<string, { id: string; numero_oc: string | null; estado_oc: string; cantidad: number }[]>()
   if (itemIds.length > 0) {
     const itemsOc = await enLotes<{ item_np_id: string; registro_compras_id: string; cantidad: number }>(
       itemIds, async (lote) => {
@@ -195,7 +198,7 @@ export async function obtenerLineasPendientes(
 
     const ocIds = [...new Set(itemsOc.map((io) => io.registro_compras_id))]
     const ocs = ocIds.length > 0
-      ? await enLotes<{ id: string; numero_oc: string; estado_oc: string }>(
+      ? await enLotes<{ id: string; numero_oc: string | null; estado_oc: string }>(
           ocIds, async (lote) => {
             const { data, error } = await adminClient().from('registro_compras').select('id, numero_oc, estado_oc').in('id', lote)
             return { data, error }
@@ -299,6 +302,9 @@ export async function obtenerLineasPendientes(
       ? (catalogoMap.get(item.accion_id) ?? null)
       : null
 
+    // Spec: SC-016 — marca "En OC en proceso N° ___" (regla de negocio 6).
+    const ocEnProceso = (ocsPorItem.get(item.id) ?? []).find(oc => oc.estado_oc === 'en_proceso') ?? null
+
     rows.push({
       item_id:             item.id,
       np_id:               np.id,
@@ -322,6 +328,10 @@ export async function obtenerLineasPendientes(
       sla_badge,
       sla_dias_signo: calcularSlaDiasSigno(sla_badge, transcurridoMs, plazoMs),
       accion,
+      // Spec: SC-016 — primera OC en_proceso entre las que reclaman saldo de
+      // esta línea (caso extremo de 2+ OCs en_proceso simultáneas no cubierto
+      // por el documento fuente; se toma la primera).
+      oc_en_proceso: ocEnProceso ? { id: ocEnProceso.id, numero_oc: ocEnProceso.numero_oc } : null,
     })
   }
 

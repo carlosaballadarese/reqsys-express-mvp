@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { calcularAlertaAntiguedadOC } from '@/lib/oc-alertas'
 
 
 export async function GET(req: NextRequest) {
@@ -10,22 +11,34 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
   const { searchParams } = req.nextUrl
-  const estado   = searchParams.get('estado')
-  const q        = searchParams.get('q')?.trim()
-  const area     = searchParams.get('area')
+  const estado    = searchParams.get('estado')
+  const q         = searchParams.get('q')?.trim()
+  const area      = searchParams.get('area')
+  // Spec: SC-016 — filtro estructurado por proveedor para la Vista "En
+  // proceso" (match exacto sobre el campo ya denormalizado), distinto del
+  // `q` de texto libre ya existente.
+  const proveedor = searchParams.get('proveedor')
 
   let query = adminClient()
     .from('registro_compras')
     .select('id, numero_oc, numero_np, proveedor, area, tipo_compra, valor_total, valor_a_pagar, estado_oc, fecha_oc, created_at')
     .order('created_at', { ascending: false })
 
-  if (estado && estado !== 'todos') query = query.eq('estado_oc', estado)
-  if (area   && area   !== 'todas') query = query.eq('area', area)
+  if (estado    && estado    !== 'todos')  query = query.eq('estado_oc', estado)
+  if (area      && area      !== 'todas')  query = query.eq('area', area)
+  if (proveedor && proveedor !== 'todos')  query = query.eq('proveedor', proveedor)
   if (q) query = query.or(`numero_oc.ilike.%${q}%,numero_np.ilike.%${q}%,proveedor.ilike.%${q}%`)
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data ?? [])
+
+  // Spec: SC-016 RN-07 — alerta de 30+ días calendario para OCs en_proceso.
+  const conAlerta = (data ?? []).map(oc => ({
+    ...oc,
+    alerta_antiguedad: calcularAlertaAntiguedadOC(oc.created_at, oc.estado_oc),
+  }))
+
+  return NextResponse.json(conAlerta)
 }
 
 export async function POST(req: NextRequest) {
@@ -45,12 +58,10 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json()
 
-    const year = new Date().getFullYear()
-    const { data: seqData, error: seqError } = await adminClient().rpc('siguiente_numero_oc', { p_year: year })
-    if (seqError || seqData === null) {
-      return NextResponse.json({ error: 'Error al generar número de OC' }, { status: 500 })
-    }
-    const numero_oc = `OC-${year}-${String(seqData).padStart(4, '0')}`
+    // Spec: SC-016 — numeración diferida a la emisión (RN-01). La OC se crea
+    // sin número ("— sin asignar —" en pantalla); `siguiente_numero_oc` se
+    // consume solo en POST .../enviar-aprobacion ("Emitir OC").
+    const numero_oc: string | null = null
 
     const {
       proveedor_id, proveedor, fecha_oc, descripcion_oc,
@@ -148,7 +159,7 @@ export async function POST(req: NextRequest) {
       accion:      'crear_oc',
       entidad:     'orden_compra',
       entidad_id:  oc.id,
-      referencia:  numero_oc,
+      referencia:  numero_oc ?? undefined,
       detalle:     { proveedor: prov.nombre, area, tipo_compra, valor_total: valorTotal },
     })
 

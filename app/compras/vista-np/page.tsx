@@ -10,12 +10,13 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import type { Rol } from '@/lib/nav-config'
 import { vistasVistaNPVisibles } from '@/lib/vistas-vista-np'
+import { formatNumeroOc } from '@/lib/oc-utils'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
 type AccionCatalogo = { id: string; orden: number; descripcion: string }
 
-type OcDeLinea = { id: string; numero_oc: string }
+type OcDeLinea = { id: string; numero_oc: string | null }
 
 type Linea = {
   id: string
@@ -609,7 +610,7 @@ export default function VistaPorNPPage() {
                                               onClick={e => e.stopPropagation()}
                                               className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 hover:bg-blue-200"
                                             >
-                                              {linea.oc.numero_oc}
+                                              {formatNumeroOc(linea.oc.numero_oc)}
                                             </Link>
                                           ) : (
                                             <span className="text-slate-400">— pendiente —</span>

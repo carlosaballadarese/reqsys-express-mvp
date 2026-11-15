@@ -12,7 +12,10 @@ export type PendienteAprobacionItem = {
 }
 
 type NPPendiente = { id: string; numero: string; estado: string; total_estimado?: number | null }
-type OCPendiente = { id: string; numero_oc: string; estado_oc: string; valor_total?: number | null }
+// Spec: SC-016 — numero_oc es nullable (numeración diferida a la emisión),
+// pero este tipo solo se consume para OCs ya en en_aprobacion_gerencia
+// (siempre posterior a la emisión, numero_oc ya garantizado en ese punto).
+type OCPendiente = { id: string; numero_oc: string | null; estado_oc: string; valor_total?: number | null }
 type OCAPendiente = { id: string; numero_oca: string; estado: string }
 
 // Spec CA-04 — NPs de su área en estado 'pendiente' (ya vienen filtradas por
@@ -45,7 +48,7 @@ export function pendientesParaGerencia(
     .filter(oc => oc.estado_oc === 'en_aprobacion_gerencia')
     .map(oc => ({
       tipo: 'oc' as const,
-      numero: oc.numero_oc,
+      numero: oc.numero_oc ?? '— sin asignar —',
       href: `/compras/ordenes/${oc.id}`,
       monto: oc.valor_total ?? undefined,
     }))

@@ -15,7 +15,7 @@ type NP = {
   id: string; numero: string; estado: string; total_estimado: number | null
   creado_por_id: string | null; solicitante_email: string | null
 }
-type OC = { id: string; numero_oc: string; estado_oc: string; valor_total: number | null }
+type OC = { id: string; numero_oc: string | null; estado_oc: string; valor_total: number | null }
 type Oca = {
   id: string; numero_oca: string; estado: string
   alerta_presupuesto: string | null; alerta_vigencia: boolean

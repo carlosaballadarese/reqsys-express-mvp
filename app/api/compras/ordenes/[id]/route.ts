@@ -216,6 +216,15 @@ export async function PUT(
 
     if (errorOC) return NextResponse.json({ error: errorOC.message }, { status: 500 })
 
+    // Spec: SC-016 RN-06 — historial por línea (regla de negocio 6 del
+    // documento fuente): se captura el set ANTES de reemplazar, para diffear
+    // contra el entrante y registrar en auditoria quién agregó/quitó cada
+    // línea. Reutiliza la tabla auditoria genérica, sin tabla nueva.
+    const { data: itemsAntes } = await adminClient()
+      .from('items_oc')
+      .select('item_np_id, codigo, descripcion, cantidad')
+      .eq('registro_compras_id', id)
+
     await adminClient().from('items_oc').delete().eq('registro_compras_id', id)
 
     const itemsOC = items.map((item: {
@@ -247,6 +256,30 @@ export async function PUT(
       .select('numero_oc')
       .eq('id', id)
       .single()
+
+    // Spec: SC-016 RN-06 — diff por línea (clave: item_np_id si existe, o
+    // codigo+descripcion para ítems manuales) entre lo que había y lo
+    // entrante; una entrada de auditoría por cada línea agregada/quitada.
+    const claveLinea = (l: { item_np_id?: string | null; codigo?: string | null; descripcion: string }) =>
+      l.item_np_id ?? `${l.codigo ?? ''}|${l.descripcion}`
+    const clavesAntes  = new Set((itemsAntes ?? []).map(claveLinea))
+    const clavesAhora  = new Set(itemsOC.map(claveLinea))
+    const agregadas = itemsOC.filter((l: typeof itemsOC[number]) => !clavesAntes.has(claveLinea(l)))
+    const quitadas  = (itemsAntes ?? []).filter(l => !clavesAhora.has(claveLinea(l)))
+    for (const l of agregadas) {
+      await registrarAuditoria({
+        accion: 'oc_linea_agregada', entidad: 'orden_compra', entidad_id: id,
+        referencia: ocActual?.numero_oc ?? undefined,
+        detalle: { item_np_id: l.item_np_id, descripcion: l.descripcion, cantidad: l.cantidad },
+      })
+    }
+    for (const l of quitadas) {
+      await registrarAuditoria({
+        accion: 'oc_linea_quitada', entidad: 'orden_compra', entidad_id: id,
+        referencia: ocActual?.numero_oc ?? undefined,
+        detalle: { item_np_id: l.item_np_id, descripcion: l.descripcion, cantidad: l.cantidad },
+      })
+    }
 
     // Spec: HU-016 CA-13/RN-04 — auto-completar cobertura + recalcular Estado por cada
     // NP en la unión antes/después (npsAfectadas), incluida una NP que quedó sin líneas
