@@ -4487,7 +4487,21 @@ describe('GET /api/compras/ordenes/[id] — HU-016 nps_origen', () => {
     return chain
   }
 
+  // Spec: hallazgo lateral de SC-017 (sdd-validation.md) — este GET no tenía
+  // ningún chequeo de autenticación, a diferencia de su PUT hermano. Cerrado
+  // fuera de SC-017 (estaba fuera de su alcance declarado), a pedido explícito
+  // del usuario.
+  it('sin sesión devuelve 401 sin consultar ninguna tabla', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      throw new Error(`no debería consultarse ninguna tabla sin sesión, se intentó: ${table}`)
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/ordenes/oc-x'), { params: Promise.resolve({ id: 'oc-x' }) })
+    expect(res.status).toBe(401)
+  })
+
   it('OC consolidada (nota_pedido_id null) devuelve nps_origen con las NPs reales de sus líneas', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
     mockFrom.mockImplementation((table: string) => {
       if (table === 'registro_compras') return chainFor([], { id: 'oc-multi', numero_oc: 'OC-2026-0300', nota_pedido_id: null })
       if (table === 'items_oc')         return chainFor([{ item_np_id: 'item-a1' }, { item_np_id: 'item-b1' }])
@@ -4510,6 +4524,7 @@ describe('GET /api/compras/ordenes/[id] — HU-016 nps_origen', () => {
   })
 
   it('OC single-NP (nota_pedido_id set) no incluye nps_origen, pero sí resuelve el origen por línea (SC-015)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
     mockFrom.mockImplementation((table: string) => {
       if (table === 'registro_compras') return chainFor([], { id: 'oc-single', numero_oc: 'OC-2026-0301', nota_pedido_id: 'np-single' })
       if (table === 'items_oc')         return chainFor([{ item_np_id: 'item-x' }])
@@ -4524,6 +4539,7 @@ describe('GET /api/compras/ordenes/[id] — HU-016 nps_origen', () => {
   })
 
   it('ítem sin item_np_id (agregado manualmente, sin NP de origen) resuelve np_numero/np_id/np_linea en null (SC-015)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
     mockFrom.mockImplementation((table: string) => {
       if (table === 'registro_compras') return chainFor([], { id: 'oc-manual', numero_oc: 'OC-2026-0302', nota_pedido_id: null })
       if (table === 'items_oc')         return chainFor([{ item_np_id: null }])
