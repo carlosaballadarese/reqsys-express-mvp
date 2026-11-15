@@ -15,6 +15,10 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const supabase = await createSupabaseServerClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
     const { id } = await params
 
     const [{ data: np, error }, { data: items }, { data: historial }, { data: ocs }] = await Promise.all([
@@ -41,40 +45,36 @@ export async function GET(
     let puedeAprobar   = false
     let verPrecio      = false
     try {
-      const supabase = await createSupabaseServerClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        const { data: perfil } = await adminClient()
-          .from('perfiles').select('rol, email').eq('id', user.id).single()
-        if (perfil) {
-          // Spec CA-06: puedeVerPrecioNP — levanta restricción para creador de regularización
-          verPrecio = puedeVerPrecioNP(perfil.rol, np.es_regularizacion ?? false, np.creado_por_id, user.id)
-          if (['admin', 'compras'].includes(perfil.rol)) {
-            puedeAprobar = true
-          } else if (np.aprobador_asignado_id) {
-            // Spec: SC-002 — puedeAprobar refleja al aprobador realmente asignado
-            // a esta NP (default u override), no al coordinador "natural" del área
-            // — de lo contrario un aprobador alternativo nunca podría aprobar
-            // desde el portal, aunque el correo sí le llegue a él (CA-05).
-            const { data: coord } = await adminClient()
-              .from('coordinadores_area')
-              .select('id')
-              .eq('id', np.aprobador_asignado_id)
-              .eq('email', perfil.email)
-              .maybeSingle()
-            puedeAprobar = !!coord
-          } else {
-            // Fallback: NPs creadas antes de SC-002 no tienen aprobador_asignado_id
-            // (sin backfill posible) — se resuelve por el área de texto legado,
-            // mismo criterio que antes de esta SC.
-            const { data: coord } = await adminClient()
-              .from('coordinadores_area')
-              .select('id')
-              .eq('area', np.area)
-              .eq('email', perfil.email)
-              .maybeSingle()
-            puedeAprobar = !!coord
-          }
+      const { data: perfil } = await adminClient()
+        .from('perfiles').select('rol, email').eq('id', user.id).single()
+      if (perfil) {
+        // Spec CA-06: puedeVerPrecioNP — levanta restricción para creador de regularización
+        verPrecio = puedeVerPrecioNP(perfil.rol, np.es_regularizacion ?? false, np.creado_por_id, user.id)
+        if (['admin', 'compras'].includes(perfil.rol)) {
+          puedeAprobar = true
+        } else if (np.aprobador_asignado_id) {
+          // Spec: SC-002 — puedeAprobar refleja al aprobador realmente asignado
+          // a esta NP (default u override), no al coordinador "natural" del área
+          // — de lo contrario un aprobador alternativo nunca podría aprobar
+          // desde el portal, aunque el correo sí le llegue a él (CA-05).
+          const { data: coord } = await adminClient()
+            .from('coordinadores_area')
+            .select('id')
+            .eq('id', np.aprobador_asignado_id)
+            .eq('email', perfil.email)
+            .maybeSingle()
+          puedeAprobar = !!coord
+        } else {
+          // Fallback: NPs creadas antes de SC-002 no tienen aprobador_asignado_id
+          // (sin backfill posible) — se resuelve por el área de texto legado,
+          // mismo criterio que antes de esta SC.
+          const { data: coord } = await adminClient()
+            .from('coordinadores_area')
+            .select('id')
+            .eq('area', np.area)
+            .eq('email', perfil.email)
+            .maybeSingle()
+          puedeAprobar = !!coord
         }
       }
     } catch {}

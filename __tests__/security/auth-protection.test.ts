@@ -2548,6 +2548,21 @@ describe('calcularAlertaAntiguedadOC — alerta de 30 días (SC-016)', () => {
 describe('GET /api/compras/nps/[id] — incluye campo cobertura', () => {
   const { GET } = require('@/app/api/compras/nps/[id]/route')
 
+  // Spec: hallazgo lateral descubierto al cerrar el fix de GET ordenes/[id]
+  // (SC-017) — este GET tampoco tenía ningún chequeo de sesión. A diferencia
+  // de aquel caso, ya enmascaraba precio sin sesión, pero exponía el resto de
+  // datos de la NP (descripción, solicitante, ítems, historial). Cerrado por
+  // consistencia, a pedido explícito del usuario.
+  it('sin sesión devuelve 401 sin consultar ninguna tabla', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      throw new Error(`no debería consultarse ninguna tabla sin sesión, se intentó: ${table}`)
+    })
+    const req = makeRequest('http://localhost/api/compras/nps/np-1')
+    const res = await GET(req, { params: Promise.resolve({ id: 'np-1' }) })
+    expect(res.status).toBe(401)
+  })
+
   it('devuelve campo cobertura en el response', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
 
