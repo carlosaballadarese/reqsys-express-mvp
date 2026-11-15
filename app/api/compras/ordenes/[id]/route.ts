@@ -211,6 +211,16 @@ export async function PUT(
         mes_pago:            mes_pago          || null,
         dias_credito:        Number(dias_credito) || 0,
         fecha_vencimiento:   fecha_vencimiento || null,
+        // Spec: SC-017 — hallazgo real de validación: una OC nacida single-NP
+        // (nota_pedido_id seteado por convertir/[id]) a la que se le fusionan
+        // líneas de una NP distinta (vía "+ Agregar líneas de NP" de SC-016 o
+        // "Agregar a OC existente" de SC-017, ambas reusan este mismo PUT)
+        // quedaba con nota_pedido_id apuntando solo a la NP original — GET
+        // /ordenes/[id] solo calcula `nps_origen` cuando nota_pedido_id es NULL
+        // (HU-016 Decisión 3), así que el bloque "Originada de" ocultaba la
+        // segunda NP. Se anula aquí en cuanto la OC pasa a tener 2+ NPs reales
+        // (grupos.size > 1) — mismo criterio que ya usa `consolidar` al crear.
+        nota_pedido_id:      grupos.size > 1 ? null : nota_pedido_id,
       })
       .eq('id', id)
 

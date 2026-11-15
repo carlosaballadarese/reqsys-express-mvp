@@ -4,6 +4,14 @@ import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { calcularAlertaAntiguedadOC } from '@/lib/oc-alertas'
 
+// Spec: SC-017 — mismo patrón de chunking ya usado en lib/oc-np-origen.ts /
+// lib/reporte-lineas-np-query.ts (duplicado deliberadamente, no compartido).
+const LOTE = 100
+function enLotes<T>(items: T[]): T[][] {
+  const lotes: T[][] = []
+  for (let i = 0; i < items.length; i += LOTE) lotes.push(items.slice(i, i + LOTE))
+  return lotes
+}
 
 export async function GET(req: NextRequest) {
   const supabase = await createSupabaseServerClient()
@@ -37,6 +45,25 @@ export async function GET(req: NextRequest) {
     ...oc,
     alerta_antiguedad: calcularAlertaAntiguedadOC(oc.created_at, oc.estado_oc),
   }))
+
+  // Spec: SC-017 CA — items_count por OC, acotado a estado=en_proceso (la
+  // lista que consume el selector "Agregar a OC existente") para no pagar
+  // este costo adicional en las demás Vistas de SC-011 que ya usan este GET.
+  if (estado === 'en_proceso' && conAlerta.length > 0) {
+    const ids = conAlerta.map(oc => oc.id)
+    const conteos = new Map<string, number>()
+    for (const lote of enLotes(ids)) {
+      const { data: itemsLote } = await adminClient()
+        .from('items_oc')
+        .select('registro_compras_id')
+        .in('registro_compras_id', lote)
+      for (const it of (itemsLote ?? []) as { registro_compras_id: string }[]) {
+        conteos.set(it.registro_compras_id, (conteos.get(it.registro_compras_id) ?? 0) + 1)
+      }
+    }
+    const conConteo = conAlerta.map(oc => ({ ...oc, items_count: conteos.get(oc.id) ?? 0 }))
+    return NextResponse.json(conConteo)
+  }
 
   return NextResponse.json(conAlerta)
 }

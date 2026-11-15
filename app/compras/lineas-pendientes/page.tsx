@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { ProveedorSearch, type Proveedor } from '@/components/ProveedorSearch'
+import { ModalAgregarAOcExistente } from '@/components/ModalAgregarAOcExistente'
 import { formatNumeroOc } from '@/lib/oc-utils'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -429,6 +430,7 @@ export default function LineasPendientesPage() {
   const [panelSeleccionadasAbierto, setPanelSeleccionadasAbierto] = useState(false)
   const [editando, setEditando]     = useState<Record<string, string>>({})
   const [modalAbierto, setModalAbierto] = useState(false)
+  const [modalAgregarAOcAbierto, setModalAgregarAOcAbierto] = useState(false)
   const [mensaje, setMensaje]       = useState<string | null>(null)
   // Spec: SC-013 — sort/colapso son estado de presentación puro, sin persistencia (RN-03)
   const [sort, setSort]             = useState<Sort>(null)
@@ -801,36 +803,53 @@ export default function LineasPendientesPage() {
               <span>
                 {seleccion.size} línea(s) de {npIdsSeleccionados.size} NP(s)
               </span>
-              {proveedoresEnConflicto ? (
-                <span className="text-xs text-red-600 font-medium">
-                  Proveedores sugeridos en conflicto ({[...proveedoresSugeridosSeleccion].join(', ')}) — no se pueden consolidar en una misma OC
-                </span>
-              ) : npAsignadaAOtro ? (
+              {npAsignadaAOtro ? (
                 <span className="text-xs text-red-600 font-medium">
                   {esConsolidacion
                     ? 'Una o más NPs seleccionadas están asignadas a otro comprador'
                     : 'Esta NP está asignada a otro comprador'} — no puedes generar su OC
                 </span>
               ) : (
-                <div className="flex gap-2">
-                  {/* Spec: SC-016 Decisión 4 — relabel de "Generar OC"/"Consolidar en
-                      OC": el resultado real siempre ha sido dejar la OC en_proceso */}
-                  <Button onClick={() => setModalAbierto(true)} className="h-8 btn-primary text-xs">
-                    Guardar en proceso
-                  </Button>
-                  {/* Spec: HU-019 CA-01 — solo con líneas de UNA sola NP seleccionada */}
-                  {!esConsolidacion && (
-                    <Button
-                      variant="outline"
-                      className="h-8 text-xs"
-                      onClick={() => {
-                        const ids = [...seleccion].join(',')
-                        router.push(`/compras/ocas/nueva?desde_items=${encodeURIComponent(ids)}`)
-                      }}
-                    >
-                      Crear OCA desde esta NP
-                    </Button>
+                <div className="flex gap-2 items-center flex-wrap">
+                  {proveedoresEnConflicto ? (
+                    // Spec: SC-017 RN-06 — el conflicto de proveedores sugeridos ENTRE
+                    // las líneas seleccionadas bloquea crear una OC NUEVA (no se sabría
+                    // qué proveedor asignarle), pero NO bloquea "Agregar a OC existente"
+                    // (más abajo, fuera de esta rama) — esa OC ya tiene proveedor fijo.
+                    <span className="text-xs text-red-600 font-medium">
+                      Proveedores sugeridos en conflicto ({[...proveedoresSugeridosSeleccion].join(', ')}) — no se pueden consolidar en una misma OC nueva
+                    </span>
+                  ) : (
+                    <>
+                      {/* Spec: SC-016 Decisión 4 — relabel de "Generar OC"/"Consolidar en
+                          OC": el resultado real siempre ha sido dejar la OC en_proceso */}
+                      <Button onClick={() => setModalAbierto(true)} className="h-8 btn-primary text-xs">
+                        Guardar en proceso
+                      </Button>
+                      {/* Spec: HU-019 CA-01 — solo con líneas de UNA sola NP seleccionada */}
+                      {!esConsolidacion && (
+                        <Button
+                          variant="outline"
+                          className="h-8 text-xs"
+                          onClick={() => {
+                            const ids = [...seleccion].join(',')
+                            router.push(`/compras/ocas/nueva?desde_items=${encodeURIComponent(ids)}`)
+                          }}
+                        >
+                          Crear OCA desde esta NP
+                        </Button>
+                      )}
+                    </>
                   )}
+                  {/* Spec: SC-017 — disponible siempre que no haya NPs ajenas (permiso),
+                      sin condicionar a proveedoresEnConflicto (RN-06) */}
+                  <Button
+                    variant="outline"
+                    className="h-8 text-xs"
+                    onClick={() => setModalAgregarAOcAbierto(true)}
+                  >
+                    Agregar a OC existente
+                  </Button>
                 </div>
               )}
             </CardContent>
@@ -1086,6 +1105,19 @@ export default function LineasPendientesPage() {
             // Spec: SC-016 — numero_oc queda null hasta "Emitir OC" (RN-01).
             setMensaje(numeroOc ? `OC ${numeroOc} generada correctamente` : 'OC guardada en proceso — sin número asignado todavía')
             cargar() // Spec CA-05: las líneas convertidas desaparecen de la vista
+          }}
+        />
+      )}
+
+      {/* Spec: SC-017 */}
+      {modalAgregarAOcAbierto && (
+        <ModalAgregarAOcExistente
+          lineas={filasSeleccionadas}
+          onClose={() => setModalAgregarAOcAbierto(false)}
+          onAgregado={(ocId) => {
+            setModalAgregarAOcAbierto(false)
+            setSeleccion(new Set())
+            router.push(`/compras/ordenes/${ocId}`)
           }}
         />
       )}

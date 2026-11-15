@@ -1026,6 +1026,60 @@ describe('GET /api/compras/ordenes', () => {
     expect(eqCalls).toContainEqual(['proveedor', 'FERROIDEAL'])
     expect(body[0].alerta_antiguedad).toBe(true)
   })
+
+  // Spec: SC-017 — items_count por OC, acotado a estado=en_proceso (consumido
+  // por el selector "Agregar a OC existente").
+  it('SC-017: adjunta items_count cuando estado=en_proceso', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      const chain = mockChainVacio()
+      if (table === 'registro_compras') {
+        chain.then = (resolve: any) => Promise.resolve({
+          data: [
+            { id: 'oc-1', estado_oc: 'en_proceso', created_at: new Date().toISOString(), proveedor: 'FERROIDEAL' },
+            { id: 'oc-2', estado_oc: 'en_proceso', created_at: new Date().toISOString(), proveedor: 'MEGACOMPU' },
+          ],
+          error: null,
+        }).then(resolve)
+        return chain
+      }
+      if (table === 'items_oc') {
+        chain.then = (resolve: any) => Promise.resolve({
+          data: [
+            { registro_compras_id: 'oc-1' },
+            { registro_compras_id: 'oc-1' },
+            { registro_compras_id: 'oc-2' },
+          ],
+          error: null,
+        }).then(resolve)
+        return chain
+      }
+      return chain
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/compras/ordenes?estado=en_proceso'))
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.find((o: { id: string }) => o.id === 'oc-1').items_count).toBe(2)
+    expect(body.find((o: { id: string }) => o.id === 'oc-2').items_count).toBe(1)
+  })
+
+  // Spec: SC-017 — regresión: sin estado=en_proceso (ej. Vista "Todas" o
+  // "Aprobadas", SC-011), items_count no debe aparecer en la respuesta.
+  it('SC-017: NO adjunta items_count sin el filtro estado=en_proceso', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.then = (resolve: any) => Promise.resolve({
+      data: [{ id: 'oc-1', estado_oc: 'aprobada', created_at: new Date().toISOString(), proveedor: 'FERROIDEAL' }],
+      error: null,
+    }).then(resolve)
+    mockFrom.mockReturnValue(chain)
+
+    const res = await GET(makeRequest('http://localhost/api/compras/ordenes?estado=aprobada'))
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body[0]).not.toHaveProperty('items_count')
+  })
 })
 
 describe('POST /api/compras/ordenes', () => {
@@ -4242,6 +4296,80 @@ describe('PUT /api/compras/ordenes/[id] — HU-016 CA-13/RN-04 (edición multi-N
     expect(res.status).toBe(200)
     expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-a')
     expect(mockActualizarEstadoNP).toHaveBeenCalledWith('np-c')
+  })
+
+  // Spec: SC-017 — hallazgo real de validación de caja negra (2026-11-15): una OC
+  // nacida single-NP (nota_pedido_id seteado por convertir/[id]) a la que se le
+  // fusiona una línea de una NP distinta (vía "+ Agregar líneas de NP" de SC-016 o
+  // "Agregar a OC existente" de SC-017, ambas reusan este mismo PUT) debe anular
+  // nota_pedido_id — de lo contrario GET /ordenes/[id] nunca calcula `nps_origen`
+  // (solo lo hace si nota_pedido_id es NULL, HU-016 Decisión 3) y el bloque
+  // "Originada de" queda mostrando solo la NP original, ocultando la nueva.
+  it('SC-017: anula nota_pedido_id cuando una OC single-NP recibe una línea de otra NP', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let updatePayload: any = null
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')         return chainFor([], { rol: 'compras' })
+      if (table === 'registro_compras') {
+        const chain = chainFor([], { estado_oc: 'en_proceso', creado_por_id: 'user-123', nota_pedido_id: 'np-a', numero_oc: 'OC-EDIT-NOTAID' })
+        chain.update = jest.fn((payload: any) => { updatePayload = payload; return { eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) } })
+        return chain
+      }
+      if (table === 'proveedores')      return chainFor([], { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null })
+      if (table === 'items_np') return chainFor([
+        { id: 'item-a1', nota_pedido_id: 'np-a', cantidad: 5, linea: 1, descripcion: 'A' },
+        { id: 'item-c1', nota_pedido_id: 'np-c', cantidad: 3, linea: 1, descripcion: 'C' },
+      ])
+      if (table === 'items_oc')     return chainFor([{ item_np_id: 'item-a1', cantidad: 0, registro_compras_id: 'oc-edit-notaid' }])
+      if (table === 'notas_pedido') return chainFor([{ id: 'np-a', estado: 'en_gestion' }, { id: 'np-c', estado: 'en_gestion' }])
+      if (table === 'oca_items' || table === 'oca') return chainFor([])
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+
+    const res = await PUT(
+      putReq('oc-edit-notaid', [
+        { item_np_id: 'item-a1', descripcion: 'A', unidad: 'EA', cantidad: 5, precio_unitario: 1 },
+        { item_np_id: 'item-c1', descripcion: 'C', unidad: 'EA', cantidad: 3, precio_unitario: 1 },
+      ]),
+      { params: Promise.resolve({ id: 'oc-edit-notaid' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(updatePayload.nota_pedido_id).toBeNull()
+  })
+
+  // Spec: SC-017 — regresión del fix anterior: una OC single-NP editada SIN
+  // agregar ninguna NP distinta (sigue siendo de 1 sola NP) conserva su
+  // nota_pedido_id intacto — el fix solo debe anularlo cuando grupos.size > 1.
+  it('SC-017 (regresión): conserva nota_pedido_id si la edición sigue siendo de 1 sola NP', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let updatePayload: any = null
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles')         return chainFor([], { rol: 'compras' })
+      if (table === 'registro_compras') {
+        const chain = chainFor([], { estado_oc: 'en_proceso', creado_por_id: 'user-123', nota_pedido_id: 'np-a', numero_oc: 'OC-EDIT-NOTAID2' })
+        chain.update = jest.fn((payload: any) => { updatePayload = payload; return { eq: jest.fn(() => Promise.resolve({ data: {}, error: null })) } })
+        return chain
+      }
+      if (table === 'proveedores')      return chainFor([], { nombre: 'ACME', ruc: null, direccion: null, telefono: null, email: null, contacto: null })
+      if (table === 'items_np') return chainFor([
+        { id: 'item-a1', nota_pedido_id: 'np-a', cantidad: 5, linea: 1, descripcion: 'A' },
+        { id: 'item-a2', nota_pedido_id: 'np-a', cantidad: 2, linea: 2, descripcion: 'A2' },
+      ])
+      if (table === 'items_oc')     return chainFor([{ item_np_id: 'item-a1', cantidad: 0, registro_compras_id: 'oc-edit-notaid2' }])
+      if (table === 'notas_pedido') return chainFor([{ id: 'np-a', estado: 'en_gestion' }])
+      if (table === 'oca_items' || table === 'oca') return chainFor([])
+      throw new Error(`tabla no mockeada: ${table}`)
+    })
+
+    const res = await PUT(
+      putReq('oc-edit-notaid2', [
+        { item_np_id: 'item-a1', descripcion: 'A', unidad: 'EA', cantidad: 5, precio_unitario: 1 },
+        { item_np_id: 'item-a2', descripcion: 'A2', unidad: 'EA', cantidad: 2, precio_unitario: 1 },
+      ]),
+      { params: Promise.resolve({ id: 'oc-edit-notaid2' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(updatePayload.nota_pedido_id).toBe('np-a')
   })
 
   it('RN-04: una NP que pierde todas sus líneas en la edición igual se recalcula', async () => {
