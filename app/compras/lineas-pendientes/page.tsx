@@ -687,7 +687,10 @@ export default function LineasPendientesPage() {
 
       <div className="max-w-[1600px] mx-auto px-6 py-6 space-y-4">
         {/* Filtros */}
-        <Card>
+        {/* Fix: overflow-visible necesario porque MultiSelectDropdown (N° NP/Proveedor)
+            abre su lista como absolute dentro de esta Card — sin esto, el overflow-hidden
+            base de Card (components/ui/card.tsx, para las esquinas redondeadas) la recorta. */}
+        <Card className="overflow-visible">
           <CardContent className="pt-4 pb-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               <select
