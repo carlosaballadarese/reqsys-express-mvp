@@ -337,6 +337,7 @@ export default function DetalleOCPage() {
   const [cambiandoEstado, setCambiandoEstado]   = useState(false)
   const [nuevoEstado, setNuevoEstado]           = useState('')
   const [guardandoEstado, setGuardandoEstado]   = useState(false)
+  const [errCambiarEstado, setErrCambiarEstado] = useState('')
 
   // Cancelar OC
   const [modalCancelar, setModalCancelar]   = useState(false)
@@ -620,7 +621,7 @@ export default function DetalleOCPage() {
 
   async function handleCambiarEstado() {
     if (!nuevoEstado || nuevoEstado === oc?.estado_oc) return
-    setGuardandoEstado(true)
+    setGuardandoEstado(true); setErrCambiarEstado('')
     try {
       const res  = await fetch(`/api/compras/ordenes/${id}/estado`, {
         method: 'PATCH',
@@ -628,8 +629,19 @@ export default function DetalleOCPage() {
         body: JSON.stringify({ estado: nuevoEstado }),
       })
       const data = await res.json()
-      if (data.success) { setCambiandoEstado(false); cargar() }
-    } finally { setGuardandoEstado(false) }
+      if (data.success) {
+        // Fix: si quedaba una sesión de edición abierta (p.ej. un "Guardar
+        // Cambios" anterior rechazado con 409 porque el estado ya había
+        // avanzado) esta acción NO la cerraba — el botón "Editar" seguía
+        // oculto (solo se muestra con !editando) aunque el estado ya
+        // estuviera de vuelta en "en_proceso", dando la falsa impresión de
+        // que el botón desapareció. Se fuerza una vista de detalle limpia.
+        setCambiandoEstado(false); setEditando(false); setErrorEdit(''); cargar()
+      } else {
+        setErrCambiarEstado(data.error || 'Error al cambiar el estado')
+      }
+    } catch { setErrCambiarEstado('Error de conexión') }
+    finally { setGuardandoEstado(false) }
   }
 
   async function handleEnviarAprobacion() {
@@ -748,7 +760,19 @@ export default function DetalleOCPage() {
                     <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${ESTADO_BADGE[oc.estado_oc] ?? ''}`}>
                       {ESTADO_LABEL[oc.estado_oc] ?? oc.estado_oc}
                     </span>
-                    <button onClick={() => setCambiandoEstado(true)} className="text-xs text-blue-600 hover:underline">Cambiar estado</button>
+                    {/* Fix: deshabilitado mientras hay una sesión de edición abierta —
+                        cambiar el estado desde aquí invalidaba a mitad de camino el
+                        "Guardar Cambios" que el usuario ya tenía abierto más abajo
+                        (409 "Solo se pueden editar OCs en estado En Proceso"), sin
+                        avisarle que la causa fue este mismo botón. */}
+                    <button
+                      onClick={() => setCambiandoEstado(true)}
+                      disabled={editando}
+                      title={editando ? 'Termina o cancela la edición en curso antes de cambiar el estado' : undefined}
+                      className="text-xs text-blue-600 hover:underline disabled:text-slate-300 disabled:no-underline disabled:cursor-not-allowed"
+                    >
+                      Cambiar estado
+                    </button>
                   </>
                 ) : (
                   <>
@@ -759,9 +783,10 @@ export default function DetalleOCPage() {
                     <Button onClick={handleCambiarEstado} disabled={guardandoEstado || nuevoEstado === oc.estado_oc} className="h-8 btn-primary text-sm">
                       {guardandoEstado ? 'Guardando...' : 'Confirmar'}
                     </Button>
-                    <button onClick={() => { setCambiandoEstado(false); setNuevoEstado(oc.estado_oc) }} className="text-xs text-slate-500 hover:underline">Cancelar</button>
+                    <button onClick={() => { setCambiandoEstado(false); setNuevoEstado(oc.estado_oc); setErrCambiarEstado('') }} className="text-xs text-slate-500 hover:underline">Cancelar</button>
                   </>
                 )}
+                {errCambiarEstado && <span className="text-xs text-red-600">{errCambiarEstado}</span>}
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
@@ -773,8 +798,16 @@ export default function DetalleOCPage() {
                     {msgEnvio && <span className="text-xs text-green-600">{msgEnvio}</span>}
                     {errEnvio && <span className="text-xs text-red-600">{errEnvio}</span>}
                     {/* Spec: SC-016 Decisión 4/RN-03 — relabel "Enviar a Aprobación" →
-                        "Emitir OC"; mismo endpoint, ahora asigna numero_oc si faltaba */}
-                    <Button onClick={handleEnviarAprobacion} disabled={enviando} className="h-8 btn-primary text-sm">
+                        "Emitir OC"; mismo endpoint, ahora asigna numero_oc si faltaba.
+                        Fix: deshabilitado mientras `editando` es true — misma razón
+                        que "Cambiar estado" arriba, evita invalidar a mitad de camino
+                        un "Guardar Cambios" abierto. */}
+                    <Button
+                      onClick={handleEnviarAprobacion}
+                      disabled={enviando || editando}
+                      title={editando ? 'Termina o cancela la edición en curso antes de emitir la OC' : undefined}
+                      className="h-8 btn-primary text-sm"
+                    >
                       {enviando ? 'Emitiendo...' : 'Emitir OC'}
                     </Button>
                   </>
@@ -784,6 +817,8 @@ export default function DetalleOCPage() {
                  ['compras', 'admin'].includes(rol) && (
                   <Button
                     onClick={() => { setMotivoCancelar(''); setErrCancelar(''); setModalCancelar(true) }}
+                    disabled={editando}
+                    title={editando ? 'Termina o cancela la edición en curso antes de cancelar la OC' : undefined}
                     variant="outline"
                     className="h-8 text-sm border-red-300 text-red-600 hover:bg-red-50"
                   >
