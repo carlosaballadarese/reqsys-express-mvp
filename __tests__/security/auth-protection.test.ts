@@ -1647,6 +1647,10 @@ describe('PUT /api/compras/nps/[id]', () => {
     np: any
     area?: { id: string; nombre: string } | null
     coordinadorDefault?: { id: string; nombre: string; email: string } | null
+    // Fix: solo para el camino np.estado === 'borrador' — enviarNPACoordinador()
+    // (lib/np-notificacion.ts) hace su propio lookup de coordinador vía .single(),
+    // una 3ra llamada que no existe en el camino rechazada/devuelta.
+    coordinadorEnvio?: { nombre: string; email: string } | null
   }) {
     const resolved = { data: [], error: null }
     const chain: any = {}
@@ -1657,6 +1661,9 @@ describe('PUT /api/compras/nps/[id]', () => {
     chain.single = jest.fn()
       .mockResolvedValueOnce({ data: opts.perfil, error: null })
       .mockResolvedValueOnce({ data: opts.np, error: null })
+    if (opts.coordinadorEnvio !== undefined) {
+      chain.single.mockResolvedValueOnce({ data: opts.coordinadorEnvio, error: null })
+    }
     chain.maybeSingle = jest.fn()
       .mockResolvedValueOnce({ data: opts.area ?? null, error: null })
       .mockResolvedValueOnce({ data: opts.coordinadorDefault ?? null, error: null })
@@ -1757,6 +1764,55 @@ describe('PUT /api/compras/nps/[id]', () => {
     // El update debe incluir motivo_devolucion: null para limpiar el campo
     const updatePayload = chain.update.mock.calls[0][0]
     expect(updatePayload).toMatchObject({ estado: 'pendiente', motivo_devolucion: null })
+  })
+
+  // Fix: una NP en borrador (nunca enviada) no se podía editar ni completar —
+  // solo existía "Enviar a aprobación" tal cual desde el listado "Mis NPs".
+  const NP_BORRADOR = {
+    id: 'np-552', numero: 'NP-2026-0552', estado: 'borrador',
+    area: 'TI', creado_por_id: 'user-123', solicitante_nombre: 'Jairo Mideros',
+    token_aprobacion: 'tok-aprob', motivo_rechazo: null, motivo_devolucion: null,
+  }
+
+  it('fix: permite editar y enviar por primera vez una NP en estado borrador (creador)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainEditar({
+      perfil: { rol: 'solicitante', nombre: 'Jairo Mideros', email: 'jairo.mideros@arlift.com.ec' },
+      np: NP_BORRADOR,
+      area: AREA_TI,
+      coordinadorDefault: COORDINADOR,
+      coordinadorEnvio: COORDINADOR,
+    })
+    mockFrom.mockReturnValue(chain)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/nps/np-552', { method: 'PUT', body: bodyEditar(30) }),
+      { params: Promise.resolve({ id: 'np-552' }) }
+    )
+    expect(res.status).toBe(200)
+    // El update debe moverla a pendiente, igual que al corregir rechazada/devuelta
+    const updatePayload = chain.update.mock.calls[0][0]
+    expect(updatePayload).toMatchObject({ estado: 'pendiente' })
+    // El historial lo registra enviarNPACoordinador (estado 'pendiente'), NO el
+    // bloque de "reenviada" (que asume un rechazo/devolución previa inexistente)
+    const historialInsertado = chain.insert.mock.calls.find(
+      (c: any[]) => c[0]?.estado === 'pendiente' || c[0]?.estado === 'reenviada'
+    )?.[0]
+    expect(historialInsertado?.estado).toBe('pendiente')
+    expect(historialInsertado?.estado).not.toBe('reenviada')
+  })
+
+  it('fix: devuelve 404 al intentar editar una NP borrador que no es la propia (no aplica — pero rechaza a un usuario sin permiso)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn()
+      .mockResolvedValueOnce({ data: { rol: 'solicitante', nombre: 'Otro', email: 'otro@arlift.com' }, error: null })
+      .mockResolvedValueOnce({ data: { ...NP_BORRADOR, creado_por_id: 'otro-user-id' }, error: null })
+    mockFrom.mockReturnValue(chain)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/nps/np-552', { method: 'PUT', body: bodyEditar(30) }),
+      { params: Promise.resolve({ id: 'np-552' }) }
+    )
+    expect(res.status).toBe(403)
   })
 })
 

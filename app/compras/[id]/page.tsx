@@ -1008,8 +1008,10 @@ export default function DetalleNPPage() {
   // Spec CA-06: precio visible para roles privilegiados O para el creador en NPs de regularización
   const puedeVerPrecio       = ['compras', 'admin', 'asistente_compras'].includes(rol) ||
     (np?.es_regularizacion === true && np.creado_por_id === userId)
-  // Spec: puede editar el creador (creado_por_id) o compras/admin; NP debe estar rechazada o devuelta
-  const puedeEditarRechazada = (np?.estado === 'rechazada' || np?.estado === 'devuelta') &&
+  // Spec: puede editar el creador (creado_por_id) o compras/admin; NP debe estar
+  // rechazada, devuelta, o borrador (nunca enviada — fix: antes no había forma
+  // de completar/editar un borrador para enviarlo, solo "enviar tal cual")
+  const puedeEditarRechazada = (np?.estado === 'rechazada' || np?.estado === 'devuelta' || np?.estado === 'borrador') &&
     (np.creado_por_id === userId || ['compras', 'admin'].includes(rol))
   // Spec CA-12 / RN-01: acceso a exportación PDF/Excel
   const puedeExportar = ['compras', 'admin'].includes(rol) ||
@@ -1420,7 +1422,9 @@ export default function DetalleNPPage() {
           <Card className="border-amber-300">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base text-amber-800">Editar y Reenviar NP</CardTitle>
+                <CardTitle className="text-base text-amber-800">
+                  {np?.estado === 'borrador' ? 'Completar y Enviar NP' : 'Editar y Reenviar NP'}
+                </CardTitle>
                 <button onClick={() => setModoEdicion(false)} className="text-xs text-slate-500 hover:text-slate-700">✕ Cancelar</button>
               </div>
             </CardHeader>
@@ -1610,7 +1614,9 @@ export default function DetalleNPPage() {
                 <button type="button" onClick={handleReenviar} disabled={guardando}
                   className="flex-1 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-60"
                   style={{ background: '#1a5252' }}>
-                  {guardando ? 'Reenviando...' : '↗ Reenviar a Aprobación'}
+                  {np?.estado === 'borrador'
+                    ? (guardando ? 'Enviando...' : '↗ Enviar a Aprobación')
+                    : (guardando ? 'Reenviando...' : '↗ Reenviar a Aprobación')}
                 </button>
               </div>
             </CardContent>

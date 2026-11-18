@@ -9,6 +9,7 @@ import { puedeVerPrecioNP, puedeGuardarPrecioNP } from '@/lib/np-precio'
 import { ESTADOS_DEVOLVIBLES, pausarSLAPorCierre } from '@/lib/np-estado'
 import { calcularAprobadorAsignado } from '@/lib/np-area'
 import { obtenerAprobadorPendiente } from '@/lib/np-fechas-documento'
+import { enviarNPACoordinador } from '@/lib/np-notificacion'
 
 export async function GET(
   req: NextRequest,
@@ -117,9 +118,11 @@ export async function PUT(
       .eq('id', id)
       .single()
 
-    // Spec: NPs en estado rechazada (por coordinador) o devuelta (por Compras) pueden editarse
-    if (!np || !['rechazada', 'devuelta'].includes(np.estado))
-      return NextResponse.json({ error: 'NP no encontrada o no está en estado editable (rechazada o devuelta)' }, { status: 404 })
+    // Spec: NPs en estado rechazada (por coordinador), devuelta (por Compras) o
+    // borrador (nunca enviada — el creador la dejó pendiente de completar, HU-009
+    // CA-13) pueden editarse.
+    if (!np || !['rechazada', 'devuelta', 'borrador'].includes(np.estado))
+      return NextResponse.json({ error: 'NP no encontrada o no está en estado editable (borrador, rechazada o devuelta)' }, { status: 404 })
 
     // Spec: puede editar el creador (creado_por_id) o roles compras/admin
     const esManager = ['compras', 'admin'].includes(perfil.rol)
@@ -237,53 +240,92 @@ export async function PUT(
     }))
     await adminClient().from('items_np').insert(itemsConNP)
 
-    // Spec: historial registra reenviada con referencia al motivo del rechazo previo
-    const motivoPrevio = np.motivo_rechazo
-      ? `Rechazo previo: "${np.motivo_rechazo}"`
-      : np.motivo_devolucion
-        ? `Devolución previa: "${np.motivo_devolucion}"`
-        : 'NP reenviada tras corrección'
-    await adminClient().from('historial_np').insert({
-      np_id:        id,
-      estado:       'reenviada',
-      actor_email:  perfil.email,
-      actor_nombre: perfil.nombre,
-      notas:        `NP reenviada a aprobación. ${motivoPrevio}`,
-    })
+    if (np.estado === 'borrador') {
+      // Spec: fix "no se puede editar un borrador" — a diferencia de rechazada/
+      // devuelta, un borrador nunca pasó por el coordinador, así que no hay
+      // "corrección" ni motivo previo que referenciar. Se reutiliza el mismo
+      // helper que ya usan POST /api/compras/nps (accion=enviar) y
+      // enviar-aprobacion/route.ts, para no duplicar el email/historial con
+      // texto incorrecto ("fue rechazada...") y mantener un solo lugar con esa
+      // lógica ya probada.
+      await enviarNPACoordinador(
+        id,
+        np.numero,
+        {
+          solicitante_nombre:  encabezado.solicitante_nombre,
+          solicitante_email:   encabezado.solicitante_email,
+          area:                areaSeleccionada.nombre,
+          prioridad:           encabezado.prioridad,
+          tipo_compra:         encabezado.tipo_compra,
+          centro_costo:        encabezado.centro_costo,
+          descripcion_general: encabezado.descripcion_general,
+          es_regularizacion:   esRegularizacion,
+          fecha_provision:     esRegularizacion ? (encabezado.fecha_provision ?? null) : null,
+        },
+        items,
+        totalEstimado,
+        aprobadorAsignadoId
+      )
 
-    await registrarAuditoria({
-      accion:     'reenviar_np',
-      entidad:    'nota_pedido',
-      entidad_id: id,
-      referencia: np.numero,
-      detalle:    { estado_anterior: 'rechazada', estado_nuevo: 'pendiente' },
-    })
-
-    // Email al coordinador con links de aprobación
-    const baseUrl    = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-    const urlAprobar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=aprobar`
-    const urlRechazar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=rechazar`
-    try {
-      await transporter.sendMail({
-        from:    'One ARLIFT <notificaciones@mail.cabesoft.com>',
-        to:      coordinador.email,
-        subject: `REQSYS NP Corregida ${np.numero} - ${areaSeleccionada.nombre}`,
-        text: [
-          `Estimado/a ${coordinador.nombre},`,
-          '',
-          `La Nota de Pedido ${np.numero} que fue rechazada ha sido corregida y reenviada para aprobacion.`,
-          `Solicitante: ${encabezado.solicitante_nombre}`,
-          `Area: ${areaSeleccionada.nombre}`,
-          `Total estimado: $${totalEstimado.toFixed(2)}`,
-          '',
-          `Aprobar: ${urlAprobar}`,
-          `Rechazar: ${urlRechazar}`,
-          '',
-          'REQSYS - ARLIFT S.A.',
-        ].join('\n'),
+      await registrarAuditoria({
+        accion:     'enviar_np_borrador',
+        entidad:    'nota_pedido',
+        entidad_id: id,
+        referencia: np.numero,
+        detalle:    { estado_anterior: 'borrador', estado_nuevo: 'pendiente', editado_antes_de_enviar: true },
       })
-    } catch (emailErr) {
-      console.error('ERROR SMTP (ignorado):', emailErr)
+    } else {
+      // Spec: historial registra reenviada con referencia al motivo del rechazo previo
+      const motivoPrevio = np.motivo_rechazo
+        ? `Rechazo previo: "${np.motivo_rechazo}"`
+        : np.motivo_devolucion
+          ? `Devolución previa: "${np.motivo_devolucion}"`
+          : 'NP reenviada tras corrección'
+      await adminClient().from('historial_np').insert({
+        np_id:        id,
+        estado:       'reenviada',
+        actor_email:  perfil.email,
+        actor_nombre: perfil.nombre,
+        notas:        `NP reenviada a aprobación. ${motivoPrevio}`,
+      })
+
+      await registrarAuditoria({
+        accion:     'reenviar_np',
+        entidad:    'nota_pedido',
+        entidad_id: id,
+        referencia: np.numero,
+        // Fix: quedaba hardcodeado a 'rechazada' aunque el estado anterior real
+        // fuera 'devuelta' — hallazgo lateral al tocar este bloque, corregido
+        // de paso (bajo riesgo, es solo el detalle de auditoría).
+        detalle:    { estado_anterior: np.estado, estado_nuevo: 'pendiente' },
+      })
+
+      // Email al coordinador con links de aprobación
+      const baseUrl    = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+      const urlAprobar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=aprobar`
+      const urlRechazar = `${baseUrl}/aprobar/${np.token_aprobacion}?accion=rechazar`
+      try {
+        await transporter.sendMail({
+          from:    'One ARLIFT <notificaciones@mail.cabesoft.com>',
+          to:      coordinador.email,
+          subject: `REQSYS NP Corregida ${np.numero} - ${areaSeleccionada.nombre}`,
+          text: [
+            `Estimado/a ${coordinador.nombre},`,
+            '',
+            `La Nota de Pedido ${np.numero} que fue rechazada ha sido corregida y reenviada para aprobacion.`,
+            `Solicitante: ${encabezado.solicitante_nombre}`,
+            `Area: ${areaSeleccionada.nombre}`,
+            `Total estimado: $${totalEstimado.toFixed(2)}`,
+            '',
+            `Aprobar: ${urlAprobar}`,
+            `Rechazar: ${urlRechazar}`,
+            '',
+            'REQSYS - ARLIFT S.A.',
+          ].join('\n'),
+        })
+      } catch (emailErr) {
+        console.error('ERROR SMTP (ignorado):', emailErr)
+      }
     }
 
     return NextResponse.json({ success: true })
