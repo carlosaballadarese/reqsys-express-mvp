@@ -814,35 +814,30 @@ export default function LineasPendientesPage() {
                 </span>
               ) : (
                 <div className="flex gap-2 items-center flex-wrap">
-                  {proveedoresEnConflicto ? (
-                    // Spec: SC-017 RN-06 — el conflicto de proveedores sugeridos ENTRE
-                    // las líneas seleccionadas bloquea crear una OC NUEVA (no se sabría
-                    // qué proveedor asignarle), pero NO bloquea "Agregar a OC existente"
-                    // (más abajo, fuera de esta rama) — esa OC ya tiene proveedor fijo.
-                    <span className="text-xs text-red-600 font-medium">
-                      Proveedores sugeridos en conflicto ({[...proveedoresSugeridosSeleccion].join(', ')}) — no se pueden consolidar en una misma OC nueva
-                    </span>
-                  ) : (
-                    <>
-                      {/* Spec: SC-016 Decisión 4 — relabel de "Generar OC"/"Consolidar en
-                          OC": el resultado real siempre ha sido dejar la OC en_proceso */}
-                      <Button onClick={() => setModalAbierto(true)} className="h-8 btn-primary text-xs">
-                        Guardar en proceso
-                      </Button>
-                      {/* Spec: HU-019 CA-01 — solo con líneas de UNA sola NP seleccionada */}
-                      {!esConsolidacion && (
-                        <Button
-                          variant="outline"
-                          className="h-8 text-xs"
-                          onClick={() => {
-                            const ids = [...seleccion].join(',')
-                            router.push(`/compras/ocas/nueva?desde_items=${encodeURIComponent(ids)}`)
-                          }}
-                        >
-                          Crear OCA desde esta NP
-                        </Button>
-                      )}
-                    </>
+                  {/* Spec: SC-017 RN-06 corregida el 2026-11-19 (reporte real de Compras) —
+                      antes, un conflicto de proveedores sugeridos ocultaba por completo
+                      "Guardar en proceso"/"Crear OCA desde esta NP", sin motivo técnico real:
+                      ModalGenerarOC ya deja el proveedor en blanco para completar a mano
+                      cuando no hay un único sugerido (ver su useEffect, `sugeridos.size !== 1`
+                      → no autocompleta). El conflicto ahora es solo informativo (más abajo),
+                      nunca bloqueante. */}
+                  {/* Spec: SC-016 Decisión 4 — relabel de "Generar OC"/"Consolidar en
+                      OC": el resultado real siempre ha sido dejar la OC en_proceso */}
+                  <Button onClick={() => setModalAbierto(true)} className="h-8 btn-primary text-xs">
+                    Guardar en proceso
+                  </Button>
+                  {/* Spec: HU-019 CA-01 — solo con líneas de UNA sola NP seleccionada */}
+                  {!esConsolidacion && (
+                    <Button
+                      variant="outline"
+                      className="h-8 text-xs"
+                      onClick={() => {
+                        const ids = [...seleccion].join(',')
+                        router.push(`/compras/ocas/nueva?desde_items=${encodeURIComponent(ids)}`)
+                      }}
+                    >
+                      Crear OCA desde esta NP
+                    </Button>
                   )}
                   {/* Spec: SC-017 — disponible siempre que no haya NPs ajenas (permiso),
                       sin condicionar a proveedoresEnConflicto (RN-06) */}
@@ -853,6 +848,11 @@ export default function LineasPendientesPage() {
                   >
                     Agregar a OC existente
                   </Button>
+                  {proveedoresEnConflicto && (
+                    <span className="text-xs text-amber-700">
+                      Proveedores sugeridos distintos ({[...proveedoresSugeridosSeleccion].join(', ')}) — selecciona el proveedor manualmente al crear la OC.
+                    </span>
+                  )}
                 </div>
               )}
             </CardContent>
