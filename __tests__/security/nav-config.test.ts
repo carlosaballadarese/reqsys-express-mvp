@@ -23,9 +23,35 @@ describe('CA-01: Inicio visible para los 8 roles', () => {
 })
 
 describe('CA-06: ícono Compras sin Reporte de Líneas', () => {
-  it('Compras conserva Órdenes de Compra, Líneas Pendientes y Proveedores, sin Reporte de Líneas', () => {
+  it('Compras conserva Órdenes de Compra y Líneas Pendientes (Proveedores se mudó a Bodega en HU-026), sin Reporte de Líneas', () => {
     const labels = (grupo('Compras').children ?? []).map(c => c.label)
-    expect(labels).toEqual(['Órdenes de Compra', 'Líneas Pendientes de OC', 'Proveedores'])
+    expect(labels).toEqual(['Órdenes de Compra', 'Líneas Pendientes de OC'])
+  })
+})
+
+describe('HU-026: catálogos base de Bodega en el nav', () => {
+  it('Bodega gana Proveedores (movido desde Compras) + Bodegas/Categorías/Clientes Finales/Pozos', () => {
+    const labels = (grupo('Bodega').children ?? []).map(c => c.label)
+    expect(labels).toEqual(['Inventario', 'Proveedores', 'Bodegas', 'Categorías', 'Clientes Finales', 'Pozos'])
+  })
+
+  it('Proveedores conserva exactamente los mismos roles que tenía bajo Compras', () => {
+    const proveedores = (grupo('Bodega').children ?? []).find(c => c.label === 'Proveedores')!
+    expect(proveedores.href).toBe('/compras/proveedores')
+    expect(proveedores.roles).toEqual(['compras', 'admin', 'asistente_compras'])
+  })
+
+  it('Bodegas y Categorías son solo compras/admin; Clientes Finales y Pozos también incluyen bodega', () => {
+    const porLabel = (label: string) => (grupo('Bodega').children ?? []).find(c => c.label === label)!
+    expect(porLabel('Bodegas').roles).toEqual(['compras', 'admin'])
+    expect(porLabel('Categorías').roles).toEqual(['compras', 'admin'])
+    expect(porLabel('Clientes Finales').roles).toEqual(['compras', 'admin', 'bodega'])
+    expect(porLabel('Pozos').roles).toEqual(['compras', 'admin', 'bodega'])
+  })
+
+  it('bodega ve Clientes Finales y Pozos pero no Bodegas ni Categorías', () => {
+    const items = itemsVisibles(grupo('Bodega'), 'bodega').map(i => i.label)
+    expect(items).toEqual(['Inventario', 'Clientes Finales', 'Pozos'])
   })
 })
 

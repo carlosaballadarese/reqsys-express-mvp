@@ -9802,3 +9802,376 @@ describe('Rutas públicas por token — ya no dependen de la política anon USIN
     expect(mockAdminClient).toHaveBeenCalled()
   })
 })
+
+// ── HU-026: Catálogos Base de Bodega ──────────────────────────────────────────
+
+describe('GET/POST /api/compras/bodega/bodegas', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/bodegas/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/bodegas'))
+    expect(res.status).toBe(401)
+  })
+
+  it('GET sin ?todas= no requiere rol admin/compras (cualquier autenticado)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({}))
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/bodegas'))
+    expect(res.status).toBe(200)
+  })
+
+  it('GET ?todas=1 devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'bodega' }, error: null } }))
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/bodegas?todas=1'))
+    expect(res.status).toBe(403)
+  })
+
+  it('POST devuelve 403 sin rol admin/compras (bodega no puede crear Bodegas)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'bodega' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/bodegas', {
+      method: 'POST', body: JSON.stringify({ codigo: 'BP', nombre: 'Bodega Principal' }),
+    }))
+    expect(res.status).toBe(403)
+  })
+
+  it('POST crea una Bodega con rol compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+    chain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() =>
+      Promise.resolve({ data: { id: 'bod-1', codigo: 'BP', nombre: 'Bodega Principal', referencia: null, activo: true }, error: null })) })) }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/bodegas', {
+      method: 'POST', body: JSON.stringify({ codigo: 'BP', nombre: 'Bodega Principal' }),
+    }))
+    expect(res.status).toBe(201)
+  })
+
+  it('POST devuelve 409 si código o nombre ya existen', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'admin' }, error: null }))
+    chain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() =>
+      Promise.resolve({ data: null, error: { code: '23505', message: 'duplicate key' } })) })) }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/bodegas', {
+      method: 'POST', body: JSON.stringify({ codigo: 'BP', nombre: 'Bodega Principal' }),
+    }))
+    expect(res.status).toBe(409)
+  })
+})
+
+describe('PUT /api/compras/bodega/bodegas/[id]', () => {
+  const { PUT } = require('@/app/api/compras/bodega/bodegas/[id]/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/bodegas/bod-1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 'bod-1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'asistente_compras' }, error: null } }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/bodegas/bod-1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 'bod-1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('desactiva una Bodega (activo:false) sin DELETE físico — CA-01', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      bodegas:  { data: null, error: null },
+    }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/bodegas/bod-1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 'bod-1' }) }
+    )
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('GET/POST /api/compras/bodega/categorias', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/categorias/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/categorias'))
+    expect(res.status).toBe(401)
+  })
+
+  it('GET ?area_id= filtra por el cruce area_categoria_bodega — CA-06', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      const obj: any = {}
+      obj.select = () => obj
+      obj.eq = () => obj
+      obj.in = () => obj
+      obj.order = () => obj
+      if (table === 'area_categoria_bodega') {
+        obj.then = (resolve: any) => Promise.resolve({ data: [{ categoria_id: 'cat-cables' }], error: null }).then(resolve)
+      } else {
+        obj.then = (resolve: any) => Promise.resolve({ data: [{ id: 'cat-cables', nombre: 'Cables' }], error: null }).then(resolve)
+      }
+      return obj
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/categorias?area_id=area-electrico'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toEqual([{ id: 'cat-cables', nombre: 'Cables' }])
+  })
+
+  it('POST devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'bodega' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/categorias', {
+      method: 'POST', body: JSON.stringify({ nombre: 'Cables' }),
+    }))
+    expect(res.status).toBe(403)
+  })
+
+  it('POST crea la categoría y siembra el cruce inicial con area_ids', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'admin' }, error: null }))
+    chain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() =>
+      Promise.resolve({ data: { id: 'cat-cables', nombre: 'Cables', activo: true }, error: null })) })) }))
+    let cruceInsertado: any = null
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'area_categoria_bodega') {
+        return { insert: jest.fn((payload: any) => { cruceInsertado = payload; return Promise.resolve({ data: null, error: null }) }) }
+      }
+      return chain
+    })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/categorias', {
+      method: 'POST', body: JSON.stringify({ nombre: 'Cables', area_ids: ['area-electrico', 'area-niveles'] }),
+    }))
+    expect(res.status).toBe(201)
+    expect(cruceInsertado).toEqual([
+      { area_id: 'area-electrico', categoria_id: 'cat-cables' },
+      { area_id: 'area-niveles',   categoria_id: 'cat-cables' },
+    ])
+  })
+})
+
+describe('PUT /api/compras/bodega/categorias/[id] — reemplazo completo del cruce', () => {
+  const { PUT } = require('@/app/api/compras/bodega/categorias/[id]/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/categorias/cat-1', { method: 'PUT', body: JSON.stringify({ area_ids: [] }) }),
+      { params: Promise.resolve({ id: 'cat-1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('DELETE+INSERT completo del cruce — nunca un diff incremental (Decisión 2 de sdd-design.md)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let deleteEqArgs: any = null
+    let insertPayload: any = null
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'compras' }, error: null }) }) }) }
+      }
+      if (table === 'categorias') {
+        return { update: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }) }
+      }
+      if (table === 'area_categoria_bodega') {
+        return {
+          delete: jest.fn(() => ({ eq: jest.fn((_col: string, val: string) => { deleteEqArgs = val; return Promise.resolve({ data: null, error: null }) }) })),
+          insert: jest.fn((payload: any) => { insertPayload = payload; return Promise.resolve({ data: null, error: null }) }),
+        }
+      }
+      return mockChainVacio()
+    })
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/categorias/cat-cables', {
+        method: 'PUT', body: JSON.stringify({ area_ids: ['area-electrico', 'area-niveles-1', 'area-niveles-2'] }),
+      }),
+      { params: Promise.resolve({ id: 'cat-cables' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(deleteEqArgs).toBe('cat-cables')
+    expect(insertPayload).toEqual([
+      { area_id: 'area-electrico',  categoria_id: 'cat-cables' },
+      { area_id: 'area-niveles-1',  categoria_id: 'cat-cables' },
+      { area_id: 'area-niveles-2',  categoria_id: 'cat-cables' },
+    ])
+  })
+
+  it('area_ids: [] borra todo el cruce sin insertar nada', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let insertLlamado = false
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'admin' }, error: null }) }) }) }
+      }
+      if (table === 'area_categoria_bodega') {
+        return {
+          delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: null, error: null })) })),
+          insert: jest.fn(() => { insertLlamado = true; return Promise.resolve({ data: null, error: null }) }),
+        }
+      }
+      return mockChainVacio()
+    })
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/categorias/cat-cables', { method: 'PUT', body: JSON.stringify({ area_ids: [] }) }),
+      { params: Promise.resolve({ id: 'cat-cables' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(insertLlamado).toBe(false)
+  })
+})
+
+describe('GET/POST /api/compras/bodega/clientes-finales — bodega SÍ puede escribir (CA-07)', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/clientes-finales/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/clientes-finales'))
+    expect(res.status).toBe(401)
+  })
+
+  it('POST devuelve 403 para un rol sin permiso (solicitante)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'solicitante' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/clientes-finales', {
+      method: 'POST', body: JSON.stringify({ nombre: 'ANDES PETROLEUM' }),
+    }))
+    expect(res.status).toBe(403)
+  })
+
+  it('POST crea un Cliente Final con rol bodega (a diferencia de Bodegas/Categorías)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'bodega' }, error: null }))
+    chain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() =>
+      Promise.resolve({ data: { id: 'cf-1', nombre: 'ANDES PETROLEUM', ruc: null, activo: true }, error: null })) })) }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/clientes-finales', {
+      method: 'POST', body: JSON.stringify({ nombre: 'ANDES PETROLEUM' }),
+    }))
+    expect(res.status).toBe(201)
+  })
+
+  it('POST devuelve 400 si el RUC tiene formato inválido', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'bodega' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/clientes-finales', {
+      method: 'POST', body: JSON.stringify({ nombre: 'ANDES PETROLEUM', ruc: '123' }),
+    }))
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('PUT /api/compras/bodega/clientes-finales/[id]', () => {
+  const { PUT } = require('@/app/api/compras/bodega/clientes-finales/[id]/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/clientes-finales/cf-1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 'cf-1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+})
+
+describe('GET/POST /api/compras/bodega/pozos — Cliente Final opcional (CA-08)', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/pozos/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/pozos'))
+    expect(res.status).toBe(401)
+  })
+
+  it('POST devuelve 403 para un rol sin permiso (gerencia)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'gerencia' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/pozos', {
+      method: 'POST', body: JSON.stringify({ nombre: 'ARLIFT - BASE' }),
+    }))
+    expect(res.status).toBe(403)
+  })
+
+  it('POST crea un Pozo sin Cliente Final (destino interno, ej. "ARLIFT - BASE")', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'bodega' }, error: null }))
+    chain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() =>
+      Promise.resolve({ data: { id: 'pozo-1', nombre: 'ARLIFT - BASE', cliente_final_id: null, activo: true }, error: null })) })) }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/pozos', {
+      method: 'POST', body: JSON.stringify({ nombre: 'ARLIFT - BASE' }),
+    }))
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.cliente_final_id).toBeNull()
+  })
+})
+
+describe('PUT /api/compras/bodega/pozos/[id]', () => {
+  const { PUT } = require('@/app/api/compras/bodega/pozos/[id]/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/pozos/pozo-1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 'pozo-1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+})
+
+describe('PUT /api/compras/areas/[id] — HU-026 CA-02, habilitada_para_bodega', () => {
+  const { PUT } = require('@/app/api/compras/areas/[id]/route')
+
+  it('persiste habilitada_para_bodega de forma independiente de activo', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let updatePayload: any = null
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'compras' }, error: null }) }) }) }
+      }
+      return { update: jest.fn((payload: any) => { updatePayload = payload; return { eq: () => Promise.resolve({ data: null, error: null }) } }) }
+    })
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/areas/area-niveles', { method: 'PUT', body: JSON.stringify({ habilitada_para_bodega: true }) }),
+      { params: Promise.resolve({ id: 'area-niveles' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(updatePayload).toEqual({ habilitada_para_bodega: true })
+  })
+})
+
+describe('PUT /api/compras/configuracion/empresa — HU-026 CA-10, patron_codigo_bodega', () => {
+  const { PUT } = require('@/app/api/compras/configuracion/empresa/route')
+
+  it('persiste patron_codigo_bodega como opcional/informativo', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let updatePayload: any = null
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'admin' }, error: null }) }) }) }
+      }
+      return { update: jest.fn((payload: any) => { updatePayload = payload; return { eq: () => Promise.resolve({ data: null, error: null }) } }) }
+    })
+    const res = await PUT(makeRequest('http://localhost/api/compras/configuracion/empresa', {
+      method: 'PUT',
+      body: JSON.stringify({ razon_social: 'ARLIFT ENGINEERING & SERVICES S.A.', patron_codigo_bodega: '2-4 letras mayúsculas' }),
+    }))
+    expect(res.status).toBe(200)
+    expect(updatePayload.patron_codigo_bodega).toBe('2-4 letras mayúsculas')
+  })
+})

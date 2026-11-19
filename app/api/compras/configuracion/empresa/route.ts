@@ -35,7 +35,8 @@ export async function PUT(req: NextRequest) {
     const body = await req.json()
     const { razon_social, ruc, direccion, contacto, telefono, email,
             documento_numero_oc, revision_oc,
-            documento_numero_np, revision_np } = body
+            documento_numero_np, revision_np,
+            patron_codigo_bodega } = body
 
     if (!razon_social?.trim())
       return NextResponse.json({ error: 'La razón social es requerida' }, { status: 400 })
@@ -57,6 +58,9 @@ export async function PUT(req: NextRequest) {
         revision_oc:         revision_oc != null ? Number(revision_oc) : null,
         documento_numero_np: documento_numero_np || null,
         revision_np:         revision_np != null ? Number(revision_np) : null,
+        // Spec: HU-026 CA-10 — patrón sugerido/informativo, sin validación de
+        // formato (ya que v1 deja el código de Bodega como texto libre).
+        patron_codigo_bodega: patron_codigo_bodega || null,
         updated_at:          new Date().toISOString(),
       })
       .eq('id', 1)

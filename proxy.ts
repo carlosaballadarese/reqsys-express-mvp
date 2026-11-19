@@ -224,6 +224,10 @@ export async function proxy(req: NextRequest) {
         '/compras/accesos',
         '/compras/auditoria',
         '/compras/configuracion',
+        // Spec: HU-026 CA-01/CA-03 — Bodegas y Categorías son admin/compras-only
+        // (a diferencia de Clientes Finales/Pozos, que bodega sí administra).
+        '/compras/bodega/bodegas',
+        '/compras/bodega/categorias',
       ]
       const bloqueada = bloqueadas.some(b => pathname === b || pathname.startsWith(b + '/'))
       if (bloqueada) {
@@ -237,6 +241,12 @@ export async function proxy(req: NextRequest) {
         '/compras/proveedores',
         '/compras/accesos',
         '/compras/ordenes/nueva',
+        // Spec: HU-026 — mismo criterio que /compras/proveedores arriba: son
+        // pantallas de gestión de catálogo, no reportes de solo lectura.
+        '/compras/bodega/bodegas',
+        '/compras/bodega/categorias',
+        '/compras/bodega/clientes-finales',
+        '/compras/bodega/pozos',
       ]
       const estaBloqueada = bloqueadas.some(
         b => pathname === b || pathname.startsWith(b + '/')
@@ -276,6 +286,12 @@ export async function proxy(req: NextRequest) {
         '/compras/accesos',
         '/compras/auditoria',
         '/compras/configuracion',
+        // Spec: HU-026 — ningún CA (01/03/07/08) autoriza a asistente_compras
+        // a escribir estos 4 catálogos nuevos.
+        '/compras/bodega/bodegas',
+        '/compras/bodega/categorias',
+        '/compras/bodega/clientes-finales',
+        '/compras/bodega/pozos',
       ]
       const bloqueada = bloqueadas.some(b => pathname === b || pathname.startsWith(b + '/'))
       if (bloqueada) {

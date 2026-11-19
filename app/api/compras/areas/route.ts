@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await adminClient()
       .from('areas')
-      .select('id, nombre, activo')
+      .select('id, nombre, activo, habilitada_para_bodega')
       .order('nombre')
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })

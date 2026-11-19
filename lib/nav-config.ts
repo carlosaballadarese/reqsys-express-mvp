@@ -67,10 +67,6 @@ export const NAV: GrupoNav[] = [
         label: 'Líneas Pendientes de OC', href: '/compras/lineas-pendientes',
         roles: ['compras', 'admin', 'asistente_compras'],
       },
-      {
-        label: 'Proveedores', href: '/compras/proveedores',
-        roles: ['compras', 'admin', 'asistente_compras'],
-      },
     ],
   },
   {
@@ -81,6 +77,28 @@ export const NAV: GrupoNav[] = [
     roles: ['compras', 'admin', 'gerencia', 'bodega', 'asistente_compras'],
     children: [
       { label: 'Inventario', href: '/compras/inventario' },
+      // Spec: HU-026 CA-11 — "Proveedores" se mueve aquí desde "Compras"
+      // (mismo href/roles, solo cambia su ubicación visual en el menú).
+      {
+        label: 'Proveedores', href: '/compras/proveedores',
+        roles: ['compras', 'admin', 'asistente_compras'],
+      },
+      {
+        label: 'Bodegas', href: '/compras/bodega/bodegas',
+        roles: ['compras', 'admin'],
+      },
+      {
+        label: 'Categorías', href: '/compras/bodega/categorias',
+        roles: ['compras', 'admin'],
+      },
+      {
+        label: 'Clientes Finales', href: '/compras/bodega/clientes-finales',
+        roles: ['compras', 'admin', 'bodega'],
+      },
+      {
+        label: 'Pozos', href: '/compras/bodega/pozos',
+        roles: ['compras', 'admin', 'bodega'],
+      },
     ],
   },
   {
