@@ -255,6 +255,8 @@ export async function proxy(req: NextRequest) {
         // Spec: HU-030 — mismo criterio, gerencia/consulta nunca participan
         // del ciclo operativo de egresos.
         '/compras/bodega/egresos',
+        // Spec: HU-031 — mismo criterio para ensamblajes.
+        '/compras/bodega/ensamblajes',
       ]
       const estaBloqueada = bloqueadas.some(
         b => pathname === b || pathname.startsWith(b + '/')
@@ -304,6 +306,8 @@ export async function proxy(req: NextRequest) {
         // asistente_compras no participa de Egresos (sin vínculo a ninguna
         // OC que gestione).
         '/compras/bodega/egresos',
+        // Spec: HU-031 CA-01 — mismo criterio para ensamblajes.
+        '/compras/bodega/ensamblajes',
       ]
       const bloqueada = bloqueadas.some(b => pathname === b || pathname.startsWith(b + '/'))
       if (bloqueada) {

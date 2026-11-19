@@ -38,6 +38,8 @@ describe('HU-026: catálogos base de Bodega en el nav', () => {
       'Documentos de Ingreso', 'Kardex',
       // Spec: HU-030 CA-01
       'Documentos de Egreso',
+      // Spec: HU-031 CA-01
+      'Ensamblajes (Field Build)',
     ])
   })
 
@@ -58,8 +60,9 @@ describe('HU-026: catálogos base de Bodega en el nav', () => {
   it('bodega ve Clientes Finales y Pozos pero no Bodegas ni Categorías', () => {
     const items = itemsVisibles(grupo('Bodega'), 'bodega').map(i => i.label)
     // Spec: HU-028 CA-02/CA-03/CA-08 — bodega también escribe Documentos de
-    // Ingreso/Kardex; HU-030 CA-01 agrega Documentos de Egreso.
-    expect(items).toEqual(['Inventario', 'Clientes Finales', 'Pozos', 'Documentos de Ingreso', 'Kardex', 'Documentos de Egreso'])
+    // Ingreso/Kardex; HU-030 CA-01 agrega Documentos de Egreso; HU-031 CA-01
+    // agrega Ensamblajes.
+    expect(items).toEqual(['Inventario', 'Clientes Finales', 'Pozos', 'Documentos de Ingreso', 'Kardex', 'Documentos de Egreso', 'Ensamblajes (Field Build)'])
   })
 })
 
@@ -75,6 +78,13 @@ describe('HU-030: Documentos de Egreso en el nav', () => {
   it('visible para bodega/compras/admin, sin asistente_compras ni gerencia', () => {
     const porLabel = (label: string) => (grupo('Bodega').children ?? []).find(c => c.label === label)!
     expect(porLabel('Documentos de Egreso').roles).toEqual(['compras', 'admin', 'bodega'])
+  })
+})
+
+describe('HU-031: Ensamblajes (Field Build) en el nav', () => {
+  it('visible para bodega/compras/admin, sin asistente_compras ni gerencia', () => {
+    const porLabel = (label: string) => (grupo('Bodega').children ?? []).find(c => c.label === label)!
+    expect(porLabel('Ensamblajes (Field Build)').roles).toEqual(['compras', 'admin', 'bodega'])
   })
 })
 

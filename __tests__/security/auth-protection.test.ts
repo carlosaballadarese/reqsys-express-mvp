@@ -153,6 +153,27 @@ jest.mock('@/lib/bodega-egreso', () => ({
   listarPrestamosPendientes: (...args: unknown[]) => mockListarPrestamosPendientes(...args),
 }))
 
+// Spec: HU-031 — mockeado (lógica real cubierta por bodega-ensamblaje.test.ts).
+type AuthEnsamblajeMock =
+  | { ok: true; userId: string; rol: string; nombre: string; email: string }
+  | { ok: false; status: 401 | 403 }
+type CreacionEnsamblajeMock = { ok: true; ordenId: string; numero: string } | { ok: false; error: string }
+type ConfirmacionEnsamblajeMock = { ok: true } | { ok: false; error: string; insumosExcedidos?: string[] }
+const mockVerificarAutorizacionEnsamblaje = jest.fn<Promise<AuthEnsamblajeMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, userId: 'user-fb-1', rol: 'bodega', nombre: 'Bodega Test', email: 'bodega@arlift.com' })
+)
+const mockCrearOrdenEnsamblaje = jest.fn<Promise<CreacionEnsamblajeMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, ordenId: 'fb-1', numero: 'FB-2026-0001' })
+)
+const mockConfirmarOrdenEnsamblaje = jest.fn<Promise<ConfirmacionEnsamblajeMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true })
+)
+jest.mock('@/lib/bodega-ensamblaje', () => ({
+  verificarAutorizacionEnsamblaje: (...args: unknown[]) => mockVerificarAutorizacionEnsamblaje(...args),
+  crearOrdenEnsamblaje: (...args: unknown[]) => mockCrearOrdenEnsamblaje(...args),
+  confirmarOrdenEnsamblaje: (...args: unknown[]) => mockConfirmarOrdenEnsamblaje(...args),
+}))
+
 jest.mock('@/lib/oca-estado', () => ({
   actualizarEstadoOca: (...args: unknown[]) => mockActualizarEstadoOca(...args),
   calcularPresupuestoConsumido: (...args: unknown[]) => mockCalcularPresupuestoConsumido(...args),
@@ -10624,5 +10645,93 @@ describe('GET /api/compras/bodega/egresos/prestamos-pendientes — HU-030 CA-05'
     expect(res.status).toBe(200)
     const data = await res.json()
     expect(data).toHaveLength(1)
+  })
+})
+
+// ── HU-031: Orden de Ensamblaje (Field Build) ──
+
+describe('GET/POST /api/compras/bodega/ensamblajes — HU-031', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/ensamblajes/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionEnsamblaje.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET()
+    expect(res.status).toBe(401)
+  })
+
+  it('GET devuelve 403 para asistente_compras', async () => {
+    mockVerificarAutorizacionEnsamblaje.mockResolvedValueOnce({ ok: false, status: 403 })
+    const res = await GET()
+    expect(res.status).toBe(403)
+  })
+
+  it('GET 200 con rol autorizado', async () => {
+    mockFrom.mockReturnValue(mockChainVacio())
+    const res = await GET()
+    expect(res.status).toBe(200)
+  })
+
+  it('POST devuelve 201 al crear una Orden de Ensamblaje', async () => {
+    mockCrearOrdenEnsamblaje.mockResolvedValueOnce({ ok: true, ordenId: 'fb-9', numero: 'FB-2026-0009' })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ensamblajes', {
+      method: 'POST',
+      body: JSON.stringify({ bodega_id: 'bod-1', insumos: [{ producto_id: 'p1', cantidad: 2 }], resultados: [{ producto_id: 'p2', cantidad: 1 }] }),
+    }))
+    expect(res.status).toBe(201)
+  })
+
+  it('POST devuelve 400 cuando crearOrdenEnsamblaje rechaza la entrada', async () => {
+    mockCrearOrdenEnsamblaje.mockResolvedValueOnce({ ok: false, error: 'La orden debe tener al menos 1 insumo' })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ensamblajes', {
+      method: 'POST', body: JSON.stringify({ bodega_id: 'bod-1', insumos: [], resultados: [] }),
+    }))
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('GET/PUT /api/compras/bodega/ensamblajes/[id] — HU-031', () => {
+  const { GET, PUT } = require('@/app/api/compras/bodega/ensamblajes/[id]/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionEnsamblaje.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/ensamblajes/fb-1'), { params: Promise.resolve({ id: 'fb-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it('PUT rechaza con 409 si la orden ya está confirmada (CA-06)', async () => {
+    mockFrom.mockImplementation((table: string) =>
+      table === 'ordenes_ensamblaje'
+        ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { id: 'fb-1', numero: 'FB-2026-0001', estado: 'confirmada' }, error: null }) }) }) }
+        : mockChainVacio()
+    )
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/ensamblajes/fb-1', { method: 'PUT', body: JSON.stringify({ insumos: [], resultados: [] }) }),
+      { params: Promise.resolve({ id: 'fb-1' }) }
+    )
+    expect(res.status).toBe(409)
+  })
+})
+
+describe('POST /api/compras/bodega/ensamblajes/[id]/confirmar — HU-031 CA-02/CA-03/CA-04', () => {
+  const { POST } = require('@/app/api/compras/bodega/ensamblajes/[id]/confirmar/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionEnsamblaje.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ensamblajes/fb-1/confirmar', { method: 'POST' }), { params: Promise.resolve({ id: 'fb-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 400 con insumos_excedidos cuando el saldo no alcanza', async () => {
+    mockConfirmarOrdenEnsamblaje.mockResolvedValueOnce({ ok: false, error: 'Saldo insuficiente', insumosExcedidos: ['AL-I0001'] })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ensamblajes/fb-1/confirmar', { method: 'POST' }), { params: Promise.resolve({ id: 'fb-1' }) })
+    expect(res.status).toBe(400)
+    const data = await res.json()
+    expect(data.insumos_excedidos).toEqual(['AL-I0001'])
+  })
+
+  it('devuelve 200 al confirmar correctamente', async () => {
+    mockConfirmarOrdenEnsamblaje.mockResolvedValueOnce({ ok: true })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ensamblajes/fb-1/confirmar', { method: 'POST' }), { params: Promise.resolve({ id: 'fb-1' }) })
+    expect(res.status).toBe(200)
   })
 })

@@ -117,6 +117,11 @@ export const NAV: GrupoNav[] = [
         label: 'Documentos de Egreso', href: '/compras/bodega/egresos',
         roles: ['compras', 'admin', 'bodega'],
       },
+      // Spec: HU-031 CA-01 — mismos roles que Egresos.
+      {
+        label: 'Ensamblajes (Field Build)', href: '/compras/bodega/ensamblajes',
+        roles: ['compras', 'admin', 'bodega'],
+      },
     ],
   },
   {
