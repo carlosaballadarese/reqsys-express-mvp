@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { calcularAlertaStock } from '@/lib/bodega-alertas'
 
 type Item = {
   id: string
@@ -18,6 +19,9 @@ type Item = {
   costo_unitario: number
   locacion: string | null
   marca: string | null
+  // Spec: HU-033 CA-01 — ya devueltos por el GET desde HU-027.
+  stock_minimo: number | null
+  stock_maximo: number | null
 }
 
 type ImportResult = {
@@ -168,6 +172,12 @@ export default function InventarioPage() {
                           <span className={`font-medium ${Number(item.saldo_existencias) > 0 ? 'text-green-600' : 'text-slate-400'}`}>
                             {Number(item.saldo_existencias).toFixed(0)}
                           </span>
+                          {(() => {
+                            const alerta = calcularAlertaStock(Number(item.saldo_existencias), item.stock_minimo, item.stock_maximo)
+                            if (alerta.bajoMinimo) return <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-700">Bajo mínimo</span>
+                            if (alerta.sobreMaximo) return <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700">Sobre máximo</span>
+                            return null
+                          })()}
                         </td>
                         <td className="py-3 pr-4 text-right text-slate-600">
                           {Number(item.costo_unitario) > 0 ? `$${Number(item.costo_unitario).toFixed(2)}` : '—'}

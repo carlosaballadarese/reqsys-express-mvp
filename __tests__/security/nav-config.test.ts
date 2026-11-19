@@ -96,11 +96,23 @@ describe('CA-07: ícono OCA sin Reportes ni Dashboard', () => {
 })
 
 describe('CA-08/CA-09: contenido de Reportes filtrado por rol', () => {
-  const completos: Rol[] = ['compras', 'admin', 'asistente_compras', 'gerencia']
-  const limitados: Rol[] = ['solicitante', 'bodega', 'coordinador', 'consulta']
+  // Spec: HU-033 CA-04 — "Stock Bajo Mínimo" tiene roles propios
+  // (bodega/compras/admin/gerencia/consulta), distintos de ROLES_REPORTES_COMPLETOS
+  // (sin bodega/consulta, pero con asistente_compras) — ya no hay una bipartición
+  // uniforme "completos/limitados" para todo el grupo.
+  const completosConStock: Rol[] = ['compras', 'admin', 'gerencia']
+  const limitados: Rol[] = ['solicitante', 'coordinador']
 
-  it.each(completos)('rol %s ve las 5 entradas completas de Reportes', (rol) => {
+  it.each(completosConStock)('rol %s ve las 5 entradas completas de Reportes + Stock Bajo Mínimo', (rol) => {
     const items = itemsVisibles(grupo('Reportes'), rol).map(i => i.label)
+    expect(items).toEqual([
+      'Dashboard de NPs', 'Dashboard de OCs', 'Dashboard de OCA',
+      'Reporte de Líneas (NP/OC/OCA)', 'Reportes de OCA', 'Stock Bajo Mínimo',
+    ])
+  })
+
+  it('rol asistente_compras ve las 5 entradas completas, sin Stock Bajo Mínimo (HU-033 CA-04 no lo incluye)', () => {
+    const items = itemsVisibles(grupo('Reportes'), 'asistente_compras').map(i => i.label)
     expect(items).toEqual([
       'Dashboard de NPs', 'Dashboard de OCs', 'Dashboard de OCA',
       'Reporte de Líneas (NP/OC/OCA)', 'Reportes de OCA',
@@ -110,6 +122,11 @@ describe('CA-08/CA-09: contenido de Reportes filtrado por rol', () => {
   it.each(limitados)('rol %s ve únicamente Dashboard de NPs dentro de Reportes', (rol) => {
     const items = itemsVisibles(grupo('Reportes'), rol).map(i => i.label)
     expect(items).toEqual(['Dashboard de NPs'])
+  })
+
+  it.each(['bodega', 'consulta'] as Rol[])('rol %s ve Dashboard de NPs + Stock Bajo Mínimo (HU-033 CA-04)', (rol) => {
+    const items = itemsVisibles(grupo('Reportes'), rol).map(i => i.label)
+    expect(items).toEqual(['Dashboard de NPs', 'Stock Bajo Mínimo'])
   })
 
   it.each(TODOS)('el ícono Reportes en sí es visible para todos los roles (%s)', (rol) => {

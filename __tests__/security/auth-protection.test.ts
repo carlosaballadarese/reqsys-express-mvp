@@ -10735,3 +10735,41 @@ describe('POST /api/compras/bodega/ensamblajes/[id]/confirmar — HU-031 CA-02/C
     expect(res.status).toBe(200)
   })
 })
+
+// ── HU-033: Alertas de Stock Mínimo y Máximo ──
+
+describe('GET /api/compras/bodega/reportes/stock-bajo-minimo/excel — HU-033 CA-03/CA-04', () => {
+  const { GET } = require('@/app/api/compras/bodega/reportes/stock-bajo-minimo/excel/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/reportes/stock-bajo-minimo/excel'))
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'coordinador', 'asistente_compras'])('devuelve 403 para rol %s', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) =>
+      table === 'perfiles'
+        ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol }, error: null }) }) }) }
+        : mockChainVacio()
+    )
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/reportes/stock-bajo-minimo/excel'))
+    expect(res.status).toBe(403)
+  })
+
+  it.each(['bodega', 'compras', 'admin', 'gerencia', 'consulta'])('devuelve 200 con el .xlsx para rol %s (CA-04)', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol }, error: null }) }) }) }
+      if (table === 'inventario') {
+        return { select: () => ({ not: () => Promise.resolve({ data: [{ codigo: 'AL-I0001', descripcion: 'X', saldo_existencias: 2, stock_minimo: 10, bodega_id: 'bod-1' }], error: null }) }) }
+      }
+      return mockChainVacio()
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/reportes/stock-bajo-minimo/excel'))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    expect(res.headers.get('Content-Disposition')).toMatch(/^attachment; filename="Bodega_Stock_Bajo_Minimo_\d{8}_\d{4}\.xlsx"$/)
+  })
+})
