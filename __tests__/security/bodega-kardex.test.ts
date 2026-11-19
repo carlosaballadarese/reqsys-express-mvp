@@ -1,6 +1,6 @@
 // Spec: HU-028 CA-06 — fórmula de promedio ponderado exacta, función pura.
 
-import { calcularPromedioPonderado, validarSaldoSuficiente } from '@/lib/bodega-kardex'
+import { calcularPromedioPonderado, validarSaldoSuficiente, resolverCostoUnitarioEfectivo } from '@/lib/bodega-kardex'
 
 describe('calcularPromedioPonderado', () => {
   it('CA-06 caso trivial: saldo anterior 0 usa directo el costo entrante', () => {
@@ -38,5 +38,20 @@ describe('validarSaldoSuficiente', () => {
 
   it('false con saldo 0', () => {
     expect(validarSaldoSuficiente(0, 1)).toBe(false)
+  })
+})
+
+// Spec: HU-032 CA-02 — costo landed (FOB × Factor) sobreescribe el costo_unitario original.
+describe('resolverCostoUnitarioEfectivo', () => {
+  it('línea no-importación: usa el costo_unitario original', () => {
+    expect(resolverCostoUnitarioEfectivo({ es_importacion: false, costo_fob: 100, factor_nacionalizacion: 1.5, costo_unitario: 20 })).toBe(20)
+  })
+
+  it('línea de importación: usa FOB × Factor exacto, ignora costo_unitario', () => {
+    expect(resolverCostoUnitarioEfectivo({ es_importacion: true, costo_fob: 100, factor_nacionalizacion: 1.35, costo_unitario: 20 })).toBeCloseTo(135, 5)
+  })
+
+  it('línea de importación sin FOB/Factor: resuelve a 0 (bloquea el cierre en CA-02b)', () => {
+    expect(resolverCostoUnitarioEfectivo({ es_importacion: true, costo_fob: null, factor_nacionalizacion: null, costo_unitario: 20 })).toBe(0)
   })
 })

@@ -17,6 +17,10 @@ type Linea = {
   cantidad: number
   costo_unitario: number
   justificacion: string | null
+  // Spec: HU-032 CA-01/CA-02 — costeo landed de importaciones.
+  es_importacion: boolean
+  costo_fob: number | null
+  factor_nacionalizacion: number | null
 }
 
 type Documento = {
@@ -69,7 +73,7 @@ export default function DetalleIngresoPage() {
 
   const editable = doc && ['generado', 'en_validacion'].includes(doc.estado)
 
-  function actualizarLinea(idx: number, campo: keyof Linea, valor: string | number | null) {
+  function actualizarLinea(idx: number, campo: keyof Linea, valor: string | number | boolean | null) {
     setLineasEdit((prev) => prev.map((l, i) => (i === idx ? { ...l, [campo]: valor } : l)))
   }
 
@@ -80,7 +84,7 @@ export default function DetalleIngresoPage() {
   function agregarLinea() {
     setLineasEdit((prev) => [
       ...prev,
-      { id: '', producto_id: null, codigo_oc: null, descripcion_oc: '', cantidad: 0, costo_unitario: 0, justificacion: null },
+      { id: '', producto_id: null, codigo_oc: null, descripcion_oc: '', cantidad: 0, costo_unitario: 0, justificacion: null, es_importacion: false, costo_fob: null, factor_nacionalizacion: null },
     ])
   }
 
@@ -152,6 +156,7 @@ export default function DetalleIngresoPage() {
                   <th className="p-2">Producto vinculado</th>
                   <th className="p-2">Cantidad</th>
                   <th className="p-2">Costo Unitario</th>
+                  <th className="p-2">Importación (FOB × Factor)</th>
                   <th className="p-2">Justificación</th>
                   {editable && <th className="p-2"></th>}
                 </tr>
@@ -186,8 +191,24 @@ export default function DetalleIngresoPage() {
                     </td>
                     <td className="p-2 w-28">
                       {editable ? (
-                        <Input type="number" value={l.costo_unitario} onChange={(e) => actualizarLinea(idx, 'costo_unitario', Number(e.target.value))} />
+                        <Input type="number" value={l.costo_unitario} disabled={l.es_importacion} onChange={(e) => actualizarLinea(idx, 'costo_unitario', Number(e.target.value))} />
                       ) : l.costo_unitario}
+                    </td>
+                    <td className="p-2">
+                      {editable ? (
+                        <div className="flex items-center gap-2">
+                          <label className="flex items-center gap-1 text-xs">
+                            <input type="checkbox" checked={l.es_importacion} onChange={(e) => actualizarLinea(idx, 'es_importacion', e.target.checked)} />
+                            Importación
+                          </label>
+                          {l.es_importacion && (
+                            <>
+                              <Input type="number" placeholder="FOB" className="w-20" value={l.costo_fob ?? ''} onChange={(e) => actualizarLinea(idx, 'costo_fob', e.target.value === '' ? null : Number(e.target.value))} />
+                              <Input type="number" placeholder="Factor" className="w-20" value={l.factor_nacionalizacion ?? ''} onChange={(e) => actualizarLinea(idx, 'factor_nacionalizacion', e.target.value === '' ? null : Number(e.target.value))} />
+                            </>
+                          )}
+                        </div>
+                      ) : (l.es_importacion ? `FOB ${l.costo_fob} × ${l.factor_nacionalizacion}` : '—')}
                     </td>
                     <td className="p-2">
                       {editable ? (

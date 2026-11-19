@@ -1,7 +1,7 @@
 import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { registrarAuditoria } from '@/lib/auditoria'
-import { calcularPromedioPonderado } from '@/lib/bodega-kardex'
+import { calcularPromedioPonderado, resolverCostoUnitarioEfectivo } from '@/lib/bodega-kardex'
 
 // Spec: HU-028 CA-03 — bodega/asistente_compras/compras/admin tienen el mismo
 // permiso de lectura y escritura sobre Documentos de Ingreso (decisión de
@@ -230,7 +230,7 @@ export async function cerrarDocumentoIngreso(
 
   const { data: lineas } = await adminClient()
     .from('documentos_ingreso_items')
-    .select('id, producto_id, descripcion_oc, cantidad, costo_unitario')
+    .select('id, producto_id, descripcion_oc, cantidad, costo_unitario, es_importacion, costo_fob, factor_nacionalizacion')
     .eq('documento_ingreso_id', documentoId)
 
   const todasLasLineas = lineas ?? []
@@ -238,9 +238,11 @@ export async function cerrarDocumentoIngreso(
     return { ok: false, error: 'El documento no tiene líneas' }
   }
 
-  // Spec: CA-05/RN-BOD-08 — bloqueo de cierre con datos inválidos.
+  // Spec: CA-05/RN-BOD-08, HU-032 CA-02b — bloqueo de cierre con datos
+  // inválidos; para una línea de importación, el costo efectivo (FOB×Factor)
+  // es el que debe ser válido, no el costo_unitario original de la OC.
   const lineasInvalidas = todasLasLineas
-    .filter((l) => !l.producto_id || Number(l.cantidad) <= 0 || Number(l.costo_unitario) <= 0)
+    .filter((l) => !l.producto_id || Number(l.cantidad) <= 0 || resolverCostoUnitarioEfectivo(l) <= 0)
     .map((l) => l.descripcion_oc)
 
   if (lineasInvalidas.length > 0) {
@@ -271,7 +273,9 @@ export async function cerrarDocumentoIngreso(
     const saldoAnterior = Number(producto?.saldo_existencias ?? 0)
     const costoPromedioAnterior = Number(producto?.costo_unitario ?? 0)
     const cantidad = Number(linea.cantidad)
-    const costoUnitario = Number(linea.costo_unitario)
+    // Spec: HU-032 CA-02 — costo landed (FOB×Factor) sobreescribe el
+    // costo_unitario pactado en la OC para líneas marcadas como importación.
+    const costoUnitario = resolverCostoUnitarioEfectivo(linea)
 
     const nuevoPromedio = calcularPromedioPonderado(
       saldoAnterior, costoPromedioAnterior, cantidad, costoUnitario

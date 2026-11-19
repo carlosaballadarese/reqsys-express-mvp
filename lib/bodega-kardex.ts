@@ -22,3 +22,16 @@ export function calcularPromedioPonderado(
 export function validarSaldoSuficiente(saldoActual: number, cantidad: number): boolean {
   return saldoActual >= cantidad
 }
+
+// Spec: HU-032 CA-02 — costo landed (FOB × Factor de nacionalización)
+// sobreescribe el costo_unitario pactado en la OC para líneas marcadas como
+// importación; para el resto, el costo_unitario original no cambia.
+export function resolverCostoUnitarioEfectivo(linea: {
+  es_importacion: boolean
+  costo_fob: number | null
+  factor_nacionalizacion: number | null
+  costo_unitario: number
+}): number {
+  if (!linea.es_importacion) return linea.costo_unitario
+  return Number(linea.costo_fob ?? 0) * Number(linea.factor_nacionalizacion ?? 0)
+}

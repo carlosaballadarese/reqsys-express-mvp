@@ -28,7 +28,7 @@ export async function GET(
 
   const { data: lineas } = await adminClient()
     .from('documentos_ingreso_items')
-    .select('id, producto_id, codigo_oc, descripcion_oc, cantidad, costo_unitario, justificacion')
+    .select('id, producto_id, codigo_oc, descripcion_oc, cantidad, costo_unitario, justificacion, es_importacion, costo_fob, factor_nacionalizacion')
     .eq('documento_ingreso_id', id)
 
   let numeroOc: string | null = null
@@ -52,6 +52,10 @@ type LineaEdit = {
   cantidad: number
   costo_unitario: number
   justificacion?: string | null
+  // Spec: HU-032 CA-01 — costeo landed de importaciones.
+  es_importacion?: boolean
+  costo_fob?: number | null
+  factor_nacionalizacion?: number | null
 }
 
 // Spec: HU-028 CA-03 — edita/agrega/elimina líneas mientras no esté cerrado
@@ -98,6 +102,9 @@ export async function PUT(
         cantidad: Number(l.cantidad),
         costo_unitario: Number(l.costo_unitario),
         justificacion: l.justificacion ?? null,
+        es_importacion: !!l.es_importacion,
+        costo_fob: l.costo_fob ?? null,
+        factor_nacionalizacion: l.factor_nacionalizacion ?? null,
       }))
     )
     if (errInsert) return NextResponse.json({ error: errInsert.message }, { status: 500 })

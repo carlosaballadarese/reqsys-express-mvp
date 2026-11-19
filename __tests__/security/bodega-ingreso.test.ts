@@ -200,6 +200,43 @@ describe('cerrarDocumentoIngreso — CA-04/CA-05/CA-06', () => {
     expect(resultado.ok).toBe(true)
     expect(kardexInsertSpy).toHaveBeenCalledWith(expect.objectContaining({ tipo: 'reconteo' }))
   })
+
+  it('HU-032 CA-02: línea de importación usa el costo landed (FOB×Factor), no el costo_unitario de la OC', async () => {
+    const kardexInsertSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: { data: { id: 'doc-3', numero: 'ING-2026-0003', estado: 'generado', bodega_id: 'bod-1', tipo_movimiento: 'compra' }, error: null },
+      documentos_ingreso_items: {
+        data: [{
+          id: 'l1', producto_id: 'prod-1', descripcion_oc: 'Importado', cantidad: 10, costo_unitario: 999,
+          es_importacion: true, costo_fob: 50, factor_nacionalizacion: 1.35,
+        }],
+        error: null,
+      },
+      kardex_movimientos: { data: [], error: null, onInsert: kardexInsertSpy },
+      inventario: { data: { saldo_existencias: 0, costo_unitario: 0 }, error: null },
+    }))
+
+    const resultado = await cerrarDocumentoIngreso('doc-3', ACTOR)
+    expect(resultado.ok).toBe(true)
+    expect(kardexInsertSpy).toHaveBeenCalledWith(expect.objectContaining({ costo_unitario: 67.5, costo_promedio_resultante: 67.5 }))
+  })
+
+  it('HU-032 CA-02b: bloquea el cierre si la línea de importación no tiene FOB/Factor', async () => {
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: { data: { id: 'doc-4', numero: 'ING-2026-0004', estado: 'generado', bodega_id: 'bod-1', tipo_movimiento: 'compra' }, error: null },
+      documentos_ingreso_items: {
+        data: [{
+          id: 'l1', producto_id: 'prod-1', descripcion_oc: 'Importado sin FOB', cantidad: 10, costo_unitario: 999,
+          es_importacion: true, costo_fob: null, factor_nacionalizacion: null,
+        }],
+        error: null,
+      },
+    }))
+
+    const resultado = await cerrarDocumentoIngreso('doc-4', ACTOR)
+    expect(resultado.ok).toBe(false)
+    if (!resultado.ok) expect(resultado.lineasInvalidas).toEqual(['Importado sin FOB'])
+  })
 })
 
 describe('crearDocumentoIngresoManual — HU-029 CA-01', () => {
