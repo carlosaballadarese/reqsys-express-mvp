@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { transporter } from '@/lib/mailer'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { actualizarEstadoNP } from '@/lib/np-estado'
+import { generarDocumentoIngresoDesdeOC } from '@/lib/bodega-ingreso'
 
 export async function POST(
   req: NextRequest,
@@ -63,6 +64,14 @@ export async function POST(
     // Spec: HU-009 CA-19 (Tarea 20) — recalcula el Estado de la NP tras aprobar/rechazar la OC
     if (oc.nota_pedido_id) {
       await actualizarEstadoNP(oc.nota_pedido_id).catch(console.error)
+    }
+
+    // Spec: HU-028 CA-01 — al aprobar, genera automáticamente el Documento de
+    // Ingreso de Bodega (nunca al rechazar).
+    if (accion === 'aprobar') {
+      await generarDocumentoIngresoDesdeOC(id, {
+        id: user.id, nombre: perfil.nombre, email: perfil.email, rol: perfil.rol,
+      }).catch(console.error)
     }
 
     // Notificar al creador de la OC

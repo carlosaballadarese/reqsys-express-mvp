@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { calcularCoberturaNP } from '@/lib/np-cobertura'
 import { actualizarEstadoNP } from '@/lib/np-estado'
+import { resolverCancelacionIngresoPorOC } from '@/lib/bodega-ingreso'
 
 export async function POST(
   req: NextRequest,
@@ -43,6 +44,14 @@ export async function POST(
       return NextResponse.json({ error: 'La OC ya está cancelada' }, { status: 409 })
 
     const estadoAnterior = oc.estado_oc
+
+    // Spec: HU-028 CA-09 — si el Documento de Ingreso de esta OC ya está
+    // cerrado (Kardex real generado), la cancelación se bloquea; si sigue
+    // generado/en_validación, se anula en cascada (sin efecto en Kardex).
+    const resultadoIngreso = await resolverCancelacionIngresoPorOC(id, motivo.trim())
+    if (!resultadoIngreso.ok) {
+      return NextResponse.json({ error: resultadoIngreso.error }, { status: 409 })
+    }
 
     // ── PASO 1: cancelar la OC (acción crítica, siempre firme una vez ejecutada) ──
     const { error: errCancel } = await adminClient()

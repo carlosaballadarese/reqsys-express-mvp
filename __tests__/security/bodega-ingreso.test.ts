@@ -1,0 +1,220 @@
+// Spec: HU-028 — cubre generarDocumentoIngresoDesdeOC(), cerrarDocumentoIngreso()
+// y resolverCancelacionIngresoPorOC() directamente contra un mock de
+// adminClient()/createSupabaseServerClient() (sin pasar por HTTP), mismo
+// patrón ya usado en oca-estado.test.ts/np-estado-actualizar.test.ts.
+
+const mockFrom = jest.fn()
+const mockRpc = jest.fn(() => Promise.resolve({ data: 1, error: null }))
+const mockAdminClient = jest.fn(() => ({ from: mockFrom, rpc: mockRpc }))
+const mockGetUser = jest.fn()
+
+jest.mock('@/lib/supabase/clients', () => ({
+  adminClient: () => mockAdminClient(),
+}))
+jest.mock('@/lib/supabase/server', () => ({
+  createSupabaseServerClient: jest.fn(() => Promise.resolve({ auth: { getUser: mockGetUser } })),
+}))
+jest.mock('@/lib/auditoria', () => ({
+  registrarAuditoria: jest.fn(),
+}))
+
+import {
+  generarDocumentoIngresoDesdeOC,
+  cerrarDocumentoIngreso,
+  resolverCancelacionIngresoPorOC,
+  verificarAutorizacionIngreso,
+} from '@/lib/bodega-ingreso'
+
+const ACTOR = { id: 'user-1', nombre: 'Bodega Test', email: 'bodega@arlift.com', rol: 'bodega' }
+
+function chainTabla(porTabla: Record<string, any>) {
+  return (table: string) => {
+    const result = porTabla[table] ?? { data: null, error: null }
+    const obj: any = {}
+    obj.select = () => obj
+    obj.eq     = () => obj
+    obj.in     = () => obj
+    obj.insert = (payload: unknown) => {
+      if (porTabla[table]?.onInsert) porTabla[table].onInsert(payload)
+      return porTabla[table]?.insertResult ?? obj
+    }
+    obj.update = (payload: unknown) => {
+      if (porTabla[table]?.onUpdate) porTabla[table].onUpdate(payload)
+      return obj
+    }
+    obj.single = () => Promise.resolve(result)
+    obj.maybeSingle = () => Promise.resolve(result)
+    obj.then = (resolve: any) => Promise.resolve(result).then(resolve)
+    return obj
+  }
+}
+
+describe('verificarAutorizacionIngreso', () => {
+  it('401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const auth = await verificarAutorizacionIngreso()
+    expect(auth.ok).toBe(false)
+    if (!auth.ok) expect(auth.status).toBe(401)
+  })
+
+  it('403 con rol sin permiso (gerencia)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
+    mockFrom.mockImplementation(chainTabla({ perfiles: { data: { rol: 'gerencia', nombre: 'X', email: 'x@a.com' }, error: null } }))
+    const auth = await verificarAutorizacionIngreso()
+    expect(auth.ok).toBe(false)
+    if (!auth.ok) expect(auth.status).toBe(403)
+  })
+
+  it.each(['bodega', 'asistente_compras', 'compras', 'admin'])('200 con rol %s (CA-03)', async (rol) => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
+    mockFrom.mockImplementation(chainTabla({ perfiles: { data: { rol, nombre: 'X', email: 'x@a.com' }, error: null } }))
+    const auth = await verificarAutorizacionIngreso()
+    expect(auth.ok).toBe(true)
+  })
+})
+
+describe('generarDocumentoIngresoDesdeOC — CA-01/CA-01b', () => {
+  it('no genera documento si todos los ítems son SERVICIOS', async () => {
+    mockFrom.mockImplementation(chainTabla({
+      items_oc: { data: [{ codigo: 'X1', descripcion: 'Mano de obra', cantidad: 1, precio_unitario: 100, tipo: 'SERVICIOS' }], error: null },
+    }))
+    const resultado = await generarDocumentoIngresoDesdeOC('oc-1', ACTOR)
+    expect(resultado).toBeNull()
+  })
+
+  it('genera línea con producto_id resuelto cuando el código matchea inventario real', async () => {
+    const insertSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      items_oc: { data: [{ codigo: 'AL-I0001', descripcion: 'Válvula', cantidad: 5, precio_unitario: 20, tipo: 'BIENES' }], error: null },
+      inventario: { data: [{ id: 'prod-1', codigo: 'AL-I0001', bodega_id: 'bod-1' }], error: null },
+      documentos_ingreso: {
+        insertResult: { select: () => ({ single: () => Promise.resolve({ data: { id: 'doc-1', numero: 'ING-2026-0001' }, error: null }) }) },
+      },
+      documentos_ingreso_items: { onInsert: insertSpy, data: null, error: null },
+    }))
+
+    const resultado = await generarDocumentoIngresoDesdeOC('oc-1', ACTOR)
+    expect(resultado).toEqual({ documentoId: 'doc-1', numero: 'ING-2026-0001' })
+    expect(insertSpy).toHaveBeenCalledWith([
+      expect.objectContaining({ producto_id: 'prod-1', codigo_oc: 'AL-I0001', cantidad: 5, costo_unitario: 20 }),
+    ])
+  })
+
+  it('genera línea con producto_id NULL cuando el código no matchea ningún producto real (CA-01b)', async () => {
+    const insertSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      items_oc: { data: [{ codigo: 'NO-EXISTE', descripcion: 'Ítem sin catálogo', cantidad: 2, precio_unitario: 10, tipo: 'BIENES' }], error: null },
+      inventario: { data: [], error: null },
+      documentos_ingreso: {
+        insertResult: { select: () => ({ single: () => Promise.resolve({ data: { id: 'doc-2', numero: 'ING-2026-0002' }, error: null }) }) },
+      },
+      documentos_ingreso_items: { onInsert: insertSpy, data: null, error: null },
+    }))
+
+    await generarDocumentoIngresoDesdeOC('oc-1', ACTOR)
+    expect(insertSpy).toHaveBeenCalledWith([
+      expect.objectContaining({ producto_id: null, codigo_oc: 'NO-EXISTE' }),
+    ])
+  })
+})
+
+describe('cerrarDocumentoIngreso — CA-04/CA-05/CA-06', () => {
+  it('bloquea si ya está cerrado', async () => {
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: { data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'cerrado', bodega_id: 'bod-1' }, error: null },
+    }))
+    const resultado = await cerrarDocumentoIngreso('doc-1', ACTOR)
+    expect(resultado.ok).toBe(false)
+  })
+
+  it('bloquea con líneas inválidas: sin producto vinculado, cantidad 0, sin costo (CA-05)', async () => {
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: { data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'generado', bodega_id: 'bod-1' }, error: null },
+      documentos_ingreso_items: {
+        data: [
+          { id: 'l1', producto_id: null, descripcion_oc: 'Sin producto', cantidad: 5, costo_unitario: 10 },
+          { id: 'l2', producto_id: 'prod-1', descripcion_oc: 'Cantidad 0', cantidad: 0, costo_unitario: 10 },
+        ],
+        error: null,
+      },
+    }))
+    const resultado = await cerrarDocumentoIngreso('doc-1', ACTOR)
+    expect(resultado.ok).toBe(false)
+    if (!resultado.ok) {
+      expect(resultado.lineasInvalidas).toEqual(['Sin producto', 'Cantidad 0'])
+    }
+  })
+
+  it('cierra correctamente: genera Kardex con el promedio ponderado exacto (CA-06)', async () => {
+    const kardexInsertSpy = jest.fn()
+    const inventarioUpdateSpy = jest.fn()
+    const docUpdateSpy = jest.fn()
+
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: {
+        data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'generado', bodega_id: 'bod-1' },
+        error: null,
+        onUpdate: docUpdateSpy,
+      },
+      documentos_ingreso_items: {
+        data: [{ id: 'l1', producto_id: 'prod-1', descripcion_oc: 'Válvula', cantidad: 50, costo_unitario: 16 }],
+        error: null,
+      },
+      kardex_movimientos: { data: [], error: null, onInsert: kardexInsertSpy },
+      inventario: {
+        data: { saldo_existencias: 100, costo_unitario: 10 },
+        error: null,
+        onUpdate: inventarioUpdateSpy,
+      },
+    }))
+
+    const resultado = await cerrarDocumentoIngreso('doc-1', ACTOR)
+    expect(resultado.ok).toBe(true)
+    expect(kardexInsertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        producto_id: 'prod-1', direccion: 'entrada', tipo: 'compra',
+        cantidad: 50, costo_unitario: 16, saldo_resultante: 150, costo_promedio_resultante: 12,
+      })
+    )
+    expect(inventarioUpdateSpy).toHaveBeenCalledWith({ saldo_existencias: 150, costo_unitario: 12 })
+    expect(docUpdateSpy).toHaveBeenCalledWith(expect.objectContaining({ estado: 'cerrado' }))
+  })
+})
+
+describe('resolverCancelacionIngresoPorOC — CA-09', () => {
+  it('sin documento de ingreso asociado: ok, sin anular nada', async () => {
+    mockFrom.mockImplementation(chainTabla({ documentos_ingreso: { data: null, error: null } }))
+    const resultado = await resolverCancelacionIngresoPorOC('oc-1', 'motivo real')
+    expect(resultado).toEqual({ ok: true, anulado: false })
+  })
+
+  it('documento ya cerrado: bloquea la cancelación de la OC', async () => {
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: { data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'cerrado' }, error: null },
+    }))
+    const resultado = await resolverCancelacionIngresoPorOC('oc-1', 'motivo real')
+    expect(resultado.ok).toBe(false)
+  })
+
+  it('documento generado/en_validación: anula en cascada', async () => {
+    const updateSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: {
+        data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'en_validacion' },
+        error: null,
+        onUpdate: updateSpy,
+      },
+    }))
+    const resultado = await resolverCancelacionIngresoPorOC('oc-1', 'motivo real')
+    expect(resultado).toEqual({ ok: true, anulado: true })
+    expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ estado: 'anulado' }))
+  })
+
+  it('documento ya anulado: idempotente, no reintenta', async () => {
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: { data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'anulado' }, error: null },
+    }))
+    const resultado = await resolverCancelacionIngresoPorOC('oc-1', 'motivo real')
+    expect(resultado).toEqual({ ok: true, anulado: false })
+  })
+})

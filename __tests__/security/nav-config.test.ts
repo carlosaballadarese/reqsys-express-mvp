@@ -32,7 +32,11 @@ describe('CA-06: ícono Compras sin Reporte de Líneas', () => {
 describe('HU-026: catálogos base de Bodega en el nav', () => {
   it('Bodega gana Proveedores (movido desde Compras) + Bodegas/Categorías/Clientes Finales/Pozos', () => {
     const labels = (grupo('Bodega').children ?? []).map(c => c.label)
-    expect(labels).toEqual(['Inventario', 'Proveedores', 'Bodegas', 'Categorías', 'Clientes Finales', 'Pozos'])
+    expect(labels).toEqual([
+      'Inventario', 'Proveedores', 'Bodegas', 'Categorías', 'Clientes Finales', 'Pozos',
+      // Spec: HU-028 CA-02/CA-03/CA-08
+      'Documentos de Ingreso', 'Kardex',
+    ])
   })
 
   it('Proveedores conserva exactamente los mismos roles que tenía bajo Compras', () => {
@@ -51,7 +55,16 @@ describe('HU-026: catálogos base de Bodega en el nav', () => {
 
   it('bodega ve Clientes Finales y Pozos pero no Bodegas ni Categorías', () => {
     const items = itemsVisibles(grupo('Bodega'), 'bodega').map(i => i.label)
-    expect(items).toEqual(['Inventario', 'Clientes Finales', 'Pozos'])
+    // Spec: HU-028 CA-02/CA-03/CA-08 — bodega también escribe Documentos de Ingreso/Kardex.
+    expect(items).toEqual(['Inventario', 'Clientes Finales', 'Pozos', 'Documentos de Ingreso', 'Kardex'])
+  })
+})
+
+describe('HU-028: Documentos de Ingreso y Kardex en el nav', () => {
+  it('visibles para bodega/asistente_compras/compras/admin, no para gerencia', () => {
+    const porLabel = (label: string) => (grupo('Bodega').children ?? []).find(c => c.label === label)!
+    expect(porLabel('Documentos de Ingreso').roles).toEqual(['compras', 'admin', 'bodega', 'asistente_compras'])
+    expect(porLabel('Kardex').roles).toEqual(['compras', 'admin', 'bodega', 'asistente_compras'])
   })
 })
 

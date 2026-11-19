@@ -98,6 +98,32 @@ const mockActualizarEstadoOca = jest.fn((..._args: unknown[]) => Promise.resolve
 // default 0, cada test de HU-021 la reconfigura con mockResolvedValueOnce
 // cuando necesita simular presupuesto ya consumido.
 const mockCalcularPresupuestoConsumido = jest.fn((..._args: unknown[]) => Promise.resolve(0))
+// Spec: HU-028 — mockeado (lógica real cubierta por bodega-ingreso.test.ts/
+// bodega-kardex.test.ts); las rutas de aprobar/cancelar OC y las de
+// /bodega/ingresos lo usan directamente.
+type AuthIngresoMock =
+  | { ok: true; userId: string; rol: string; nombre: string; email: string }
+  | { ok: false; status: 401 | 403 }
+type CierreIngresoMock = { ok: true } | { ok: false; error: string; lineasInvalidas?: string[] }
+type CancelacionIngresoMock = { ok: true; anulado: boolean } | { ok: false; error: string }
+
+const mockVerificarAutorizacionIngreso = jest.fn<Promise<AuthIngresoMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, userId: 'user-ing-1', rol: 'bodega', nombre: 'Bodega Test', email: 'bodega@arlift.com' })
+)
+const mockGenerarDocumentoIngresoDesdeOC = jest.fn((..._args: unknown[]) => Promise.resolve(null))
+const mockCerrarDocumentoIngreso = jest.fn<Promise<CierreIngresoMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true })
+)
+const mockResolverCancelacionIngresoPorOC = jest.fn<Promise<CancelacionIngresoMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, anulado: false })
+)
+jest.mock('@/lib/bodega-ingreso', () => ({
+  verificarAutorizacionIngreso: (...args: unknown[]) => mockVerificarAutorizacionIngreso(...args),
+  generarDocumentoIngresoDesdeOC: (...args: unknown[]) => mockGenerarDocumentoIngresoDesdeOC(...args),
+  cerrarDocumentoIngreso: (...args: unknown[]) => mockCerrarDocumentoIngreso(...args),
+  resolverCancelacionIngresoPorOC: (...args: unknown[]) => mockResolverCancelacionIngresoPorOC(...args),
+}))
+
 jest.mock('@/lib/oca-estado', () => ({
   actualizarEstadoOca: (...args: unknown[]) => mockActualizarEstadoOca(...args),
   calcularPresupuestoConsumido: (...args: unknown[]) => mockCalcularPresupuestoConsumido(...args),
@@ -135,6 +161,7 @@ function mockChainVacio() {
   chain.in     = noop
   chain.not    = noop
   chain.gte    = noop
+  chain.lte    = noop
   chain.limit  = jest.fn(() => Promise.resolve(resolved))
   chain.single = jest.fn(() => Promise.resolve({ data: null, error: null }))
   chain.maybeSingle = jest.fn(() => Promise.resolve({ data: null, error: null }))
@@ -3685,6 +3712,8 @@ function chainTablaCoord(porTabla: Record<string, any>) {
     obj.eq     = () => obj
     obj.in     = () => obj
     obj.not    = () => obj
+    obj.gte    = () => obj
+    obj.lte    = () => obj
     obj.order  = () => obj
     obj.insert = () => obj
     obj.update = () => obj
@@ -10226,5 +10255,215 @@ describe('PUT /api/compras/configuracion/empresa — HU-026 CA-10, patron_codigo
     }))
     expect(res.status).toBe(200)
     expect(updatePayload.patron_codigo_bodega).toBe('2-4 letras mayúsculas')
+  })
+})
+
+// ── HU-028: Ingreso de Productos desde OC con Kardex y Costeo Promedio Ponderado ──
+
+describe('GET /api/compras/bodega/ingresos — HU-028', () => {
+  const { GET } = require('@/app/api/compras/bodega/ingresos/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionIngreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/ingresos'))
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 con rol sin permiso', async () => {
+    mockVerificarAutorizacionIngreso.mockResolvedValueOnce({ ok: false, status: 403 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/ingresos'))
+    expect(res.status).toBe(403)
+  })
+
+  it('200 con rol autorizado (CA-02/CA-03)', async () => {
+    mockFrom.mockReturnValue(mockChainVacio())
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/ingresos'))
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('GET/PUT /api/compras/bodega/ingresos/[id] — HU-028', () => {
+  const { GET, PUT } = require('@/app/api/compras/bodega/ingresos/[id]/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionIngreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/ingresos/doc-1'), { params: Promise.resolve({ id: 'doc-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it('PUT rechaza con 409 si el documento ya está cerrado (CA-03: solo editable mientras no cierre)', async () => {
+    mockFrom.mockImplementation((table: string) =>
+      table === 'documentos_ingreso'
+        ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'cerrado' }, error: null }) }) }) }
+        : mockChainVacio()
+    )
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/ingresos/doc-1', { method: 'PUT', body: JSON.stringify({ lineas: [] }) }),
+      { params: Promise.resolve({ id: 'doc-1' }) }
+    )
+    expect(res.status).toBe(409)
+  })
+
+  it('PUT persiste líneas y pasa de generado a en_validacion (CA-03)', async () => {
+    let estadoActualizado = ''
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'documentos_ingreso') {
+        return {
+          select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'generado' }, error: null }) }) }),
+          update: (payload: any) => { estadoActualizado = payload.estado; return { eq: () => Promise.resolve({ data: null, error: null }) } },
+        }
+      }
+      if (table === 'documentos_ingreso_items') {
+        return {
+          delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: null, error: null })) })),
+          insert: jest.fn(() => Promise.resolve({ data: null, error: null })),
+        }
+      }
+      return mockChainVacio()
+    })
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/ingresos/doc-1', {
+        method: 'PUT',
+        body: JSON.stringify({ lineas: [{ producto_id: 'prod-1', descripcion_oc: 'Válvula', cantidad: 5, costo_unitario: 20 }] }),
+      }),
+      { params: Promise.resolve({ id: 'doc-1' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(estadoActualizado).toBe('en_validacion')
+  })
+})
+
+describe('POST /api/compras/bodega/ingresos/[id]/cerrar — HU-028 CA-04/CA-05', () => {
+  const { POST } = require('@/app/api/compras/bodega/ingresos/[id]/cerrar/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionIngreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ingresos/doc-1/cerrar', { method: 'POST' }), { params: Promise.resolve({ id: 'doc-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 400 con el detalle de líneas inválidas cuando el cierre se bloquea', async () => {
+    mockCerrarDocumentoIngreso.mockResolvedValueOnce({ ok: false, error: 'Hay líneas inválidas', lineasInvalidas: ['Línea X'] })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ingresos/doc-1/cerrar', { method: 'POST' }), { params: Promise.resolve({ id: 'doc-1' }) })
+    expect(res.status).toBe(400)
+    const data = await res.json()
+    expect(data.lineas_invalidas).toEqual(['Línea X'])
+  })
+
+  it('devuelve 200 al cerrar correctamente (CA-04)', async () => {
+    mockCerrarDocumentoIngreso.mockResolvedValueOnce({ ok: true })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ingresos/doc-1/cerrar', { method: 'POST' }), { params: Promise.resolve({ id: 'doc-1' }) })
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('GET /api/compras/bodega/kardex — HU-028 CA-08', () => {
+  const { GET } = require('@/app/api/compras/bodega/kardex/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionIngreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/kardex'))
+    expect(res.status).toBe(401)
+  })
+
+  it('200 con filtros por producto/bodega/tipo/rango de fechas', async () => {
+    mockFrom.mockReturnValue(mockChainVacio())
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/kardex?bodega_id=bod-1&tipo=compra&desde=2026-01-01&hasta=2026-12-31'))
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('POST /api/compras/ordenes/[id]/aprobar — HU-028 CA-01 wiring', () => {
+  const { POST } = require('@/app/api/compras/ordenes/[id]/aprobar/route')
+
+  it('invoca generarDocumentoIngresoDesdeOC al aprobar (no al rechazar)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'compras', nombre: 'X', email: 'x@a.com' }, error: null }) }) }) }
+      }
+      if (table === 'registro_compras') {
+        return {
+          select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'en_aprobacion_compras', valor_total: 100, proveedor: 'X', creado_por_id: null, creado_por_nombre: 'X', nota_pedido_id: null }, error: null }) }) }),
+          update: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
+        }
+      }
+      return mockChainVacio()
+    })
+    mockGenerarDocumentoIngresoDesdeOC.mockClear()
+
+    await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/aprobar', { method: 'POST', body: JSON.stringify({ accion: 'aprobar' }) }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(mockGenerarDocumentoIngresoDesdeOC).toHaveBeenCalledWith('oc-1', expect.objectContaining({ rol: 'compras' }))
+  })
+
+  it('no invoca generarDocumentoIngresoDesdeOC al rechazar', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'compras', nombre: 'X', email: 'x@a.com' }, error: null }) }) }) }
+      }
+      if (table === 'registro_compras') {
+        return {
+          select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'en_aprobacion_compras', valor_total: 100, proveedor: 'X', creado_por_id: null, creado_por_nombre: 'X', nota_pedido_id: null }, error: null }) }) }),
+          update: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
+        }
+      }
+      return mockChainVacio()
+    })
+    mockGenerarDocumentoIngresoDesdeOC.mockClear()
+
+    await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/aprobar', { method: 'POST', body: JSON.stringify({ accion: 'rechazar' }) }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(mockGenerarDocumentoIngresoDesdeOC).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/compras/ordenes/[id]/cancelar — HU-028 CA-09 wiring', () => {
+  const { POST } = require('@/app/api/compras/ordenes/[id]/cancelar/route')
+
+  it('devuelve 409 cuando el Documento de Ingreso ya está cerrado (bloqueo CA-09)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockResolverCancelacionIngresoPorOC.mockResolvedValueOnce({ ok: false, error: 'Ingreso ya cerrado, usar Reconteo' })
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'compras', nombre: 'X', email: 'x@a.com' }, error: null }) }) }) }
+      }
+      if (table === 'registro_compras') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'aprobada' }, error: null }) }) }) }
+      }
+      return mockChainVacio()
+    })
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/cancelar', { method: 'POST', body: JSON.stringify({ motivo: 'Motivo real' }) }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(res.status).toBe(409)
+  })
+
+  it('cancela normalmente cuando el ingreso no bloquea (generado/en_validación o sin documento)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockResolverCancelacionIngresoPorOC.mockResolvedValueOnce({ ok: true, anulado: true })
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'compras', nombre: 'X', email: 'x@a.com' }, error: null }) }) }) }
+      }
+      if (table === 'registro_compras') {
+        return {
+          select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'aprobada' }, error: null }) }) }),
+          update: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
+        }
+      }
+      return mockChainVacio()
+    })
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/cancelar', { method: 'POST', body: JSON.stringify({ motivo: 'Motivo real' }) }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(res.status).toBe(200)
   })
 })

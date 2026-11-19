@@ -99,6 +99,17 @@ export const NAV: GrupoNav[] = [
         label: 'Pozos', href: '/compras/bodega/pozos',
         roles: ['compras', 'admin', 'bodega'],
       },
+      // Spec: HU-028 CA-02/CA-03/CA-08 — roles de escritura igualados con
+      // asistente_compras (decisión de Fase 1); gerencia nunca participa del
+      // ciclo operativo de ingresos/Kardex.
+      {
+        label: 'Documentos de Ingreso', href: '/compras/bodega/ingresos',
+        roles: ['compras', 'admin', 'bodega', 'asistente_compras'],
+      },
+      {
+        label: 'Kardex', href: '/compras/bodega/kardex',
+        roles: ['compras', 'admin', 'bodega', 'asistente_compras'],
+      },
     ],
   },
   {

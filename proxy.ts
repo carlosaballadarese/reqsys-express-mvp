@@ -247,6 +247,11 @@ export async function proxy(req: NextRequest) {
         '/compras/bodega/categorias',
         '/compras/bodega/clientes-finales',
         '/compras/bodega/pozos',
+        // Spec: HU-028 — gerencia/consulta nunca participan del ciclo
+        // operativo de ingresos/Kardex (solo bodega/compras/admin/
+        // asistente_compras, ver CA-03).
+        '/compras/bodega/ingresos',
+        '/compras/bodega/kardex',
       ]
       const estaBloqueada = bloqueadas.some(
         b => pathname === b || pathname.startsWith(b + '/')
