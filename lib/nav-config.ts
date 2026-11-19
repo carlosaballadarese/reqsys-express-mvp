@@ -110,6 +110,13 @@ export const NAV: GrupoNav[] = [
         label: 'Kardex', href: '/compras/bodega/kardex',
         roles: ['compras', 'admin', 'bodega', 'asistente_compras'],
       },
+      // Spec: HU-030 CA-01 — a diferencia de Documentos de Ingreso,
+      // asistente_compras NO participa (un Egreso nunca está ligado a una OC
+      // que gestione).
+      {
+        label: 'Documentos de Egreso', href: '/compras/bodega/egresos',
+        roles: ['compras', 'admin', 'bodega'],
+      },
     ],
   },
   {

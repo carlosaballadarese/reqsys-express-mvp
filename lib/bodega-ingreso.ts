@@ -137,7 +137,14 @@ type ResultadoCreacionManual =
 // código de OC ambiguo que preservar, así que producto_id es siempre
 // obligatorio en cada línea.
 export async function crearDocumentoIngresoManual(
-  input: { tipoMovimiento: 'devolucion' | 'reconteo'; bodegaId?: string | null; lineas: LineaManual[] },
+  input: {
+    tipoMovimiento: 'devolucion' | 'reconteo'
+    bodegaId?: string | null
+    lineas: LineaManual[]
+    // Spec: HU-030 CA-05 — Documento de Egreso tipo Préstamo que esta
+    // Devolución cierra (solo aplica si tipoMovimiento='devolucion').
+    egresoPrestamoId?: string | null
+  },
   actor: ActorIngreso
 ): Promise<ResultadoCreacionManual> {
   if (!['devolucion', 'reconteo'].includes(input.tipoMovimiento)) {
@@ -162,6 +169,7 @@ export async function crearDocumentoIngresoManual(
       estado: 'generado',
       tipo_movimiento: input.tipoMovimiento,
       registro_compras_id: null,
+      egreso_prestamo_id: input.tipoMovimiento === 'devolucion' ? (input.egresoPrestamoId ?? null) : null,
       creado_por_id: actor.id,
     })
     .select('id, numero')

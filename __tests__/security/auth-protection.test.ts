@@ -130,6 +130,29 @@ jest.mock('@/lib/bodega-ingreso', () => ({
   crearDocumentoIngresoManual: (...args: unknown[]) => mockCrearDocumentoIngresoManual(...args),
 }))
 
+// Spec: HU-030 — mockeado (lógica real cubierta por bodega-egreso.test.ts).
+type AuthEgresoMock =
+  | { ok: true; userId: string; rol: string; nombre: string; email: string }
+  | { ok: false; status: 401 | 403 }
+type CierreEgresoMock = { ok: true } | { ok: false; error: string; lineasExcedidas?: string[] }
+const mockVerificarAutorizacionEgreso = jest.fn<Promise<AuthEgresoMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, userId: 'user-egr-1', rol: 'bodega', nombre: 'Bodega Test', email: 'bodega@arlift.com' })
+)
+type CreacionEgresoMock = { ok: true; documentoId: string; numero: string } | { ok: false; error: string }
+const mockCrearDocumentoEgreso = jest.fn<Promise<CreacionEgresoMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, documentoId: 'egr-1', numero: 'EGR-2026-0001' })
+)
+const mockCerrarDocumentoEgreso = jest.fn<Promise<CierreEgresoMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true })
+)
+const mockListarPrestamosPendientes = jest.fn((..._args: unknown[]) => Promise.resolve<unknown[]>([]))
+jest.mock('@/lib/bodega-egreso', () => ({
+  verificarAutorizacionEgreso: (...args: unknown[]) => mockVerificarAutorizacionEgreso(...args),
+  crearDocumentoEgreso: (...args: unknown[]) => mockCrearDocumentoEgreso(...args),
+  cerrarDocumentoEgreso: (...args: unknown[]) => mockCerrarDocumentoEgreso(...args),
+  listarPrestamosPendientes: (...args: unknown[]) => mockListarPrestamosPendientes(...args),
+}))
+
 jest.mock('@/lib/oca-estado', () => ({
   actualizarEstadoOca: (...args: unknown[]) => mockActualizarEstadoOca(...args),
   calcularPresupuestoConsumido: (...args: unknown[]) => mockCalcularPresupuestoConsumido(...args),
@@ -10495,5 +10518,111 @@ describe('POST /api/compras/ordenes/[id]/cancelar — HU-028 CA-09 wiring', () =
       { params: Promise.resolve({ id: 'oc-1' }) }
     )
     expect(res.status).toBe(200)
+  })
+})
+
+// ── HU-030: Egreso de Productos (Venta, Gasto, Préstamo y Reconteo) ──
+
+describe('GET/POST /api/compras/bodega/egresos — HU-030', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/egresos/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionEgreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/egresos'))
+    expect(res.status).toBe(401)
+  })
+
+  it('GET devuelve 403 para asistente_compras (CA-01: no participa)', async () => {
+    mockVerificarAutorizacionEgreso.mockResolvedValueOnce({ ok: false, status: 403 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/egresos'))
+    expect(res.status).toBe(403)
+  })
+
+  it('GET 200 con rol autorizado', async () => {
+    mockFrom.mockReturnValue(mockChainVacio())
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/egresos'))
+    expect(res.status).toBe(200)
+  })
+
+  it('POST devuelve 201 al crear un Documento de Egreso', async () => {
+    mockCrearDocumentoEgreso.mockResolvedValueOnce({ ok: true, documentoId: 'egr-9', numero: 'EGR-2026-0009' })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/egresos', {
+      method: 'POST',
+      body: JSON.stringify({ tipo: 'venta', bodega_id: 'bod-1', lineas: [{ producto_id: 'prod-1', cantidad: 5 }] }),
+    }))
+    expect(res.status).toBe(201)
+  })
+
+  it('POST devuelve 400 cuando crearDocumentoEgreso rechaza la entrada', async () => {
+    mockCrearDocumentoEgreso.mockResolvedValueOnce({ ok: false, error: 'bodega_id es requerido' })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/egresos', {
+      method: 'POST', body: JSON.stringify({ tipo: 'venta', lineas: [] }),
+    }))
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('GET/PUT /api/compras/bodega/egresos/[id] — HU-030', () => {
+  const { GET, PUT } = require('@/app/api/compras/bodega/egresos/[id]/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionEgreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1'), { params: Promise.resolve({ id: 'egr-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it('PUT rechaza con 409 si el documento ya está cerrado', async () => {
+    mockFrom.mockImplementation((table: string) =>
+      table === 'documentos_egreso'
+        ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { id: 'egr-1', numero: 'EGR-2026-0001', estado: 'cerrado' }, error: null }) }) }) }
+        : mockChainVacio()
+    )
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/egresos/egr-1', { method: 'PUT', body: JSON.stringify({ lineas: [] }) }),
+      { params: Promise.resolve({ id: 'egr-1' }) }
+    )
+    expect(res.status).toBe(409)
+  })
+})
+
+describe('POST /api/compras/bodega/egresos/[id]/cerrar — HU-030 CA-02/CA-03', () => {
+  const { POST } = require('@/app/api/compras/bodega/egresos/[id]/cerrar/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionEgreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/cerrar', { method: 'POST', body: '{}' }), { params: Promise.resolve({ id: 'egr-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 400 con lineas_excedidas cuando el saldo no alcanza', async () => {
+    mockCerrarDocumentoEgreso.mockResolvedValueOnce({ ok: false, error: 'Saldo insuficiente', lineasExcedidas: ['AL-I0001'] })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/cerrar', { method: 'POST', body: '{}' }), { params: Promise.resolve({ id: 'egr-1' }) })
+    expect(res.status).toBe(400)
+    const data = await res.json()
+    expect(data.lineas_excedidas).toEqual(['AL-I0001'])
+  })
+
+  it('devuelve 200 al cerrar correctamente', async () => {
+    mockCerrarDocumentoEgreso.mockResolvedValueOnce({ ok: true })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/cerrar', { method: 'POST', body: '{}' }), { params: Promise.resolve({ id: 'egr-1' }) })
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('GET /api/compras/bodega/egresos/prestamos-pendientes — HU-030 CA-05', () => {
+  const { GET } = require('@/app/api/compras/bodega/egresos/prestamos-pendientes/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionEgreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET()
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 200 con la lista de préstamos pendientes', async () => {
+    mockListarPrestamosPendientes.mockResolvedValueOnce([{ id: 'egr-1', numero: 'EGR-2026-0001', bodega_id: 'bod-1', cerrado_en: null }])
+    const res = await GET()
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data).toHaveLength(1)
   })
 })

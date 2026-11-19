@@ -1,0 +1,158 @@
+'use client'
+
+export const dynamic = 'force-dynamic'
+
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { toast } from '@/lib/toast'
+
+type Producto = { id: string; codigo: string; descripcion: string }
+type Bodega = { id: string; nombre: string }
+type ClienteFinal = { id: string; nombre: string }
+type Pozo = { id: string; nombre: string }
+type Linea = { producto_id: string; cantidad: number }
+
+// Spec: HU-030 CA-01 — creación de Documento de Egreso (Venta/Gasto/Préstamo/Reconteo).
+export default function NuevoEgresoPage() {
+  const router = useRouter()
+  const [tipo, setTipo] = useState<'venta' | 'gasto' | 'prestamo' | 'reconteo'>('venta')
+  const [bodegaId, setBodegaId] = useState('')
+  const [clienteFinalId, setClienteFinalId] = useState('')
+  const [pozoId, setPozoId] = useState('')
+  const [bodegas, setBodegas] = useState<Bodega[]>([])
+  const [productos, setProductos] = useState<Producto[]>([])
+  const [clientes, setClientes] = useState<ClienteFinal[]>([])
+  const [pozos, setPozos] = useState<Pozo[]>([])
+  const [lineas, setLineas] = useState<Linea[]>([{ producto_id: '', cantidad: 0 }])
+  const [guardando, setGuardando] = useState(false)
+
+  const permiteDestino = tipo === 'venta' || tipo === 'gasto'
+
+  useEffect(() => {
+    fetch('/api/compras/bodega/bodegas?todas=1').then((r) => r.json()).then((d) => setBodegas(Array.isArray(d) ? d : [])).catch(() => {})
+    fetch('/api/compras/inventario').then((r) => r.json()).then((d) => setProductos(Array.isArray(d) ? d : [])).catch(() => {})
+    fetch('/api/compras/bodega/clientes-finales?todas=1').then((r) => r.json()).then((d) => setClientes(Array.isArray(d) ? d : [])).catch(() => {})
+    fetch('/api/compras/bodega/pozos?todas=1').then((r) => r.json()).then((d) => setPozos(Array.isArray(d) ? d : [])).catch(() => {})
+  }, [])
+
+  function actualizarLinea(idx: number, campo: keyof Linea, valor: string | number) {
+    setLineas((prev) => prev.map((l, i) => (i === idx ? { ...l, [campo]: valor } : l)))
+  }
+  function agregarLinea() { setLineas((prev) => [...prev, { producto_id: '', cantidad: 0 }]) }
+  function eliminarLinea(idx: number) { setLineas((prev) => prev.filter((_, i) => i !== idx)) }
+
+  async function handleCrear() {
+    if (!bodegaId) { toast.error('Selecciona la Bodega de origen'); return }
+    if (lineas.some((l) => !l.producto_id)) { toast.error('Toda línea requiere un producto vinculado'); return }
+    setGuardando(true)
+    try {
+      const res = await fetch('/api/compras/bodega/egresos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tipo, bodega_id: bodegaId,
+          cliente_final_id: permiteDestino ? (clienteFinalId || null) : null,
+          pozo_id: permiteDestino ? (pozoId || null) : null,
+          lineas,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error ?? 'Error al crear el documento'); return }
+      toast.success(`Documento de Egreso ${data.numero} creado`)
+      router.push(`/compras/bodega/egresos/${data.documento_id}`)
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  return (
+    <div className="max-w-[1600px] mx-auto p-6 space-y-4">
+      <Card>
+        <CardHeader><CardTitle>Nuevo Documento de Egreso</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Tipo</Label>
+              <select className="border rounded px-2 py-1 text-sm w-full h-9" value={tipo} onChange={(e) => setTipo(e.target.value as any)}>
+                <option value="venta">Venta</option>
+                <option value="gasto">Gasto</option>
+                <option value="prestamo">Préstamo</option>
+                <option value="reconteo">Reconteo</option>
+              </select>
+            </div>
+            <div>
+              <Label>Bodega de origen</Label>
+              <select className="border rounded px-2 py-1 text-sm w-full h-9" value={bodegaId} onChange={(e) => setBodegaId(e.target.value)}>
+                <option value="">— seleccionar —</option>
+                {bodegas.map((b) => <option key={b.id} value={b.id}>{b.nombre}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {permiteDestino && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Cliente Final (opcional)</Label>
+                <select className="border rounded px-2 py-1 text-sm w-full h-9" value={clienteFinalId} onChange={(e) => setClienteFinalId(e.target.value)}>
+                  <option value="">— sin especificar —</option>
+                  {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <Label>Pozo (opcional)</Label>
+                <select className="border rounded px-2 py-1 text-sm w-full h-9" value={pozoId} onChange={(e) => setPozoId(e.target.value)}>
+                  <option value="">— sin especificar —</option>
+                  {pozos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <Label>Líneas</Label>
+              <Button size="sm" onClick={agregarLinea}>+ Agregar línea</Button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left border-b">
+                    <th className="p-2">Producto</th>
+                    <th className="p-2">Cantidad</th>
+                    <th className="p-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lineas.map((l, idx) => (
+                    <tr key={idx} className="border-b">
+                      <td className="p-2">
+                        <select className="border rounded px-2 py-1 text-sm w-full" value={l.producto_id} onChange={(e) => actualizarLinea(idx, 'producto_id', e.target.value)}>
+                          <option value="">— seleccionar —</option>
+                          {productos.map((p) => <option key={p.id} value={p.id}>{p.codigo} — {p.descripcion}</option>)}
+                        </select>
+                      </td>
+                      <td className="p-2 w-24">
+                        <Input type="number" value={l.cantidad} onChange={(e) => actualizarLinea(idx, 'cantidad', Number(e.target.value))} />
+                      </td>
+                      <td className="p-2">
+                        {lineas.length > 1 && <button onClick={() => eliminarLinea(idx)} className="text-red-600 text-xs hover:underline">Eliminar</button>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <p className="text-xs text-gray-500">El costo unitario se calcula automáticamente al cerrar, al promedio ponderado vigente — no se ingresa aquí.</p>
+
+          <Button onClick={handleCrear} disabled={guardando}>{guardando ? 'Creando...' : 'Crear Documento de Egreso'}</Button>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

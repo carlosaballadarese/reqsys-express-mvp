@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
       tipoMovimiento: body.tipo_movimiento,
       bodegaId: body.bodega_id ?? null,
       lineas: Array.isArray(body.lineas) ? body.lineas : [],
+      egresoPrestamoId: body.egreso_prestamo_id ?? null,
     },
     { id: auth.userId, nombre: auth.nombre, email: auth.email, rol: auth.rol }
   )

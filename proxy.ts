@@ -252,6 +252,9 @@ export async function proxy(req: NextRequest) {
         // asistente_compras, ver CA-03).
         '/compras/bodega/ingresos',
         '/compras/bodega/kardex',
+        // Spec: HU-030 — mismo criterio, gerencia/consulta nunca participan
+        // del ciclo operativo de egresos.
+        '/compras/bodega/egresos',
       ]
       const estaBloqueada = bloqueadas.some(
         b => pathname === b || pathname.startsWith(b + '/')
@@ -297,6 +300,10 @@ export async function proxy(req: NextRequest) {
         '/compras/bodega/categorias',
         '/compras/bodega/clientes-finales',
         '/compras/bodega/pozos',
+        // Spec: HU-030 CA-01 — a diferencia de Documentos de Ingreso,
+        // asistente_compras no participa de Egresos (sin vínculo a ninguna
+        // OC que gestione).
+        '/compras/bodega/egresos',
       ]
       const bloqueada = bloqueadas.some(b => pathname === b || pathname.startsWith(b + '/'))
       if (bloqueada) {

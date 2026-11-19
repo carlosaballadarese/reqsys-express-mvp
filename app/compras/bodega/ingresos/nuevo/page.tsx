@@ -13,6 +13,7 @@ import { toast } from '@/lib/toast'
 type Producto = { id: string; codigo: string; descripcion: string }
 type Bodega = { id: string; nombre: string }
 type Linea = { producto_id: string; cantidad: number; costo_unitario: number }
+type Prestamo = { id: string; numero: string }
 
 // Spec: HU-029 CA-01 — creación manual de Documento de Ingreso tipo
 // Devolución/Reconteo, sin OC de origen.
@@ -20,14 +21,18 @@ export default function NuevoIngresoManualPage() {
   const router = useRouter()
   const [tipoMovimiento, setTipoMovimiento] = useState<'devolucion' | 'reconteo'>('devolucion')
   const [bodegaId, setBodegaId] = useState('')
+  const [egresoPrestamoId, setEgresoPrestamoId] = useState('')
   const [bodegas, setBodegas] = useState<Bodega[]>([])
   const [productos, setProductos] = useState<Producto[]>([])
+  const [prestamosPendientes, setPrestamosPendientes] = useState<Prestamo[]>([])
   const [lineas, setLineas] = useState<Linea[]>([{ producto_id: '', cantidad: 0, costo_unitario: 0 }])
   const [guardando, setGuardando] = useState(false)
 
   useEffect(() => {
     fetch('/api/compras/bodega/bodegas?todas=1').then((r) => r.json()).then((d) => setBodegas(Array.isArray(d) ? d : [])).catch(() => {})
     fetch('/api/compras/inventario').then((r) => r.json()).then((d) => setProductos(Array.isArray(d) ? d : [])).catch(() => {})
+    // Spec: HU-030 CA-05 — Préstamos pendientes, para seleccionar cuál cierra esta Devolución.
+    fetch('/api/compras/bodega/egresos/prestamos-pendientes').then((r) => r.json()).then((d) => setPrestamosPendientes(Array.isArray(d) ? d : [])).catch(() => {})
   }, [])
 
   function actualizarLinea(idx: number, campo: keyof Linea, valor: string | number) {
@@ -52,7 +57,12 @@ export default function NuevoIngresoManualPage() {
       const res = await fetch('/api/compras/bodega/ingresos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tipo_movimiento: tipoMovimiento, bodega_id: bodegaId || null, lineas }),
+        body: JSON.stringify({
+          tipo_movimiento: tipoMovimiento,
+          bodega_id: bodegaId || null,
+          lineas,
+          egreso_prestamo_id: tipoMovimiento === 'devolucion' ? (egresoPrestamoId || null) : null,
+        }),
       })
       const data = await res.json()
       if (!res.ok) { toast.error(data.error ?? 'Error al crear el documento'); return }
@@ -88,6 +98,16 @@ export default function NuevoIngresoManualPage() {
               </select>
             </div>
           </div>
+
+          {tipoMovimiento === 'devolucion' && (
+            <div>
+              <Label>Préstamo que cierra esta devolución (opcional)</Label>
+              <select className="border rounded px-2 py-1 text-sm w-full h-9" value={egresoPrestamoId} onChange={(e) => setEgresoPrestamoId(e.target.value)}>
+                <option value="">— sin especificar —</option>
+                {prestamosPendientes.map((p) => <option key={p.id} value={p.id}>{p.numero}</option>)}
+              </select>
+            </div>
+          )}
 
           <div>
             <div className="flex items-center justify-between mb-2">
