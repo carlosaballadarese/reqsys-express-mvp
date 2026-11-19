@@ -124,6 +124,80 @@ export async function generarDocumentoIngresoDesdeOC(
   return { documentoId: documento.id, numero: documento.numero }
 }
 
+type LineaManual = { producto_id: string; cantidad: number; costo_unitario: number }
+type ResultadoCreacionManual =
+  | { ok: true; documentoId: string; numero: string }
+  | { ok: false; error: string }
+
+// Spec: HU-029 CA-01 — creación manual de un Documento de Ingreso tipo
+// Devolución/Reconteo, sin OC de origen. A diferencia de
+// generarDocumentoIngresoDesdeOC() (que admite producto_id=NULL para no
+// perder trazabilidad de un ítem de OC sin match), aquí quien crea el
+// documento elige el producto directamente del catálogo — no hay ningún
+// código de OC ambiguo que preservar, así que producto_id es siempre
+// obligatorio en cada línea.
+export async function crearDocumentoIngresoManual(
+  input: { tipoMovimiento: 'devolucion' | 'reconteo'; bodegaId?: string | null; lineas: LineaManual[] },
+  actor: ActorIngreso
+): Promise<ResultadoCreacionManual> {
+  if (!['devolucion', 'reconteo'].includes(input.tipoMovimiento)) {
+    return { ok: false, error: "tipo_movimiento debe ser 'devolucion' o 'reconteo'" }
+  }
+  if (input.lineas.length === 0) {
+    return { ok: false, error: 'El documento debe tener al menos 1 línea' }
+  }
+  if (input.lineas.some((l) => !l.producto_id)) {
+    return { ok: false, error: 'Toda línea requiere un producto vinculado (CA-01)' }
+  }
+
+  const año = new Date().getFullYear()
+  const { data: numeroData } = await adminClient().rpc('siguiente_numero_ingreso', { p_year: año })
+  const numero = `ING-${año}-${String(numeroData).padStart(4, '0')}`
+
+  const { data: documento, error: errDoc } = await adminClient()
+    .from('documentos_ingreso')
+    .insert({
+      numero,
+      bodega_id: input.bodegaId ?? null,
+      estado: 'generado',
+      tipo_movimiento: input.tipoMovimiento,
+      registro_compras_id: null,
+      creado_por_id: actor.id,
+    })
+    .select('id, numero')
+    .single()
+
+  if (errDoc || !documento) {
+    console.error('Error al crear Documento de Ingreso manual:', errDoc)
+    return { ok: false, error: 'Error al crear el documento' }
+  }
+
+  const { error: errLineas } = await adminClient().from('documentos_ingreso_items').insert(
+    input.lineas.map((l) => ({
+      documento_ingreso_id: documento.id,
+      producto_id: l.producto_id,
+      codigo_oc: null,
+      descripcion_oc: `${input.tipoMovimiento === 'devolucion' ? 'Devolución' : 'Reconteo'} manual`,
+      cantidad: Number(l.cantidad),
+      costo_unitario: Number(l.costo_unitario),
+    }))
+  )
+  if (errLineas) {
+    console.error('Error al insertar líneas del Documento de Ingreso manual:', errLineas)
+    return { ok: false, error: 'Error al guardar las líneas' }
+  }
+
+  await registrarAuditoria({
+    accion: 'crear_documento_ingreso_manual',
+    entidad: 'documento_ingreso',
+    entidad_id: documento.id,
+    referencia: documento.numero,
+    detalle: { tipo_movimiento: input.tipoMovimiento, lineas: input.lineas.length, actor_rol: actor.rol },
+  })
+
+  return { ok: true, documentoId: documento.id, numero: documento.numero }
+}
+
 type ResultadoCierre =
   | { ok: true }
   | { ok: false; error: string; lineasInvalidas?: string[] }
@@ -138,7 +212,7 @@ export async function cerrarDocumentoIngreso(
 ): Promise<ResultadoCierre> {
   const { data: documento } = await adminClient()
     .from('documentos_ingreso')
-    .select('id, numero, estado, bodega_id')
+    .select('id, numero, estado, bodega_id, tipo_movimiento')
     .eq('id', documentoId)
     .single()
 
@@ -200,7 +274,9 @@ export async function cerrarDocumentoIngreso(
       producto_id: linea.producto_id,
       bodega_id: documento.bodega_id,
       direccion: 'entrada',
-      tipo: 'compra',
+      // Spec: HU-029 CA-02 — parametrizado por el tipo del documento (antes
+      // hardcodeado a 'compra', único tipo que existía antes de esta HU).
+      tipo: documento.tipo_movimiento,
       cantidad,
       costo_unitario: costoUnitario,
       saldo_resultante: nuevoSaldo,

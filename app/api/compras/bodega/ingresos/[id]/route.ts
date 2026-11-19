@@ -20,7 +20,7 @@ export async function GET(
 
   const { data: documento, error } = await adminClient()
     .from('documentos_ingreso')
-    .select('id, numero, bodega_id, estado, registro_compras_id, created_at, cerrado_en, motivo_anulacion')
+    .select('id, numero, bodega_id, estado, tipo_movimiento, registro_compras_id, created_at, cerrado_en, motivo_anulacion')
     .eq('id', id)
     .single()
 

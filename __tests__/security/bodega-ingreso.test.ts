@@ -23,6 +23,7 @@ import {
   cerrarDocumentoIngreso,
   resolverCancelacionIngresoPorOC,
   verificarAutorizacionIngreso,
+  crearDocumentoIngresoManual,
 } from '@/lib/bodega-ingreso'
 
 const ACTOR = { id: 'user-1', nombre: 'Bodega Test', email: 'bodega@arlift.com', rol: 'bodega' }
@@ -152,7 +153,7 @@ describe('cerrarDocumentoIngreso — CA-04/CA-05/CA-06', () => {
 
     mockFrom.mockImplementation(chainTabla({
       documentos_ingreso: {
-        data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'generado', bodega_id: 'bod-1' },
+        data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'generado', bodega_id: 'bod-1', tipo_movimiento: 'compra' },
         error: null,
         onUpdate: docUpdateSpy,
       },
@@ -178,6 +179,73 @@ describe('cerrarDocumentoIngreso — CA-04/CA-05/CA-06', () => {
     )
     expect(inventarioUpdateSpy).toHaveBeenCalledWith({ saldo_existencias: 150, costo_unitario: 12 })
     expect(docUpdateSpy).toHaveBeenCalledWith(expect.objectContaining({ estado: 'cerrado' }))
+  })
+
+  it('cierra un Reconteo correctamente: el movimiento de Kardex usa tipo=reconteo, no compra (HU-029 CA-02)', async () => {
+    const kardexInsertSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: {
+        data: { id: 'doc-2', numero: 'ING-2026-0002', estado: 'generado', bodega_id: 'bod-1', tipo_movimiento: 'reconteo' },
+        error: null,
+      },
+      documentos_ingreso_items: {
+        data: [{ id: 'l1', producto_id: 'prod-1', descripcion_oc: 'Reconteo manual', cantidad: 5, costo_unitario: 20 }],
+        error: null,
+      },
+      kardex_movimientos: { data: [], error: null, onInsert: kardexInsertSpy },
+      inventario: { data: { saldo_existencias: 0, costo_unitario: 0 }, error: null },
+    }))
+
+    const resultado = await cerrarDocumentoIngreso('doc-2', ACTOR)
+    expect(resultado.ok).toBe(true)
+    expect(kardexInsertSpy).toHaveBeenCalledWith(expect.objectContaining({ tipo: 'reconteo' }))
+  })
+})
+
+describe('crearDocumentoIngresoManual — HU-029 CA-01', () => {
+  it('rechaza tipo_movimiento inválido', async () => {
+    const resultado = await crearDocumentoIngresoManual(
+      { tipoMovimiento: 'compra' as any, lineas: [{ producto_id: 'prod-1', cantidad: 5, costo_unitario: 10 }] },
+      ACTOR
+    )
+    expect(resultado.ok).toBe(false)
+  })
+
+  it('rechaza sin ninguna línea', async () => {
+    const resultado = await crearDocumentoIngresoManual({ tipoMovimiento: 'devolucion', lineas: [] }, ACTOR)
+    expect(resultado.ok).toBe(false)
+  })
+
+  it('rechaza una línea sin producto_id (CA-01: siempre obligatorio en creación manual)', async () => {
+    const resultado = await crearDocumentoIngresoManual(
+      { tipoMovimiento: 'reconteo', lineas: [{ producto_id: '', cantidad: 5, costo_unitario: 10 }] },
+      ACTOR
+    )
+    expect(resultado.ok).toBe(false)
+  })
+
+  it('crea el documento con tipo_movimiento y registro_compras_id=null', async () => {
+    const insertDocSpy = jest.fn()
+    const insertLineasSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: {
+        onInsert: insertDocSpy,
+        insertResult: { select: () => ({ single: () => Promise.resolve({ data: { id: 'doc-3', numero: 'ING-2026-0003' }, error: null }) }) },
+      },
+      documentos_ingreso_items: { onInsert: insertLineasSpy, data: null, error: null },
+    }))
+
+    const resultado = await crearDocumentoIngresoManual(
+      { tipoMovimiento: 'devolucion', bodegaId: 'bod-1', lineas: [{ producto_id: 'prod-1', cantidad: 3, costo_unitario: 15 }] },
+      ACTOR
+    )
+    expect(resultado).toEqual({ ok: true, documentoId: 'doc-3', numero: 'ING-2026-0003' })
+    expect(insertDocSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ tipo_movimiento: 'devolucion', registro_compras_id: null, bodega_id: 'bod-1' })
+    )
+    expect(insertLineasSpy).toHaveBeenCalledWith([
+      expect.objectContaining({ producto_id: 'prod-1', cantidad: 3, costo_unitario: 15 }),
+    ])
   })
 })
 

@@ -117,11 +117,17 @@ const mockCerrarDocumentoIngreso = jest.fn<Promise<CierreIngresoMock>, unknown[]
 const mockResolverCancelacionIngresoPorOC = jest.fn<Promise<CancelacionIngresoMock>, unknown[]>((..._args: unknown[]) =>
   Promise.resolve({ ok: true, anulado: false })
 )
+// Spec: HU-029 CA-01 — mockeado (lógica real cubierta por bodega-ingreso.test.ts).
+type CreacionManualMock = { ok: true; documentoId: string; numero: string } | { ok: false; error: string }
+const mockCrearDocumentoIngresoManual = jest.fn<Promise<CreacionManualMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, documentoId: 'doc-manual-1', numero: 'ING-2026-0001' })
+)
 jest.mock('@/lib/bodega-ingreso', () => ({
   verificarAutorizacionIngreso: (...args: unknown[]) => mockVerificarAutorizacionIngreso(...args),
   generarDocumentoIngresoDesdeOC: (...args: unknown[]) => mockGenerarDocumentoIngresoDesdeOC(...args),
   cerrarDocumentoIngreso: (...args: unknown[]) => mockCerrarDocumentoIngreso(...args),
   resolverCancelacionIngresoPorOC: (...args: unknown[]) => mockResolverCancelacionIngresoPorOC(...args),
+  crearDocumentoIngresoManual: (...args: unknown[]) => mockCrearDocumentoIngresoManual(...args),
 }))
 
 jest.mock('@/lib/oca-estado', () => ({
@@ -10260,25 +10266,49 @@ describe('PUT /api/compras/configuracion/empresa — HU-026 CA-10, patron_codigo
 
 // ── HU-028: Ingreso de Productos desde OC con Kardex y Costeo Promedio Ponderado ──
 
-describe('GET /api/compras/bodega/ingresos — HU-028', () => {
-  const { GET } = require('@/app/api/compras/bodega/ingresos/route')
+describe('GET/POST /api/compras/bodega/ingresos — HU-028/HU-029', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/ingresos/route')
 
-  it('devuelve 401 sin sesión', async () => {
+  it('GET devuelve 401 sin sesión', async () => {
     mockVerificarAutorizacionIngreso.mockResolvedValueOnce({ ok: false, status: 401 })
     const res = await GET(makeRequest('http://localhost/api/compras/bodega/ingresos'))
     expect(res.status).toBe(401)
   })
 
-  it('devuelve 403 con rol sin permiso', async () => {
+  it('GET devuelve 403 con rol sin permiso', async () => {
     mockVerificarAutorizacionIngreso.mockResolvedValueOnce({ ok: false, status: 403 })
     const res = await GET(makeRequest('http://localhost/api/compras/bodega/ingresos'))
     expect(res.status).toBe(403)
   })
 
-  it('200 con rol autorizado (CA-02/CA-03)', async () => {
+  it('GET 200 con rol autorizado (CA-02/CA-03)', async () => {
     mockFrom.mockReturnValue(mockChainVacio())
     const res = await GET(makeRequest('http://localhost/api/compras/bodega/ingresos'))
     expect(res.status).toBe(200)
+  })
+
+  it('POST devuelve 401 sin sesión (HU-029 CA-01)', async () => {
+    mockVerificarAutorizacionIngreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ingresos', { method: 'POST', body: JSON.stringify({}) }))
+    expect(res.status).toBe(401)
+  })
+
+  it('POST devuelve 201 al crear un Documento de Ingreso manual (HU-029 CA-01)', async () => {
+    mockCrearDocumentoIngresoManual.mockResolvedValueOnce({ ok: true, documentoId: 'doc-9', numero: 'ING-2026-0009' })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ingresos', {
+      method: 'POST',
+      body: JSON.stringify({ tipo_movimiento: 'devolucion', lineas: [{ producto_id: 'prod-1', cantidad: 2, costo_unitario: 10 }] }),
+    }))
+    expect(res.status).toBe(201)
+  })
+
+  it('POST devuelve 400 cuando crearDocumentoIngresoManual rechaza la entrada', async () => {
+    mockCrearDocumentoIngresoManual.mockResolvedValueOnce({ ok: false, error: 'Toda línea requiere un producto vinculado (CA-01)' })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ingresos', {
+      method: 'POST',
+      body: JSON.stringify({ tipo_movimiento: 'reconteo', lineas: [{ producto_id: '', cantidad: 2, costo_unitario: 10 }] }),
+    }))
+    expect(res.status).toBe(400)
   })
 })
 

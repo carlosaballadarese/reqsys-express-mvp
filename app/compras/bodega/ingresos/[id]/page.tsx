@@ -23,6 +23,7 @@ type Documento = {
   id: string
   numero: string
   estado: string
+  tipo_movimiento: string
   numero_oc: string | null
   created_at: string
   cerrado_en: string | null
@@ -129,6 +130,7 @@ export default function DetalleIngresoPage() {
           <CardTitle>Documento de Ingreso {doc.numero}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
+          <p><strong>Tipo:</strong> {doc.tipo_movimiento === 'compra' ? 'Compra' : doc.tipo_movimiento === 'devolucion' ? 'Devolución' : 'Reconteo'}</p>
           <p><strong>Estado:</strong> {ESTADO_LABEL[doc.estado] ?? doc.estado}</p>
           {doc.numero_oc && <p><strong>OC de origen:</strong> {doc.numero_oc}</p>}
           {doc.motivo_anulacion && <p className="text-red-600"><strong>Anulado:</strong> {doc.motivo_anulacion}</p>}

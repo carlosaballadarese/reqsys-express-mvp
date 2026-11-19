@@ -5,14 +5,26 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 
 type DocumentoIngreso = {
   id: string
   numero: string
   estado: string
+  tipo_movimiento: string
   registro_compras_id: string | null
   created_at: string
   cerrado_en: string | null
+}
+
+// Spec: HU-029 CA-05 — distinción visual por tipo en el listado.
+const TIPO_LABEL: Record<string, string> = {
+  compra: 'Compra', devolucion: 'Devolución', reconteo: 'Reconteo',
+}
+const TIPO_COLOR: Record<string, string> = {
+  compra: 'bg-indigo-100 text-indigo-800',
+  devolucion: 'bg-teal-100 text-teal-800',
+  reconteo: 'bg-purple-100 text-purple-800',
 }
 
 const ESTADO_LABEL: Record<string, string> = {
@@ -49,16 +61,21 @@ export default function IngresosPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Documentos de Ingreso de Bodega</CardTitle>
-          <select
-            className="border rounded px-2 py-1 text-sm"
-            value={filtroEstado}
-            onChange={(e) => setFiltroEstado(e.target.value)}
-          >
-            <option value="">Todos los estados</option>
-            {Object.entries(ESTADO_LABEL).map(([v, l]) => (
-              <option key={v} value={v}>{l}</option>
-            ))}
-          </select>
+          <div className="flex items-center gap-3">
+            <select
+              className="border rounded px-2 py-1 text-sm"
+              value={filtroEstado}
+              onChange={(e) => setFiltroEstado(e.target.value)}
+            >
+              <option value="">Todos los estados</option>
+              {Object.entries(ESTADO_LABEL).map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+            </select>
+            <Link href="/compras/bodega/ingresos/nuevo">
+              <Button size="sm">+ Nuevo Ingreso Manual</Button>
+            </Link>
+          </div>
         </CardHeader>
         <CardContent>
           {cargando ? (
@@ -71,6 +88,7 @@ export default function IngresosPage() {
                 <thead>
                   <tr className="text-left border-b">
                     <th className="p-2">N° Ingreso</th>
+                    <th className="p-2">Tipo</th>
                     <th className="p-2">Estado</th>
                     <th className="p-2">Creado</th>
                     <th className="p-2">Cerrado</th>
@@ -83,6 +101,11 @@ export default function IngresosPage() {
                         <Link href={`/compras/bodega/ingresos/${d.id}`} className="text-teal-700 hover:underline">
                           {d.numero}
                         </Link>
+                      </td>
+                      <td className="p-2">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${TIPO_COLOR[d.tipo_movimiento] ?? ''}`}>
+                          {TIPO_LABEL[d.tipo_movimiento] ?? d.tipo_movimiento}
+                        </span>
                       </td>
                       <td className="p-2">
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${ESTADO_COLOR[d.estado] ?? ''}`}>
