@@ -214,6 +214,28 @@ describe('POST /api/compras/inventario', () => {
     )
     expect(res.status).toBe(401)
   })
+
+  // Spec: HU-027 CA-04/CA-05 — costo_unitario/saldo_existencias del body se
+  // ignoran; siempre se inserta 0, sin importar qué envíe el cliente.
+  it('ignora costo_unitario/saldo_existencias del body — siempre inserta 0', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let insertPayload: any = null
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: null, error: null })) // sin duplicado
+    chain.insert = jest.fn((payload: any) => { insertPayload = payload; return { select: () => ({ single: () => Promise.resolve({ data: { id: 'inv-1', ...payload }, error: null }) }) } })
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(makeRequest('http://localhost/api/compras/inventario', {
+      method: 'POST',
+      body: JSON.stringify({ codigo: 'AL-I9999', descripcion: 'Test', costo_unitario: 500, saldo_existencias: 99, bodega_id: 'bod-1', categoria_id: 'cat-1', stock_minimo: '5', stock_maximo: '20' }),
+    }))
+    expect(res.status).toBe(200)
+    expect(insertPayload.costo_unitario).toBe(0)
+    expect(insertPayload.saldo_existencias).toBe(0)
+    expect(insertPayload.bodega_id).toBe('bod-1')
+    expect(insertPayload.categoria_id).toBe('cat-1')
+    expect(insertPayload.stock_minimo).toBe(5)
+    expect(insertPayload.stock_maximo).toBe(20)
+  })
 })
 
 // ── 3. Inventario — detalle ───────────────────────────────────────────────────
@@ -244,6 +266,28 @@ describe('PUT /api/compras/inventario/[id]', () => {
       { params: Promise.resolve({ id: 'abc' }) }
     )
     expect(res.status).toBe(401)
+  })
+
+  // Spec: HU-027 CA-04/CA-05 — costo_unitario/saldo_existencias nunca viajan
+  // en el objeto update(...), sin importar qué envíe el cliente en el body.
+  it('nunca incluye costo_unitario/saldo_existencias en el update — persiste bodega_id/categoria_id/stock', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let updatePayload: any = null
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: null, error: null })) // sin duplicado
+    chain.update = jest.fn((payload: any) => { updatePayload = payload; return { eq: () => Promise.resolve({ data: null, error: null }) } })
+    mockFrom.mockReturnValue(chain)
+    const res = await PUT(makeRequest('http://localhost/api/compras/inventario/inv-1', {
+      method: 'PUT',
+      body: JSON.stringify({ codigo: 'AL-I0001', descripcion: 'Test', costo_unitario: 500, saldo_existencias: 99, bodega_id: 'bod-1', categoria_id: 'cat-1', stock_minimo: '5', stock_maximo: '20' }),
+    }), { params: Promise.resolve({ id: 'inv-1' }) })
+    expect(res.status).toBe(200)
+    expect(updatePayload).not.toHaveProperty('costo_unitario')
+    expect(updatePayload).not.toHaveProperty('saldo_existencias')
+    expect(updatePayload.bodega_id).toBe('bod-1')
+    expect(updatePayload.categoria_id).toBe('cat-1')
+    expect(updatePayload.stock_minimo).toBe(5)
+    expect(updatePayload.stock_maximo).toBe(20)
   })
 })
 
@@ -3733,6 +3777,15 @@ describe('GET/POST /api/compras/areas', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body).toHaveLength(2)
+  })
+
+  // Spec: HU-027 CA-01b — ?solo_bodega=1 es público (sin sesión), ayuda de UX
+  // del formulario de producto para filtrar Categoría por Área.
+  it('GET ?solo_bodega=1 es público y no exige sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ areas: { data: [{ id: 'area-niveles', nombre: 'Operaciones - Niveles' }], error: null } }))
+    const res = await GET(makeRequest('http://localhost/api/compras/areas?solo_bodega=1'))
+    expect(res.status).toBe(200)
   })
 
   it('POST devuelve 403 sin rol admin/compras', async () => {

@@ -17,18 +17,29 @@ export default function EditarItemPage() {
   const [error, setError]         = useState('')
   const [msg, setMsg]             = useState('')
   const [areas, setAreas]         = useState<{ id: string; nombre: string }[]>([])
+  // Spec: HU-027 CA-01b — áreas habilitadas para Bodega (ayuda de UX), nunca
+  // se persiste en el producto.
+  const [areasBodega, setAreasBodega] = useState<{ id: string; nombre: string }[]>([])
+  const [areaFiltro, setAreaFiltro]   = useState('')
+  const [bodegas, setBodegas]         = useState<{ id: string; nombre: string }[]>([])
+  const [categorias, setCategorias]   = useState<{ id: string; nombre: string }[]>([])
+  // Spec: HU-027 CA-04/CA-05 — solo lectura, nunca se envían en el PUT.
+  const [saldoExistencias, setSaldoExistencias] = useState(0)
+  const [costoUnitario, setCostoUnitario]       = useState(0)
   const [form, setForm] = useState({
     codigo:             '',
     descripcion:        '',
     area:               '',
     categoria:          '',
-    saldo_existencias:  '0',
-    costo_unitario:     '0',
     locacion:           '',
     codigo_origen:      '',
     descripcion_origen: '',
     marca:              '',
     observaciones:      '',
+    bodega_id:          '',
+    categoria_id:       '',
+    stock_minimo:       '',
+    stock_maximo:       '',
   })
 
   useEffect(() => {
@@ -41,20 +52,33 @@ export default function EditarItemPage() {
           descripcion:        data.descripcion        ?? '',
           area:               data.area               ?? '',
           categoria:          data.categoria          ?? '',
-          saldo_existencias:  String(data.saldo_existencias  ?? 0),
-          costo_unitario:     String(data.costo_unitario     ?? 0),
           locacion:           data.locacion           ?? '',
           codigo_origen:      data.codigo_origen      ?? '',
           descripcion_origen: data.descripcion_origen ?? '',
           marca:              data.marca              ?? '',
           observaciones:      data.observaciones      ?? '',
+          bodega_id:          data.bodega_id           ?? '',
+          categoria_id:       data.categoria_id        ?? '',
+          stock_minimo:       data.stock_minimo != null ? String(data.stock_minimo) : '',
+          stock_maximo:       data.stock_maximo != null ? String(data.stock_maximo) : '',
         })
+        setSaldoExistencias(Number(data.saldo_existencias ?? 0))
+        setCostoUnitario(Number(data.costo_unitario ?? 0))
         setCargando(false)
       })
       .catch(() => { setError('Error de conexión'); setCargando(false) })
 
     fetch('/api/compras/areas').then(r => r.json()).then(setAreas).catch(console.error)
+    fetch('/api/compras/areas?solo_bodega=1').then(r => r.json()).then(setAreasBodega).catch(console.error)
+    fetch('/api/compras/bodega/bodegas').then(r => r.json()).then(setBodegas).catch(console.error)
   }, [id])
+
+  useEffect(() => {
+    const url = areaFiltro
+      ? `/api/compras/bodega/categorias?area_id=${areaFiltro}`
+      : '/api/compras/bodega/categorias'
+    fetch(url).then(r => r.json()).then(setCategorias).catch(console.error)
+  }, [areaFiltro])
 
   function setField(key: string, val: string) { setForm(f => ({ ...f, [key]: val })) }
 
@@ -70,8 +94,10 @@ export default function EditarItemPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
-          saldo_existencias: Number(form.saldo_existencias) || 0,
-          costo_unitario:    Number(form.costo_unitario)    || 0,
+          bodega_id:    form.bodega_id    || null,
+          categoria_id: form.categoria_id || null,
+          stock_minimo: form.stock_minimo,
+          stock_maximo: form.stock_maximo,
         }),
       })
       const data = await res.json()
@@ -130,23 +156,25 @@ export default function EditarItemPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <Label className="text-xs">Categoría</Label>
+                <Label className="text-xs">Categoría (texto legado)</Label>
                 <Input value={form.categoria} onChange={e => setField('categoria', e.target.value)} className="mt-1 h-8 text-sm" />
               </div>
               <div>
-                <Label className="text-xs">Área</Label>
+                <Label className="text-xs">Área (texto legado)</Label>
                 <select value={form.area} onChange={e => setField('area', e.target.value)} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
                   <option value="">Sin área</option>
                   {areas.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
                 </select>
               </div>
               <div>
+                {/* Spec: HU-027 CA-05 — solo lectura, derivado del Kardex (HU-028) */}
                 <Label className="text-xs">Saldo Existencias</Label>
-                <Input type="number" step="0.01" min="0" value={form.saldo_existencias} onChange={e => setField('saldo_existencias', e.target.value)} className="mt-1 h-8 text-sm" />
+                <p className="mt-1 h-8 flex items-center text-sm text-slate-500">{saldoExistencias}</p>
               </div>
               <div>
+                {/* Spec: HU-027 CA-04 — solo lectura, derivado del Kardex (HU-028) */}
                 <Label className="text-xs">Costo Unitario USD</Label>
-                <Input type="number" step="0.01" min="0" value={form.costo_unitario} onChange={e => setField('costo_unitario', e.target.value)} className="mt-1 h-8 text-sm" />
+                <p className="mt-1 h-8 flex items-center text-sm text-slate-500">${costoUnitario.toFixed(2)}</p>
               </div>
               <div>
                 <Label className="text-xs">Locación</Label>
@@ -155,6 +183,43 @@ export default function EditarItemPage() {
               <div>
                 <Label className="text-xs">Código Origen</Label>
                 <Input value={form.codigo_origen} onChange={e => setField('codigo_origen', e.target.value)} className="mt-1 h-8 text-sm" />
+              </div>
+            </div>
+
+            {/* Spec: HU-027 CA-01/CA-01b — catálogos normalizados de Bodega */}
+            <div className="border-t pt-4">
+              <p className="text-xs font-medium text-slate-500 mb-3">Clasificación de Bodega</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs">Bodega</Label>
+                  <select value={form.bodega_id} onChange={e => setField('bodega_id', e.target.value)} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
+                    <option value="">Sin asignar</option>
+                    {bodegas.map(b => <option key={b.id} value={b.id}>{b.nombre}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <Label className="text-xs">Área (para filtrar Categoría — no se guarda)</Label>
+                  <select value={areaFiltro} onChange={e => setAreaFiltro(e.target.value)} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
+                    <option value="">Todas las categorías</option>
+                    {areasBodega.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <Label className="text-xs">Categoría (normalizada)</Label>
+                  <select value={form.categoria_id} onChange={e => setField('categoria_id', e.target.value)} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
+                    <option value="">Sin asignar</option>
+                    {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                  </select>
+                </div>
+                <div />
+                <div>
+                  <Label className="text-xs">Stock Mínimo</Label>
+                  <Input type="number" step="0.01" min="0" value={form.stock_minimo} onChange={e => setField('stock_minimo', e.target.value)} className="mt-1 h-8 text-sm" />
+                </div>
+                <div>
+                  <Label className="text-xs">Stock Máximo</Label>
+                  <Input type="number" step="0.01" min="0" value={form.stock_maximo} onChange={e => setField('stock_maximo', e.target.value)} className="mt-1 h-8 text-sm" />
+                </div>
               </div>
             </div>
 

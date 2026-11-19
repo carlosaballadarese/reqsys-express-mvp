@@ -17,7 +17,9 @@ async function verificarAdminOCompras() {
 // Sin `?todas=1`: público, solo áreas activas (usado por Nueva NP, cualquier rol).
 // Con `?todas=1`: admin/compras, incluye inactivas + campo `activo` (gestión de catálogo).
 export async function GET(req: NextRequest) {
-  const todas = new URL(req.url).searchParams.get('todas') === '1'
+  const { searchParams } = new URL(req.url)
+  const todas      = searchParams.get('todas') === '1'
+  const soloBodega = searchParams.get('solo_bodega') === '1'
 
   if (todas) {
     const user = await verificarAdminOCompras()
@@ -33,12 +35,19 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const { data, error } = await anonClient()
+    // Spec: HU-027 CA-01b — selector de Área como ayuda de UX en el formulario
+    // de producto (filtra las opciones de Categoría vía HU-026); público, sin
+    // restricción de rol, igual que el resto de este endpoint — cualquier rol
+    // que crea/edita productos (incluido `bodega`) necesita esta lista.
+    let query = anonClient()
       .from('areas')
       .select('id, nombre')
       .eq('activo', true)
       .order('nombre')
 
+    if (soloBodega) query = query.eq('habilitada_para_bodega', true)
+
+    const { data, error } = await query
     if (error) throw error
 
     return NextResponse.json(data ?? [])
