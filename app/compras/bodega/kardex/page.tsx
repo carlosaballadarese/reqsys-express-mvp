@@ -183,12 +183,13 @@ export default function KardexPage() {
 
   // Resumen derivado de las filas ya traídas (orden cronológico ascendente
   // real, confirmado por la API) — sin pedir nada nuevo al backend.
+  // Spec: a pedido del usuario, se quitó el resumen de cierre al final de la
+  // tabla (Stock Inicial/Total Entradas/Total Salidas/Stock Final) — Total
+  // Entradas/Salidas eran literalmente los mismos valores ya mostrados en las
+  // tarjetas KPI de la cabecera (mismas variables), y Stock Inicial siempre es
+  // 0 mientras no haya un filtro de fecha "Desde" activo.
   const totalEntradas = movimientos.filter((m) => m.direccion === 'entrada').reduce((s, m) => s + Number(m.cantidad), 0)
   const totalSalidas = movimientos.filter((m) => m.direccion === 'salida').reduce((s, m) => s + Number(m.cantidad), 0)
-  const primera = movimientos[0]
-  const ultima = movimientos[movimientos.length - 1]
-  const stockInicial = primera ? Number(primera.saldo_resultante) - (primera.direccion === 'entrada' ? Number(primera.cantidad) : -Number(primera.cantidad)) : 0
-  const stockFinalPeriodo = ultima ? Number(ultima.saldo_resultante) : null
 
   return (
     <div className="max-w-[1600px] mx-auto p-6 space-y-4">
@@ -308,12 +309,6 @@ export default function KardexPage() {
                         ))}
                       </tbody>
                     </table>
-                  </div>
-                  <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm border-t pt-4">
-                    <div><div className="text-gray-500">Stock Inicial</div><div className="font-semibold">{stockInicial}</div></div>
-                    <div><div className="text-gray-500">Total Entradas</div><div className="font-semibold text-green-700">+{totalEntradas}</div></div>
-                    <div><div className="text-gray-500">Total Salidas</div><div className="font-semibold text-amber-700">-{totalSalidas}</div></div>
-                    <div><div className="text-gray-500">Stock Final (del período)</div><div className="font-semibold">{stockFinalPeriodo}</div></div>
                   </div>
                 </>
               )}
