@@ -237,6 +237,40 @@ describe('cerrarDocumentoIngreso — CA-04/CA-05/CA-06', () => {
     expect(resultado.ok).toBe(false)
     if (!resultado.ok) expect(resultado.lineasInvalidas).toEqual(['Importado sin FOB'])
   })
+
+  it('HU-034 CA-03: cerrar un Ingreso tipo reconteo actualiza ultimo_conteo_fecha del producto', async () => {
+    const inventarioUpdateSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: { data: { id: 'doc-5', numero: 'ING-2026-0005', estado: 'generado', bodega_id: 'bod-1', tipo_movimiento: 'reconteo' }, error: null },
+      documentos_ingreso_items: {
+        data: [{ id: 'l1', producto_id: 'prod-1', descripcion_oc: 'Reconteo manual', cantidad: 5, costo_unitario: 20 }],
+        error: null,
+      },
+      kardex_movimientos: { data: [], error: null },
+      inventario: { data: { saldo_existencias: 0, costo_unitario: 0 }, error: null, onUpdate: inventarioUpdateSpy },
+    }))
+
+    const resultado = await cerrarDocumentoIngreso('doc-5', ACTOR)
+    expect(resultado.ok).toBe(true)
+    expect(inventarioUpdateSpy).toHaveBeenCalledWith(expect.objectContaining({ ultimo_conteo_fecha: expect.any(String) }))
+  })
+
+  it('HU-034 CA-03: cerrar un Ingreso tipo compra NO toca ultimo_conteo_fecha', async () => {
+    const inventarioUpdateSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: { data: { id: 'doc-6', numero: 'ING-2026-0006', estado: 'generado', bodega_id: 'bod-1', tipo_movimiento: 'compra' }, error: null },
+      documentos_ingreso_items: {
+        data: [{ id: 'l1', producto_id: 'prod-1', descripcion_oc: 'Compra normal', cantidad: 5, costo_unitario: 20 }],
+        error: null,
+      },
+      kardex_movimientos: { data: [], error: null },
+      inventario: { data: { saldo_existencias: 0, costo_unitario: 0 }, error: null, onUpdate: inventarioUpdateSpy },
+    }))
+
+    const resultado = await cerrarDocumentoIngreso('doc-6', ACTOR)
+    expect(resultado.ok).toBe(true)
+    expect(inventarioUpdateSpy).toHaveBeenCalledWith(expect.not.objectContaining({ ultimo_conteo_fecha: expect.anything() }))
+  })
 })
 
 describe('crearDocumentoIngresoManual — HU-029 CA-01', () => {

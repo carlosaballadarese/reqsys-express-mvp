@@ -303,7 +303,15 @@ export async function cerrarDocumentoIngreso(
 
     await adminClient()
       .from('inventario')
-      .update({ saldo_existencias: nuevoSaldo, costo_unitario: nuevoPromedio })
+      .update({
+        saldo_existencias: nuevoSaldo,
+        costo_unitario: nuevoPromedio,
+        // Spec: HU-034 CA-03 — un Reconteo actualiza la fecha de último
+        // conteo físico; ningún otro tipo de movimiento la toca.
+        ...(documento.tipo_movimiento === 'reconteo'
+          ? { ultimo_conteo_fecha: new Date().toISOString().slice(0, 10) }
+          : {}),
+      })
       .eq('id', linea.producto_id)
   }
 

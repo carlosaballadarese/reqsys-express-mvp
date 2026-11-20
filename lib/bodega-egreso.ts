@@ -201,7 +201,14 @@ export async function cerrarDocumentoEgreso(
       return { ok: false, error: 'Error al generar el Kardex — el documento no se cerró, se puede reintentar' }
     }
 
-    await adminClient().from('inventario').update({ saldo_existencias: nuevoSaldo }).eq('id', linea.producto_id)
+    await adminClient().from('inventario').update({
+      saldo_existencias: nuevoSaldo,
+      // Spec: HU-034 CA-03 — un Reconteo actualiza la fecha de último conteo
+      // físico; ningún otro tipo de movimiento la toca.
+      ...(documento.tipo === 'reconteo'
+        ? { ultimo_conteo_fecha: new Date().toISOString().slice(0, 10) }
+        : {}),
+    }).eq('id', linea.producto_id)
   }
 
   await adminClient()

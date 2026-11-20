@@ -198,7 +198,21 @@ describe('cerrarDocumentoEgreso — CA-02/CA-03/CA-06', () => {
     expect(kardexInsertSpy).toHaveBeenCalledWith(
       expect.objectContaining({ costo_unitario: 12, costo_promedio_resultante: 12, saldo_resultante: 90, bodega_id: 'bod-1' })
     )
-    expect(inventarioUpdateSpy).toHaveBeenCalledWith({ saldo_existencias: 90 })
+    // Spec: HU-034 CA-03 — tipo='reconteo' también actualiza ultimo_conteo_fecha.
+    expect(inventarioUpdateSpy).toHaveBeenCalledWith(expect.objectContaining({ saldo_existencias: 90, ultimo_conteo_fecha: expect.any(String) }))
+  })
+
+  it('HU-034 CA-03: cerrar un Egreso tipo venta NO toca ultimo_conteo_fecha', async () => {
+    const inventarioUpdateSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      documentos_egreso: { data: { id: 'doc-2', numero: 'EGR-2026-0002', estado: 'generado', tipo: 'venta', bodega_id: 'bod-1' }, error: null },
+      documentos_egreso_items: { data: [{ id: 'l1', producto_id: 'prod-1', cantidad: 5 }], error: null },
+      inventario: { data: [{ id: 'prod-1', codigo: 'AL-I0001', saldo_existencias: 100, costo_unitario: 12 }], error: null, onUpdate: inventarioUpdateSpy },
+      kardex_movimientos: { data: [], error: null },
+    }))
+    const resultado = await cerrarDocumentoEgreso('doc-2', ACTOR)
+    expect(resultado.ok).toBe(true)
+    expect(inventarioUpdateSpy).toHaveBeenCalledWith(expect.not.objectContaining({ ultimo_conteo_fecha: expect.anything() }))
   })
 
   it('bloquea si ya está cerrado', async () => {

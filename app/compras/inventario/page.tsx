@@ -7,7 +7,7 @@ import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { calcularAlertaStock } from '@/lib/bodega-alertas'
+import { calcularAlertaStock, calcularAlertaConteo } from '@/lib/bodega-alertas'
 
 type Item = {
   id: string
@@ -22,6 +22,18 @@ type Item = {
   // Spec: HU-033 CA-01 — ya devueltos por el GET desde HU-027.
   stock_minimo: number | null
   stock_maximo: number | null
+  // Spec: HU-034 CA-04 — ya devuelto por el GET desde HU-027.
+  ultimo_conteo_fecha: string | null
+}
+
+const SEMAFORO_LABEL: Record<string, string> = {
+  verde: 'Conteo reciente', amarillo: 'Conteo hace 9m-1a', rojo: 'Conteo hace +1 año', sin_conteo: 'Sin conteo registrado',
+}
+const SEMAFORO_COLOR: Record<string, string> = {
+  verde: 'bg-green-100 text-green-700',
+  amarillo: 'bg-amber-100 text-amber-700',
+  rojo: 'bg-red-100 text-red-700',
+  sin_conteo: 'bg-gray-100 text-gray-500',
 }
 
 type ImportResult = {
@@ -177,6 +189,14 @@ export default function InventarioPage() {
                             if (alerta.bajoMinimo) return <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-700">Bajo mínimo</span>
                             if (alerta.sobreMaximo) return <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700">Sobre máximo</span>
                             return null
+                          })()}
+                          {(() => {
+                            const semaforo = calcularAlertaConteo(item.ultimo_conteo_fecha)
+                            return (
+                              <span className={`ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium ${SEMAFORO_COLOR[semaforo]}`} title={SEMAFORO_LABEL[semaforo]}>
+                                ●
+                              </span>
+                            )
                           })()}
                         </td>
                         <td className="py-3 pr-4 text-right text-slate-600">
