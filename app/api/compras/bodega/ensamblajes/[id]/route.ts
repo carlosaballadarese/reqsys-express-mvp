@@ -35,7 +35,26 @@ export async function GET(
     .select('id, producto_id, cantidad')
     .eq('orden_ensamblaje_id', id)
 
-  return NextResponse.json({ ...orden, insumos: insumos ?? [], resultados: resultados ?? [] })
+  // Enriquecer con código/descripción del producto — evita que la pantalla
+  // de detalle cargue el catálogo completo de inventario solo para mostrar
+  // estas pocas líneas (mismo criterio ya aplicado en Ingresos/Egresos).
+  const productoIds = [...new Set([...(insumos ?? []), ...(resultados ?? [])].map((l) => l.producto_id).filter(Boolean))]
+  let productosPorId = new Map<string, { codigo: string; descripcion: string }>()
+  if (productoIds.length > 0) {
+    const { data: productos } = await adminClient()
+      .from('inventario')
+      .select('id, codigo, descripcion')
+      .in('id', productoIds)
+    productosPorId = new Map((productos ?? []).map((p) => [p.id, { codigo: p.codigo, descripcion: p.descripcion }]))
+  }
+  const conProducto = (lineas: { id: string; producto_id: string; cantidad: number }[]) =>
+    lineas.map((l) => ({
+      ...l,
+      codigo: productosPorId.get(l.producto_id)?.codigo ?? null,
+      descripcion: productosPorId.get(l.producto_id)?.descripcion ?? null,
+    }))
+
+  return NextResponse.json({ ...orden, insumos: conProducto(insumos ?? []), resultados: conProducto(resultados ?? []) })
 }
 
 type Linea = { id?: string; producto_id: string; cantidad: number }

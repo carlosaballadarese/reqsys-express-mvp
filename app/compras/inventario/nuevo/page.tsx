@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ComboConAlta } from '@/components/ComboConAlta'
 
 export default function NuevoItemPage() {
   const router = useRouter()
@@ -99,7 +100,7 @@ export default function NuevoItemPage() {
       </div>
 
       <div className="max-w-2xl mx-auto px-6 py-6">
-        <Card>
+        <Card className="overflow-visible">
           <CardHeader className="pb-3">
             <CardTitle className="text-base text-slate-700">Datos del Ítem</CardTitle>
           </CardHeader>
@@ -147,13 +148,17 @@ export default function NuevoItemPage() {
             <div className="border-t pt-4">
               <p className="text-xs font-medium text-slate-500 mb-3">Clasificación de Bodega</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-xs">Bodega</Label>
-                  <select value={form.bodega_id} onChange={e => setField('bodega_id', e.target.value)} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
-                    <option value="">Sin asignar</option>
-                    {bodegas.map(b => <option key={b.id} value={b.id}>{b.nombre}</option>)}
-                  </select>
-                </div>
+                <ComboConAlta
+                  label="Bodega"
+                  value={form.bodega_id}
+                  onChange={(id) => setField('bodega_id', id)}
+                  opciones={bodegas}
+                  onCreado={(nuevo) => setBodegas((prev) => [...prev, nuevo])}
+                  crearEndpoint="/api/compras/bodega/bodegas"
+                  construirBody={(nombre, extra) => ({ nombre, codigo: extra.codigo, referencia: extra.referencia || null })}
+                  placeholderOpcionVacia="Sin asignar"
+                  camposExtra={[{ key: 'codigo', label: 'Código', requerido: true }, { key: 'referencia', label: 'Referencia (opcional)' }]}
+                />
                 <div>
                   <Label className="text-xs">Área (para filtrar Categoría — no se guarda)</Label>
                   <select value={areaFiltro} onChange={e => setAreaFiltro(e.target.value)} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">

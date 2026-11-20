@@ -9,24 +9,23 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from '@/lib/toast'
+import { ComboConAlta } from '@/components/ComboConAlta'
+import { ProductoSearch } from '@/components/ProductoSearch'
 
-type Producto = { id: string; codigo: string; descripcion: string }
 type Bodega = { id: string; nombre: string }
-type Linea = { producto_id: string; cantidad: number }
+type Linea = { producto_id: string; codigo: string; descripcion: string; cantidad: number }
 
 // Spec: HU-031 CA-01 — creación de Orden de Ensamblaje (insumos + resultados en la misma orden).
 export default function NuevoEnsamblajePage() {
   const router = useRouter()
   const [bodegaId, setBodegaId] = useState('')
   const [bodegas, setBodegas] = useState<Bodega[]>([])
-  const [productos, setProductos] = useState<Producto[]>([])
-  const [insumos, setInsumos] = useState<Linea[]>([{ producto_id: '', cantidad: 0 }])
-  const [resultados, setResultados] = useState<Linea[]>([{ producto_id: '', cantidad: 0 }])
+  const [insumos, setInsumos] = useState<Linea[]>([{ producto_id: '', codigo: '', descripcion: '', cantidad: 0 }])
+  const [resultados, setResultados] = useState<Linea[]>([{ producto_id: '', codigo: '', descripcion: '', cantidad: 0 }])
   const [guardando, setGuardando] = useState(false)
 
   useEffect(() => {
     fetch('/api/compras/bodega/bodegas?todas=1').then((r) => r.json()).then((d) => setBodegas(Array.isArray(d) ? d : [])).catch(() => {})
-    fetch('/api/compras/inventario').then((r) => r.json()).then((d) => setProductos(Array.isArray(d) ? d : [])).catch(() => {})
   }, [])
 
   function actualizar(lista: Linea[], setLista: (l: Linea[]) => void, idx: number, campo: keyof Linea, valor: string | number) {
@@ -40,9 +39,10 @@ export default function NuevoEnsamblajePage() {
     }
     setGuardando(true)
     try {
+      const limpiar = (lineas: Linea[]) => lineas.map((l) => ({ producto_id: l.producto_id, cantidad: l.cantidad }))
       const res = await fetch('/api/compras/bodega/ensamblajes', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bodega_id: bodegaId, insumos, resultados }),
+        body: JSON.stringify({ bodega_id: bodegaId, insumos: limpiar(insumos), resultados: limpiar(resultados) }),
       })
       const data = await res.json()
       if (!res.ok) { toast.error(data.error ?? 'Error al crear la orden'); return }
@@ -56,18 +56,24 @@ export default function NuevoEnsamblajePage() {
       <div>
         <div className="flex items-center justify-between mb-2">
           <Label>{titulo}</Label>
-          <Button size="sm" onClick={() => setLineas([...lineas, { producto_id: '', cantidad: 0 }])}>+ Agregar línea</Button>
+          <Button size="sm" onClick={() => setLineas([...lineas, { producto_id: '', codigo: '', descripcion: '', cantidad: 0 }])}>+ Agregar línea</Button>
         </div>
         <table className="w-full text-sm">
           <thead><tr className="text-left border-b"><th className="p-2">Producto</th><th className="p-2">Cantidad</th><th className="p-2"></th></tr></thead>
           <tbody>
             {lineas.map((l, idx) => (
               <tr key={idx} className="border-b">
-                <td className="p-2">
-                  <select className="border rounded px-2 py-1 text-sm w-full" value={l.producto_id} onChange={(e) => actualizar(lineas, setLineas, idx, 'producto_id', e.target.value)}>
-                    <option value="">— seleccionar —</option>
-                    {productos.map((p) => <option key={p.id} value={p.id}>{p.codigo} — {p.descripcion}</option>)}
-                  </select>
+                <td className="p-2 min-w-[260px]">
+                  <ProductoSearch
+                    value={l.codigo}
+                    onChange={(val) => { actualizar(lineas, setLineas, idx, 'codigo', val); actualizar(lineas, setLineas, idx, 'producto_id', '') }}
+                    onSelect={(item) => {
+                      actualizar(lineas, setLineas, idx, 'producto_id', item.id)
+                      actualizar(lineas, setLineas, idx, 'codigo', item.codigo)
+                      actualizar(lineas, setLineas, idx, 'descripcion', item.descripcion)
+                    }}
+                  />
+                  {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
                 </td>
                 <td className="p-2 w-24"><Input type="number" value={l.cantidad} onChange={(e) => actualizar(lineas, setLineas, idx, 'cantidad', Number(e.target.value))} /></td>
                 <td className="p-2">
@@ -83,15 +89,20 @@ export default function NuevoEnsamblajePage() {
 
   return (
     <div className="max-w-[1600px] mx-auto p-6 space-y-4">
-      <Card>
+      <Card className="overflow-visible">
         <CardHeader><CardTitle>Nueva Orden de Ensamblaje (Field Build)</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <div>
-            <Label>Bodega</Label>
-            <select className="border rounded px-2 py-1 text-sm w-full h-9 max-w-xs" value={bodegaId} onChange={(e) => setBodegaId(e.target.value)}>
-              <option value="">— seleccionar —</option>
-              {bodegas.map((b) => <option key={b.id} value={b.id}>{b.nombre}</option>)}
-            </select>
+          <div className="max-w-xs">
+            <ComboConAlta
+              label="Bodega"
+              value={bodegaId}
+              onChange={setBodegaId}
+              opciones={bodegas}
+              onCreado={(nuevo) => setBodegas((prev) => [...prev, nuevo])}
+              crearEndpoint="/api/compras/bodega/bodegas"
+              construirBody={(nombre, extra) => ({ nombre, codigo: extra.codigo, referencia: extra.referencia || null })}
+              camposExtra={[{ key: 'codigo', label: 'Código', requerido: true }, { key: 'referencia', label: 'Referencia (opcional)' }]}
+            />
           </div>
 
           <TablaLineas titulo="Insumos consumidos" lineas={insumos} setLineas={setInsumos} />

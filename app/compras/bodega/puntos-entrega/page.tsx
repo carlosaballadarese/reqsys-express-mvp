@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from '@/lib/toast'
 
-type Pozo = {
+type PuntoEntrega = {
   id: string
   nombre: string
   cliente_final_id: string | null
@@ -22,8 +22,8 @@ const FORM_VACIO = { nombre: '', cliente_final_id: '' }
 
 // Spec: HU-026 CA-08 — Cliente Final opcional (destinos internos como
 // "ARLIFT - BASE" que no pertenecen a ningún cliente).
-export default function PozosPage() {
-  const [pozos, setPozos]     = useState<Pozo[]>([])
+export default function PuntosEntregaPage() {
+  const [puntos, setPuntos]     = useState<PuntoEntrega[]>([])
   const [clientes, setClientes] = useState<ClienteFinal[]>([])
   const [cargando, setCargando] = useState(true)
 
@@ -40,11 +40,11 @@ export default function PozosPage() {
   function cargar() {
     setCargando(true)
     Promise.all([
-      fetch('/api/compras/bodega/pozos?todas=1').then(r => r.json()),
+      fetch('/api/compras/bodega/puntos-entrega?todas=1').then(r => r.json()),
       fetch('/api/compras/bodega/clientes-finales').then(r => r.json()),
     ])
-      .then(([pozosData, clientesData]) => {
-        setPozos(Array.isArray(pozosData) ? pozosData : [])
+      .then(([puntosData, clientesData]) => {
+        setPuntos(Array.isArray(puntosData) ? puntosData : [])
         setClientes(Array.isArray(clientesData) ? clientesData : [])
         setCargando(false)
       })
@@ -56,7 +56,7 @@ export default function PozosPage() {
   async function handleCrear() {
     if (!nuevoForm.nombre.trim()) { setErrorNuevo('El nombre es requerido'); return }
     setGuardandoNuevo(true); setErrorNuevo('')
-    const res  = await fetch('/api/compras/bodega/pozos', {
+    const res  = await fetch('/api/compras/bodega/puntos-entrega', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nombre: nuevoForm.nombre, cliente_final_id: nuevoForm.cliente_final_id || null }),
@@ -70,7 +70,7 @@ export default function PozosPage() {
     setGuardandoNuevo(false)
   }
 
-  function iniciarEdicion(p: Pozo) {
+  function iniciarEdicion(p: PuntoEntrega) {
     setEditandoId(p.id)
     setEditForm({ nombre: p.nombre, cliente_final_id: p.cliente_final_id ?? '' })
     setErrorEdit('')
@@ -79,7 +79,7 @@ export default function PozosPage() {
   async function handleGuardarEdit() {
     if (!editForm.nombre.trim()) { setErrorEdit('El nombre es requerido'); return }
     setGuardandoEdit(true); setErrorEdit('')
-    const res  = await fetch(`/api/compras/bodega/pozos/${editandoId}`, {
+    const res  = await fetch(`/api/compras/bodega/puntos-entrega/${editandoId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nombre: editForm.nombre, cliente_final_id: editForm.cliente_final_id || null }),
@@ -90,8 +90,8 @@ export default function PozosPage() {
     setGuardandoEdit(false)
   }
 
-  async function toggleActivo(p: Pozo) {
-    const res  = await fetch(`/api/compras/bodega/pozos/${p.id}`, {
+  async function toggleActivo(p: PuntoEntrega) {
+    const res  = await fetch(`/api/compras/bodega/puntos-entrega/${p.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ activo: !p.activo }),
@@ -112,14 +112,14 @@ export default function PozosPage() {
 
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">Pozos</h1>
+            <h1 className="text-2xl font-bold text-slate-800">Lugares de Entrega</h1>
             <p className="text-slate-500 text-sm mt-0.5">
-              Pozos de un Cliente Final, o destinos internos de ARLIFT (Cliente Final opcional).
+              Pozos u otros lugares de entrega de un Cliente Final, o destinos internos de ARLIFT (Cliente Final opcional).
             </p>
           </div>
           <Button onClick={() => { setShowNuevo(true); setErrorNuevo(''); setNuevoForm(FORM_VACIO) }}
             className="btn-primary text-sm">
-            + Nuevo Pozo
+            + Nuevo Lugar de Entrega
           </Button>
         </div>
 
@@ -127,7 +127,7 @@ export default function PozosPage() {
           <Card className="border-blue-200">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base text-blue-800">Nuevo Pozo</CardTitle>
+                <CardTitle className="text-base text-blue-800">Nuevo Lugar de Entrega</CardTitle>
                 <button onClick={() => setShowNuevo(false)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
               </div>
             </CardHeader>
@@ -164,14 +164,14 @@ export default function PozosPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-slate-600">
-              {cargando ? 'Cargando...' : `${pozos.length} Pozos`}
+              {cargando ? 'Cargando...' : `${puntos.length} Lugares de Entrega`}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {cargando ? (
               <div className="text-center py-10 text-slate-400">Cargando...</div>
-            ) : pozos.length === 0 ? (
-              <div className="text-center py-10 text-slate-400">No hay Pozos registrados.</div>
+            ) : puntos.length === 0 ? (
+              <div className="text-center py-10 text-slate-400">No hay Lugares de Entrega registrados.</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -183,7 +183,7 @@ export default function PozosPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {pozos.map(p => (
+                    {puntos.map(p => (
                       <tr key={p.id} className="border-b last:border-0">
                         {editandoId === p.id ? (
                           <td colSpan={3} className="py-3">

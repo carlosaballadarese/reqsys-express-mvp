@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     if (!auth.ok) return NextResponse.json({ error: auth.status === 401 ? 'No autenticado' : 'No autorizado' }, { status: auth.status })
 
     const { data, error } = await adminClient()
-      .from('pozos')
+      .from('puntos_entrega')
       .select('id, nombre, cliente_final_id, activo')
       .order('nombre')
 
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { data, error } = await adminClient()
-    .from('pozos')
+    .from('puntos_entrega')
     .select('id, nombre, cliente_final_id')
     .eq('activo', true)
     .order('nombre')
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     if (!nombreLimpio) return NextResponse.json({ error: 'El nombre es requerido' }, { status: 400 })
 
     const { data, error } = await adminClient()
-      .from('pozos')
+      .from('puntos_entrega')
       .insert({ nombre: nombreLimpio, cliente_final_id: cliente_final_id || null })
       .select('id, nombre, cliente_final_id, activo')
       .single()

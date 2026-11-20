@@ -30,16 +30,16 @@ describe('CA-06: ícono Compras sin Reporte de Líneas', () => {
 })
 
 describe('HU-026: catálogos base de Bodega en el nav', () => {
-  it('Bodega gana Proveedores (movido desde Compras) + Bodegas/Categorías/Clientes Finales/Pozos', () => {
+  it('Bodega gana Proveedores (movido desde Compras) + Bodegas/Categorías/Clientes Finales/Lugar de Entrega, reordenado por prioridad de uso (2026-11-20)', () => {
     const labels = (grupo('Bodega').children ?? []).map(c => c.label)
     expect(labels).toEqual([
-      'Inventario', 'Proveedores', 'Bodegas', 'Categorías', 'Clientes Finales', 'Pozos',
       // Spec: HU-028 CA-02/CA-03/CA-08
-      'Documentos de Ingreso', 'Kardex',
+      'Kardex', 'Documentos de Ingreso',
       // Spec: HU-030 CA-01
       'Documentos de Egreso',
       // Spec: HU-031 CA-01
       'Ensamblajes (Field Build)',
+      'Categorías', 'Bodegas', 'Inventario', 'Clientes Finales', 'Lugar de Entrega', 'Proveedores',
     ])
   })
 
@@ -49,20 +49,21 @@ describe('HU-026: catálogos base de Bodega en el nav', () => {
     expect(proveedores.roles).toEqual(['compras', 'admin', 'asistente_compras'])
   })
 
-  it('Bodegas y Categorías son solo compras/admin; Clientes Finales y Pozos también incluyen bodega', () => {
+  it('Bodegas y Categorías son solo compras/admin; Clientes Finales y Lugar de Entrega también incluyen bodega', () => {
     const porLabel = (label: string) => (grupo('Bodega').children ?? []).find(c => c.label === label)!
     expect(porLabel('Bodegas').roles).toEqual(['compras', 'admin'])
     expect(porLabel('Categorías').roles).toEqual(['compras', 'admin'])
     expect(porLabel('Clientes Finales').roles).toEqual(['compras', 'admin', 'bodega'])
-    expect(porLabel('Pozos').roles).toEqual(['compras', 'admin', 'bodega'])
+    expect(porLabel('Lugar de Entrega').roles).toEqual(['compras', 'admin', 'bodega'])
+    expect(porLabel('Lugar de Entrega').href).toBe('/compras/bodega/puntos-entrega')
   })
 
-  it('bodega ve Clientes Finales y Pozos pero no Bodegas ni Categorías', () => {
+  it('bodega ve Clientes Finales y Lugar de Entrega pero no Bodegas ni Categorías', () => {
     const items = itemsVisibles(grupo('Bodega'), 'bodega').map(i => i.label)
     // Spec: HU-028 CA-02/CA-03/CA-08 — bodega también escribe Documentos de
     // Ingreso/Kardex; HU-030 CA-01 agrega Documentos de Egreso; HU-031 CA-01
     // agrega Ensamblajes.
-    expect(items).toEqual(['Inventario', 'Clientes Finales', 'Pozos', 'Documentos de Ingreso', 'Kardex', 'Documentos de Egreso', 'Ensamblajes (Field Build)'])
+    expect(items).toEqual(['Kardex', 'Documentos de Ingreso', 'Documentos de Egreso', 'Ensamblajes (Field Build)', 'Inventario', 'Clientes Finales', 'Lugar de Entrega'])
   })
 })
 

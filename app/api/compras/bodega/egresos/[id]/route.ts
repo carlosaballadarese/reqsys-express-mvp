@@ -20,7 +20,7 @@ export async function GET(
 
   const { data: documento, error } = await adminClient()
     .from('documentos_egreso')
-    .select('id, numero, bodega_id, tipo, estado, cliente_final_id, pozo_id, override_admin, justificacion_override, created_at, cerrado_en')
+    .select('id, numero, bodega_id, tipo, estado, cliente_final_id, punto_entrega_id, override_admin, justificacion_override, created_at, cerrado_en')
     .eq('id', id)
     .single()
 
@@ -31,7 +31,26 @@ export async function GET(
     .select('id, producto_id, cantidad')
     .eq('documento_egreso_id', id)
 
-  return NextResponse.json({ ...documento, lineas: lineas ?? [] })
+  // Enriquecer con código/descripción del producto — evita que la pantalla
+  // de detalle tenga que cargar el catálogo completo de inventario solo para
+  // mostrar las 1-3 líneas de este documento (mismo criterio que corrigió
+  // DEF-HU-035-001: nunca traer de más "por si acaso").
+  const productoIds = [...new Set((lineas ?? []).map((l) => l.producto_id).filter(Boolean))]
+  let productosPorId = new Map<string, { codigo: string; descripcion: string }>()
+  if (productoIds.length > 0) {
+    const { data: productos } = await adminClient()
+      .from('inventario')
+      .select('id, codigo, descripcion')
+      .in('id', productoIds)
+    productosPorId = new Map((productos ?? []).map((p) => [p.id, { codigo: p.codigo, descripcion: p.descripcion }]))
+  }
+  const lineasConProducto = (lineas ?? []).map((l) => ({
+    ...l,
+    codigo: productosPorId.get(l.producto_id)?.codigo ?? null,
+    descripcion: productosPorId.get(l.producto_id)?.descripcion ?? null,
+  }))
+
+  return NextResponse.json({ ...documento, lineas: lineasConProducto })
 }
 
 type LineaEdit = { id?: string; producto_id: string; cantidad: number }

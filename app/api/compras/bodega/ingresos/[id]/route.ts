@@ -31,6 +31,24 @@ export async function GET(
     .select('id, producto_id, codigo_oc, descripcion_oc, cantidad, costo_unitario, justificacion, es_importacion, costo_fob, factor_nacionalizacion')
     .eq('documento_ingreso_id', id)
 
+  // Enriquecer con código/descripción del producto ya vinculado — evita que
+  // la pantalla de detalle cargue el catálogo completo de inventario solo
+  // para mostrar el nombre de las líneas ya resueltas.
+  const productoIds = [...new Set((lineas ?? []).map((l) => l.producto_id).filter(Boolean))]
+  let productosPorId = new Map<string, { codigo: string; descripcion: string }>()
+  if (productoIds.length > 0) {
+    const { data: productos } = await adminClient()
+      .from('inventario')
+      .select('id, codigo, descripcion')
+      .in('id', productoIds)
+    productosPorId = new Map((productos ?? []).map((p) => [p.id, { codigo: p.codigo, descripcion: p.descripcion }]))
+  }
+  const lineasConProducto = (lineas ?? []).map((l) => ({
+    ...l,
+    producto_codigo: l.producto_id ? (productosPorId.get(l.producto_id)?.codigo ?? null) : null,
+    producto_descripcion: l.producto_id ? (productosPorId.get(l.producto_id)?.descripcion ?? null) : null,
+  }))
+
   let numeroOc: string | null = null
   if (documento.registro_compras_id) {
     const { data: oc } = await adminClient()
@@ -41,7 +59,7 @@ export async function GET(
     numeroOc = oc?.numero_oc ?? null
   }
 
-  return NextResponse.json({ ...documento, numero_oc: numeroOc, lineas: lineas ?? [] })
+  return NextResponse.json({ ...documento, numero_oc: numeroOc, lineas: lineasConProducto })
 }
 
 type LineaEdit = {

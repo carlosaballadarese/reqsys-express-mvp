@@ -37,14 +37,14 @@ type ResultadoCreacion =
   | { ok: false; error: string }
 
 // Spec: HU-030 CA-01 — creación de Documento de Egreso. cliente_final_id/
-// pozo_id solo tienen efecto en venta/gasto; en prestamo/reconteo se ignoran
-// (no es un error, CA-01 dice que esos 2 tipos simplemente "no los usan").
+// punto_entrega_id solo tienen efecto en venta/gasto; en prestamo/reconteo se
+// ignoran (no es un error, CA-01 dice que esos 2 tipos simplemente "no los usan").
 export async function crearDocumentoEgreso(
   input: {
     tipo: TipoEgreso
     bodegaId: string
     clienteFinalId?: string | null
-    pozoId?: string | null
+    puntoEntregaId?: string | null
     lineas: LineaEgreso[]
   },
   actor: ActorEgreso
@@ -72,7 +72,7 @@ export async function crearDocumentoEgreso(
       tipo: input.tipo,
       estado: 'generado',
       cliente_final_id: permiteDestino ? (input.clienteFinalId ?? null) : null,
-      pozo_id: permiteDestino ? (input.pozoId ?? null) : null,
+      punto_entrega_id: permiteDestino ? (input.puntoEntregaId ?? null) : null,
       creado_por_id: actor.id,
     })
     .select('id, numero')

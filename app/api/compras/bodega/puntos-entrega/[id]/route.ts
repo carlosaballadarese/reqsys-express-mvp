@@ -39,7 +39,7 @@ export async function PUT(
     }
 
     const { error } = await adminClient()
-      .from('pozos')
+      .from('puntos_entrega')
       .update(update)
       .eq('id', id)
 

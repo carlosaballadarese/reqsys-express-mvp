@@ -9,12 +9,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from '@/lib/toast'
+import { ComboConAlta } from '@/components/ComboConAlta'
+import { ProductoSearch } from '@/components/ProductoSearch'
 
-type Producto = { id: string; codigo: string; descripcion: string }
 type Bodega = { id: string; nombre: string }
 type ClienteFinal = { id: string; nombre: string }
-type Pozo = { id: string; nombre: string }
-type Linea = { producto_id: string; cantidad: number }
+type PuntoEntrega = { id: string; nombre: string }
+type Linea = { producto_id: string; codigo: string; descripcion: string; cantidad: number }
 
 // Spec: HU-030 CA-01 — creación de Documento de Egreso (Venta/Gasto/Préstamo/Reconteo).
 export default function NuevoEgresoPage() {
@@ -22,27 +23,25 @@ export default function NuevoEgresoPage() {
   const [tipo, setTipo] = useState<'venta' | 'gasto' | 'prestamo' | 'reconteo'>('venta')
   const [bodegaId, setBodegaId] = useState('')
   const [clienteFinalId, setClienteFinalId] = useState('')
-  const [pozoId, setPozoId] = useState('')
+  const [puntoEntregaId, setPuntoEntregaId] = useState('')
   const [bodegas, setBodegas] = useState<Bodega[]>([])
-  const [productos, setProductos] = useState<Producto[]>([])
   const [clientes, setClientes] = useState<ClienteFinal[]>([])
-  const [pozos, setPozos] = useState<Pozo[]>([])
-  const [lineas, setLineas] = useState<Linea[]>([{ producto_id: '', cantidad: 0 }])
+  const [puntosEntrega, setPuntosEntrega] = useState<PuntoEntrega[]>([])
+  const [lineas, setLineas] = useState<Linea[]>([{ producto_id: '', codigo: '', descripcion: '', cantidad: 0 }])
   const [guardando, setGuardando] = useState(false)
 
   const permiteDestino = tipo === 'venta' || tipo === 'gasto'
 
   useEffect(() => {
     fetch('/api/compras/bodega/bodegas?todas=1').then((r) => r.json()).then((d) => setBodegas(Array.isArray(d) ? d : [])).catch(() => {})
-    fetch('/api/compras/inventario').then((r) => r.json()).then((d) => setProductos(Array.isArray(d) ? d : [])).catch(() => {})
     fetch('/api/compras/bodega/clientes-finales?todas=1').then((r) => r.json()).then((d) => setClientes(Array.isArray(d) ? d : [])).catch(() => {})
-    fetch('/api/compras/bodega/pozos?todas=1').then((r) => r.json()).then((d) => setPozos(Array.isArray(d) ? d : [])).catch(() => {})
+    fetch('/api/compras/bodega/puntos-entrega?todas=1').then((r) => r.json()).then((d) => setPuntosEntrega(Array.isArray(d) ? d : [])).catch(() => {})
   }, [])
 
   function actualizarLinea(idx: number, campo: keyof Linea, valor: string | number) {
     setLineas((prev) => prev.map((l, i) => (i === idx ? { ...l, [campo]: valor } : l)))
   }
-  function agregarLinea() { setLineas((prev) => [...prev, { producto_id: '', cantidad: 0 }]) }
+  function agregarLinea() { setLineas((prev) => [...prev, { producto_id: '', codigo: '', descripcion: '', cantidad: 0 }]) }
   function eliminarLinea(idx: number) { setLineas((prev) => prev.filter((_, i) => i !== idx)) }
 
   async function handleCrear() {
@@ -56,8 +55,8 @@ export default function NuevoEgresoPage() {
         body: JSON.stringify({
           tipo, bodega_id: bodegaId,
           cliente_final_id: permiteDestino ? (clienteFinalId || null) : null,
-          pozo_id: permiteDestino ? (pozoId || null) : null,
-          lineas,
+          punto_entrega_id: permiteDestino ? (puntoEntregaId || null) : null,
+          lineas: lineas.map((l) => ({ producto_id: l.producto_id, cantidad: l.cantidad })),
         }),
       })
       const data = await res.json()
@@ -71,7 +70,7 @@ export default function NuevoEgresoPage() {
 
   return (
     <div className="max-w-[1600px] mx-auto p-6 space-y-4">
-      <Card>
+      <Card className="overflow-visible">
         <CardHeader><CardTitle>Nuevo Documento de Egreso</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -84,31 +83,41 @@ export default function NuevoEgresoPage() {
                 <option value="reconteo">Reconteo</option>
               </select>
             </div>
-            <div>
-              <Label>Bodega de origen</Label>
-              <select className="border rounded px-2 py-1 text-sm w-full h-9" value={bodegaId} onChange={(e) => setBodegaId(e.target.value)}>
-                <option value="">— seleccionar —</option>
-                {bodegas.map((b) => <option key={b.id} value={b.id}>{b.nombre}</option>)}
-              </select>
-            </div>
+            <ComboConAlta
+              label="Bodega de origen"
+              value={bodegaId}
+              onChange={setBodegaId}
+              opciones={bodegas}
+              onCreado={(nuevo) => setBodegas((prev) => [...prev, nuevo])}
+              crearEndpoint="/api/compras/bodega/bodegas"
+              construirBody={(nombre, extra) => ({ nombre, codigo: extra.codigo, referencia: extra.referencia || null })}
+              camposExtra={[{ key: 'codigo', label: 'Código', requerido: true }, { key: 'referencia', label: 'Referencia (opcional)' }]}
+            />
           </div>
 
           {permiteDestino && (
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Cliente Final (opcional)</Label>
-                <select className="border rounded px-2 py-1 text-sm w-full h-9" value={clienteFinalId} onChange={(e) => setClienteFinalId(e.target.value)}>
-                  <option value="">— sin especificar —</option>
-                  {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                </select>
-              </div>
-              <div>
-                <Label>Pozo (opcional)</Label>
-                <select className="border rounded px-2 py-1 text-sm w-full h-9" value={pozoId} onChange={(e) => setPozoId(e.target.value)}>
-                  <option value="">— sin especificar —</option>
-                  {pozos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                </select>
-              </div>
+              <ComboConAlta
+                label="Cliente Final (opcional)"
+                value={clienteFinalId}
+                onChange={setClienteFinalId}
+                opciones={clientes}
+                onCreado={(nuevo) => setClientes((prev) => [...prev, nuevo])}
+                crearEndpoint="/api/compras/bodega/clientes-finales"
+                construirBody={(nombre, extra) => ({ nombre, ruc: extra.ruc || null })}
+                placeholderOpcionVacia="— sin especificar —"
+                camposExtra={[{ key: 'ruc', label: 'RUC (opcional)' }]}
+              />
+              <ComboConAlta
+                label="Lugar de Entrega (opcional)"
+                value={puntoEntregaId}
+                onChange={setPuntoEntregaId}
+                opciones={puntosEntrega}
+                onCreado={(nuevo) => setPuntosEntrega((prev) => [...prev, nuevo])}
+                crearEndpoint="/api/compras/bodega/puntos-entrega"
+                construirBody={(nombre) => ({ nombre, cliente_final_id: clienteFinalId || null })}
+                placeholderOpcionVacia="— sin especificar —"
+              />
             </div>
           )}
 
@@ -129,11 +138,17 @@ export default function NuevoEgresoPage() {
                 <tbody>
                   {lineas.map((l, idx) => (
                     <tr key={idx} className="border-b">
-                      <td className="p-2">
-                        <select className="border rounded px-2 py-1 text-sm w-full" value={l.producto_id} onChange={(e) => actualizarLinea(idx, 'producto_id', e.target.value)}>
-                          <option value="">— seleccionar —</option>
-                          {productos.map((p) => <option key={p.id} value={p.id}>{p.codigo} — {p.descripcion}</option>)}
-                        </select>
+                      <td className="p-2 min-w-[260px]">
+                        <ProductoSearch
+                          value={l.codigo}
+                          onChange={(val) => { actualizarLinea(idx, 'codigo', val); actualizarLinea(idx, 'producto_id', '') }}
+                          onSelect={(item) => {
+                            actualizarLinea(idx, 'producto_id', item.id)
+                            actualizarLinea(idx, 'codigo', item.codigo)
+                            actualizarLinea(idx, 'descripcion', item.descripcion)
+                          }}
+                        />
+                        {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
                       </td>
                       <td className="p-2 w-24">
                         <Input type="number" value={l.cantidad} onChange={(e) => actualizarLinea(idx, 'cantidad', Number(e.target.value))} />

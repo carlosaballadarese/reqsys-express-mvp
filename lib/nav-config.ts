@@ -75,39 +75,22 @@ export const NAV: GrupoNav[] = [
     // Spec: SC-008 CA-10 — asistente_compras gana acceso (antes bloqueado
     // explícitamente en proxy.ts sin justificación de negocio documentada).
     roles: ['compras', 'admin', 'gerencia', 'bodega', 'asistente_compras'],
+    // Spec: reordenado por prioridad de uso a pedido del usuario (2026-11-20)
+    // — antes seguía el orden en que cada HU se construyó, no la frecuencia
+    // real de uso. Nota de estructura: `GrupoNav.children` es una sola lista
+    // plana (sin subgrupos anidados) — "Ingresos"/"Egresos"/"Ensamblajes" no
+    // forman un subgrupo "Movimientos" real en el menú, solo quedan
+    // consecutivos para leerse como un bloque.
     children: [
-      { label: 'Inventario', href: '/compras/inventario' },
-      // Spec: HU-026 CA-11 — "Proveedores" se mueve aquí desde "Compras"
-      // (mismo href/roles, solo cambia su ubicación visual en el menú).
-      {
-        label: 'Proveedores', href: '/compras/proveedores',
-        roles: ['compras', 'admin', 'asistente_compras'],
-      },
-      {
-        label: 'Bodegas', href: '/compras/bodega/bodegas',
-        roles: ['compras', 'admin'],
-      },
-      {
-        label: 'Categorías', href: '/compras/bodega/categorias',
-        roles: ['compras', 'admin'],
-      },
-      {
-        label: 'Clientes Finales', href: '/compras/bodega/clientes-finales',
-        roles: ['compras', 'admin', 'bodega'],
-      },
-      {
-        label: 'Pozos', href: '/compras/bodega/pozos',
-        roles: ['compras', 'admin', 'bodega'],
-      },
       // Spec: HU-028 CA-02/CA-03/CA-08 — roles de escritura igualados con
       // asistente_compras (decisión de Fase 1); gerencia nunca participa del
       // ciclo operativo de ingresos/Kardex.
       {
-        label: 'Documentos de Ingreso', href: '/compras/bodega/ingresos',
+        label: 'Kardex', href: '/compras/bodega/kardex',
         roles: ['compras', 'admin', 'bodega', 'asistente_compras'],
       },
       {
-        label: 'Kardex', href: '/compras/bodega/kardex',
+        label: 'Documentos de Ingreso', href: '/compras/bodega/ingresos',
         roles: ['compras', 'admin', 'bodega', 'asistente_compras'],
       },
       // Spec: HU-030 CA-01 — a diferencia de Documentos de Ingreso,
@@ -121,6 +104,34 @@ export const NAV: GrupoNav[] = [
       {
         label: 'Ensamblajes (Field Build)', href: '/compras/bodega/ensamblajes',
         roles: ['compras', 'admin', 'bodega'],
+      },
+      {
+        label: 'Categorías', href: '/compras/bodega/categorias',
+        roles: ['compras', 'admin'],
+      },
+      {
+        label: 'Bodegas', href: '/compras/bodega/bodegas',
+        roles: ['compras', 'admin'],
+      },
+      { label: 'Inventario', href: '/compras/inventario' },
+      {
+        label: 'Clientes Finales', href: '/compras/bodega/clientes-finales',
+        roles: ['compras', 'admin', 'bodega'],
+      },
+      // Spec: renombrado desde "Pozos" (2026-11-20) — nombre agnóstico de
+      // industria para multiempresa; internamente "punto_entrega" (tabla y
+      // columna), elegido tras descartar "destino" por colisión real con
+      // `permiteDestino` ya usado en Egreso.
+      {
+        label: 'Lugar de Entrega', href: '/compras/bodega/puntos-entrega',
+        roles: ['compras', 'admin', 'bodega'],
+      },
+      // Spec: HU-026 CA-11 — "Proveedores" se mueve aquí desde "Compras"
+      // (mismo href/roles, solo cambia su ubicación visual en el menú).
+      // Queda al final: es el catálogo menos específico de Bodega.
+      {
+        label: 'Proveedores', href: '/compras/proveedores',
+        roles: ['compras', 'admin', 'asistente_compras'],
       },
     ],
   },

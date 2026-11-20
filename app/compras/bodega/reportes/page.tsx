@@ -7,22 +7,21 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ProductoSearch } from '@/components/ProductoSearch'
 
-type Producto = { id: string; codigo: string; descripcion: string }
 type Bodega = { id: string; nombre: string }
 
 // Spec: HU-035 — hub de los 5 reportes Excel de Bodega (4 nuevos + Stock
 // Bajo Mínimo de HU-033, consolidado aquí en vez de mantener 2 entradas de
 // nav para el mismo dominio).
 export default function ReportesBodegaPage() {
-  const [productos, setProductos] = useState<Producto[]>([])
   const [bodegas, setBodegas] = useState<Bodega[]>([])
   const [productoId, setProductoId] = useState('')
+  const [productoCodigo, setProductoCodigo] = useState('')
   const [bodegaId, setBodegaId] = useState('')
   const [meses, setMeses] = useState(6)
 
   useEffect(() => {
-    fetch('/api/compras/inventario').then((r) => r.json()).then((d) => setProductos(Array.isArray(d) ? d : [])).catch(() => {})
     fetch('/api/compras/bodega/bodegas?todas=1').then((r) => r.json()).then((d) => setBodegas(Array.isArray(d) ? d : [])).catch(() => {})
   }, [])
 
@@ -34,15 +33,16 @@ export default function ReportesBodegaPage() {
     <div className="max-w-3xl mx-auto p-6 space-y-4">
       <h1 className="text-2xl font-bold text-slate-800">Reportes de Bodega</h1>
 
-      <Card>
+      <Card className="overflow-visible">
         <CardHeader><CardTitle className="text-base">Kardex Valorizado (CA-01)</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <div>
             <Label>Producto</Label>
-            <select className="border rounded px-2 py-1 text-sm w-full h-9" value={productoId} onChange={(e) => setProductoId(e.target.value)}>
-              <option value="">— seleccionar —</option>
-              {productos.map((p) => <option key={p.id} value={p.id}>{p.codigo} — {p.descripcion}</option>)}
-            </select>
+            <ProductoSearch
+              value={productoCodigo}
+              onChange={(val) => { setProductoCodigo(val); setProductoId('') }}
+              onSelect={(item) => { setProductoId(item.id); setProductoCodigo(item.codigo) }}
+            />
           </div>
           <Button size="sm" disabled={!productoId} onClick={() => descargar(`/api/compras/bodega/reportes/kardex/excel?producto_id=${productoId}`)}>⬇ Exportar a Excel</Button>
         </CardContent>

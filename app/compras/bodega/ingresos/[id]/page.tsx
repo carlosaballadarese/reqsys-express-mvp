@@ -8,10 +8,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/lib/toast'
+import { ProductoSearch } from '@/components/ProductoSearch'
 
 type Linea = {
   id: string
   producto_id: string | null
+  producto_codigo?: string | null
+  producto_descripcion?: string | null
   codigo_oc: string | null
   descripcion_oc: string
   cantidad: number
@@ -35,8 +38,6 @@ type Documento = {
   lineas: Linea[]
 }
 
-type Producto = { id: string; codigo: string; descripcion: string }
-
 const ESTADO_LABEL: Record<string, string> = {
   generado: 'Generado', en_validacion: 'En Validación', cerrado: 'Cerrado', anulado: 'Anulado',
 }
@@ -46,7 +47,6 @@ const ESTADO_LABEL: Record<string, string> = {
 export default function DetalleIngresoPage() {
   const { id } = useParams<{ id: string }>()
   const [doc, setDoc] = useState<Documento | null>(null)
-  const [productos, setProductos] = useState<Producto[]>([])
   const [cargando, setCargando] = useState(true)
   const [lineasEdit, setLineasEdit] = useState<Linea[]>([])
   const [guardando, setGuardando] = useState(false)
@@ -54,19 +54,14 @@ export default function DetalleIngresoPage() {
 
   function cargar() {
     setCargando(true)
-    Promise.all([
-      fetch(`/api/compras/bodega/ingresos/${id}`).then((r) => r.json()),
-      fetch('/api/compras/bodega/bodegas?todas=1').then(() => null),
-    ]).then(([data]) => {
-      setDoc(data)
-      setLineasEdit(data?.lineas ?? [])
-      setCargando(false)
-    }).catch(() => setCargando(false))
-
-    fetch('/api/compras/inventario')
+    fetch(`/api/compras/bodega/ingresos/${id}`)
       .then((r) => r.json())
-      .then((data) => setProductos(Array.isArray(data) ? data : []))
-      .catch(() => {})
+      .then((data) => {
+        setDoc(data)
+        setLineasEdit(data?.lineas ?? [])
+        setCargando(false)
+      })
+      .catch(() => setCargando(false))
   }
 
   useEffect(() => { if (id) cargar() }, [id])
@@ -84,7 +79,7 @@ export default function DetalleIngresoPage() {
   function agregarLinea() {
     setLineasEdit((prev) => [
       ...prev,
-      { id: '', producto_id: null, codigo_oc: null, descripcion_oc: '', cantidad: 0, costo_unitario: 0, justificacion: null, es_importacion: false, costo_fob: null, factor_nacionalizacion: null },
+      { id: '', producto_id: null, producto_codigo: '', producto_descripcion: '', codigo_oc: null, descripcion_oc: '', cantidad: 0, costo_unitario: 0, justificacion: null, es_importacion: false, costo_fob: null, factor_nacionalizacion: null },
     ])
   }
 
@@ -141,7 +136,7 @@ export default function DetalleIngresoPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="overflow-visible">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Líneas</CardTitle>
           {editable && <Button size="sm" onClick={agregarLinea}>+ Agregar línea</Button>}
@@ -170,19 +165,22 @@ export default function DetalleIngresoPage() {
                         <Input value={l.descripcion_oc} onChange={(e) => actualizarLinea(idx, 'descripcion_oc', e.target.value)} />
                       ) : l.descripcion_oc}
                     </td>
-                    <td className="p-2">
+                    <td className="p-2 min-w-[240px]">
                       {editable ? (
-                        <select
-                          className="border rounded px-2 py-1 text-sm w-full"
-                          value={l.producto_id ?? ''}
-                          onChange={(e) => actualizarLinea(idx, 'producto_id', e.target.value || null)}
-                        >
-                          <option value="">— sin producto vinculado —</option>
-                          {productos.map((p) => (
-                            <option key={p.id} value={p.id}>{p.codigo} — {p.descripcion}</option>
-                          ))}
-                        </select>
-                      ) : (productos.find((p) => p.id === l.producto_id)?.codigo ?? '— sin vincular —')}
+                        <>
+                          <ProductoSearch
+                            value={l.producto_codigo ?? ''}
+                            onChange={(val) => { actualizarLinea(idx, 'producto_codigo', val); actualizarLinea(idx, 'producto_id', null) }}
+                            onSelect={(item) => {
+                              actualizarLinea(idx, 'producto_id', item.id)
+                              actualizarLinea(idx, 'producto_codigo', item.codigo)
+                              actualizarLinea(idx, 'producto_descripcion', item.descripcion)
+                            }}
+                            placeholder="— sin producto vinculado —"
+                          />
+                          {l.producto_descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.producto_descripcion}</p>}
+                        </>
+                      ) : (l.producto_codigo ?? '— sin vincular —')}
                     </td>
                     <td className="p-2 w-24">
                       {editable ? (

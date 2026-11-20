@@ -9,10 +9,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from '@/lib/toast'
+import { ComboConAlta } from '@/components/ComboConAlta'
+import { ProductoSearch } from '@/components/ProductoSearch'
 
-type Producto = { id: string; codigo: string; descripcion: string }
 type Bodega = { id: string; nombre: string }
-type Linea = { producto_id: string; cantidad: number; costo_unitario: number }
+type Linea = { producto_id: string; codigo: string; descripcion: string; cantidad: number; costo_unitario: number }
 type Prestamo = { id: string; numero: string }
 
 // Spec: HU-029 CA-01 — creación manual de Documento de Ingreso tipo
@@ -23,14 +24,12 @@ export default function NuevoIngresoManualPage() {
   const [bodegaId, setBodegaId] = useState('')
   const [egresoPrestamoId, setEgresoPrestamoId] = useState('')
   const [bodegas, setBodegas] = useState<Bodega[]>([])
-  const [productos, setProductos] = useState<Producto[]>([])
   const [prestamosPendientes, setPrestamosPendientes] = useState<Prestamo[]>([])
-  const [lineas, setLineas] = useState<Linea[]>([{ producto_id: '', cantidad: 0, costo_unitario: 0 }])
+  const [lineas, setLineas] = useState<Linea[]>([{ producto_id: '', codigo: '', descripcion: '', cantidad: 0, costo_unitario: 0 }])
   const [guardando, setGuardando] = useState(false)
 
   useEffect(() => {
     fetch('/api/compras/bodega/bodegas?todas=1').then((r) => r.json()).then((d) => setBodegas(Array.isArray(d) ? d : [])).catch(() => {})
-    fetch('/api/compras/inventario').then((r) => r.json()).then((d) => setProductos(Array.isArray(d) ? d : [])).catch(() => {})
     // Spec: HU-030 CA-05 — Préstamos pendientes, para seleccionar cuál cierra esta Devolución.
     fetch('/api/compras/bodega/egresos/prestamos-pendientes').then((r) => r.json()).then((d) => setPrestamosPendientes(Array.isArray(d) ? d : [])).catch(() => {})
   }, [])
@@ -40,7 +39,7 @@ export default function NuevoIngresoManualPage() {
   }
 
   function agregarLinea() {
-    setLineas((prev) => [...prev, { producto_id: '', cantidad: 0, costo_unitario: 0 }])
+    setLineas((prev) => [...prev, { producto_id: '', codigo: '', descripcion: '', cantidad: 0, costo_unitario: 0 }])
   }
 
   function eliminarLinea(idx: number) {
@@ -60,7 +59,7 @@ export default function NuevoIngresoManualPage() {
         body: JSON.stringify({
           tipo_movimiento: tipoMovimiento,
           bodega_id: bodegaId || null,
-          lineas,
+          lineas: lineas.map((l) => ({ producto_id: l.producto_id, cantidad: l.cantidad, costo_unitario: l.costo_unitario })),
           egreso_prestamo_id: tipoMovimiento === 'devolucion' ? (egresoPrestamoId || null) : null,
         }),
       })
@@ -75,7 +74,7 @@ export default function NuevoIngresoManualPage() {
 
   return (
     <div className="max-w-[1600px] mx-auto p-6 space-y-4">
-      <Card>
+      <Card className="overflow-visible">
         <CardHeader><CardTitle>Nuevo Ingreso Manual (Devolución / Reconteo)</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -90,13 +89,17 @@ export default function NuevoIngresoManualPage() {
                 <option value="reconteo">Reconteo</option>
               </select>
             </div>
-            <div>
-              <Label>Bodega</Label>
-              <select className="border rounded px-2 py-1 text-sm w-full h-9" value={bodegaId} onChange={(e) => setBodegaId(e.target.value)}>
-                <option value="">— sin especificar —</option>
-                {bodegas.map((b) => <option key={b.id} value={b.id}>{b.nombre}</option>)}
-              </select>
-            </div>
+            <ComboConAlta
+              label="Bodega"
+              value={bodegaId}
+              onChange={setBodegaId}
+              opciones={bodegas}
+              onCreado={(nuevo) => setBodegas((prev) => [...prev, nuevo])}
+              crearEndpoint="/api/compras/bodega/bodegas"
+              construirBody={(nombre, extra) => ({ nombre, codigo: extra.codigo, referencia: extra.referencia || null })}
+              placeholderOpcionVacia="— sin especificar —"
+              camposExtra={[{ key: 'codigo', label: 'Código', requerido: true }, { key: 'referencia', label: 'Referencia (opcional)' }]}
+            />
           </div>
 
           {tipoMovimiento === 'devolucion' && (
@@ -127,15 +130,17 @@ export default function NuevoIngresoManualPage() {
                 <tbody>
                   {lineas.map((l, idx) => (
                     <tr key={idx} className="border-b">
-                      <td className="p-2">
-                        <select
-                          className="border rounded px-2 py-1 text-sm w-full"
-                          value={l.producto_id}
-                          onChange={(e) => actualizarLinea(idx, 'producto_id', e.target.value)}
-                        >
-                          <option value="">— seleccionar —</option>
-                          {productos.map((p) => <option key={p.id} value={p.id}>{p.codigo} — {p.descripcion}</option>)}
-                        </select>
+                      <td className="p-2 min-w-[260px]">
+                        <ProductoSearch
+                          value={l.codigo}
+                          onChange={(val) => { actualizarLinea(idx, 'codigo', val); actualizarLinea(idx, 'producto_id', '') }}
+                          onSelect={(item) => {
+                            actualizarLinea(idx, 'producto_id', item.id)
+                            actualizarLinea(idx, 'codigo', item.codigo)
+                            actualizarLinea(idx, 'descripcion', item.descripcion)
+                          }}
+                        />
+                        {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
                       </td>
                       <td className="p-2 w-24">
                         <Input type="number" value={l.cantidad} onChange={(e) => actualizarLinea(idx, 'cantidad', Number(e.target.value))} />

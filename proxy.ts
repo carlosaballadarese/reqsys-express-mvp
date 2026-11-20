@@ -225,7 +225,7 @@ export async function proxy(req: NextRequest) {
         '/compras/auditoria',
         '/compras/configuracion',
         // Spec: HU-026 CA-01/CA-03 — Bodegas y Categorías son admin/compras-only
-        // (a diferencia de Clientes Finales/Pozos, que bodega sí administra).
+        // (a diferencia de Clientes Finales/Lugar de Entrega, que bodega sí administra).
         '/compras/bodega/bodegas',
         '/compras/bodega/categorias',
       ]
@@ -246,7 +246,7 @@ export async function proxy(req: NextRequest) {
         '/compras/bodega/bodegas',
         '/compras/bodega/categorias',
         '/compras/bodega/clientes-finales',
-        '/compras/bodega/pozos',
+        '/compras/bodega/puntos-entrega',
         // Spec: HU-028 — gerencia/consulta nunca participan del ciclo
         // operativo de ingresos/Kardex (solo bodega/compras/admin/
         // asistente_compras, ver CA-03).
@@ -301,7 +301,7 @@ export async function proxy(req: NextRequest) {
         '/compras/bodega/bodegas',
         '/compras/bodega/categorias',
         '/compras/bodega/clientes-finales',
-        '/compras/bodega/pozos',
+        '/compras/bodega/puntos-entrega',
         // Spec: HU-030 CA-01 — a diferencia de Documentos de Ingreso,
         // asistente_compras no participa de Egresos (sin vínculo a ninguna
         // OC que gestione).

@@ -8,8 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/lib/toast'
+import { ProductoSearch } from '@/components/ProductoSearch'
 
-type Linea = { id: string; producto_id: string; cantidad: number }
+type Linea = { id: string; producto_id: string; codigo?: string | null; descripcion?: string | null; cantidad: number }
 type Documento = {
   id: string
   numero: string
@@ -19,7 +20,6 @@ type Documento = {
   justificacion_override: string | null
   lineas: Linea[]
 }
-type Producto = { id: string; codigo: string; descripcion: string }
 
 const TIPO_LABEL: Record<string, string> = { venta: 'Venta', gasto: 'Gasto', prestamo: 'Préstamo', reconteo: 'Reconteo' }
 const ESTADO_LABEL: Record<string, string> = { generado: 'Generado', en_validacion: 'En Validación', cerrado: 'Cerrado' }
@@ -28,7 +28,6 @@ const ESTADO_LABEL: Record<string, string> = { generado: 'Generado', en_validaci
 export default function DetalleEgresoPage() {
   const { id } = useParams<{ id: string }>()
   const [doc, setDoc] = useState<Documento | null>(null)
-  const [productos, setProductos] = useState<Producto[]>([])
   const [cargando, setCargando] = useState(true)
   const [lineasEdit, setLineasEdit] = useState<Linea[]>([])
   const [guardando, setGuardando] = useState(false)
@@ -42,17 +41,16 @@ export default function DetalleEgresoPage() {
       .then((r) => r.json())
       .then((data) => { setDoc(data); setLineasEdit(data?.lineas ?? []); setCargando(false) })
       .catch(() => setCargando(false))
-    fetch('/api/compras/inventario').then((r) => r.json()).then((d) => setProductos(Array.isArray(d) ? d : [])).catch(() => {})
   }
   useEffect(() => { if (id) cargar() }, [id])
 
   const editable = doc && ['generado', 'en_validacion'].includes(doc.estado)
 
-  function actualizarLinea(idx: number, campo: keyof Linea, valor: string | number) {
+  function actualizarLinea(idx: number, campo: keyof Linea, valor: string | number | null) {
     setLineasEdit((prev) => prev.map((l, i) => (i === idx ? { ...l, [campo]: valor } : l)))
   }
   function eliminarLinea(idx: number) { setLineasEdit((prev) => prev.filter((_, i) => i !== idx)) }
-  function agregarLinea() { setLineasEdit((prev) => [...prev, { id: '', producto_id: '', cantidad: 0 }]) }
+  function agregarLinea() { setLineasEdit((prev) => [...prev, { id: '', producto_id: '', codigo: '', descripcion: '', cantidad: 0 }]) }
 
   async function handleGuardar() {
     setGuardando(true)
@@ -106,7 +104,7 @@ export default function DetalleEgresoPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="overflow-visible">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Líneas</CardTitle>
           {editable && <Button size="sm" onClick={agregarLinea}>+ Agregar línea</Button>}
@@ -124,13 +122,26 @@ export default function DetalleEgresoPage() {
               <tbody>
                 {lineasEdit.map((l, idx) => (
                   <tr key={l.id || idx} className="border-b">
-                    <td className="p-2">
+                    <td className="p-2 min-w-[260px]">
                       {editable ? (
-                        <select className="border rounded px-2 py-1 text-sm w-full" value={l.producto_id} onChange={(e) => actualizarLinea(idx, 'producto_id', e.target.value)}>
-                          <option value="">— seleccionar —</option>
-                          {productos.map((p) => <option key={p.id} value={p.id}>{p.codigo} — {p.descripcion}</option>)}
-                        </select>
-                      ) : (productos.find((p) => p.id === l.producto_id)?.codigo ?? l.producto_id)}
+                        <>
+                          <ProductoSearch
+                            value={l.codigo ?? ''}
+                            onChange={(val) => { actualizarLinea(idx, 'codigo', val); actualizarLinea(idx, 'producto_id', '') }}
+                            onSelect={(item) => {
+                              actualizarLinea(idx, 'producto_id', item.id)
+                              actualizarLinea(idx, 'codigo', item.codigo)
+                              actualizarLinea(idx, 'descripcion', item.descripcion)
+                            }}
+                          />
+                          {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
+                        </>
+                      ) : (
+                        <>
+                          <span className="font-mono text-xs text-slate-400 mr-1">{l.codigo ?? l.producto_id}</span>
+                          {l.descripcion}
+                        </>
+                      )}
                     </td>
                     <td className="p-2 w-24">
                       {editable ? (

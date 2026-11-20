@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
 
   let query = adminClient()
     .from('documentos_egreso')
-    .select('id, numero, bodega_id, tipo, estado, cliente_final_id, pozo_id, override_admin, created_at, cerrado_en')
+    .select('id, numero, bodega_id, tipo, estado, cliente_final_id, punto_entrega_id, override_admin, created_at, cerrado_en')
     .order('created_at', { ascending: false })
 
   if (estado) query = query.eq('estado', estado)
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
       tipo: body.tipo,
       bodegaId: body.bodega_id,
       clienteFinalId: body.cliente_final_id ?? null,
-      pozoId: body.pozo_id ?? null,
+      puntoEntregaId: body.punto_entrega_id ?? null,
       lineas: Array.isArray(body.lineas) ? body.lineas : [],
     },
     { id: auth.userId, nombre: auth.nombre, email: auth.email, rol: auth.rol }

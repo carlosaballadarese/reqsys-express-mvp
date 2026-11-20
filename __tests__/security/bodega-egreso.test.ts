@@ -108,7 +108,7 @@ describe('crearDocumentoEgreso — CA-01', () => {
     expect(resultado.ok).toBe(false)
   })
 
-  it('ignora cliente_final_id/pozo_id en tipo prestamo (no los usa, CA-01)', async () => {
+  it('ignora cliente_final_id/punto_entrega_id en tipo prestamo (no los usa, CA-01)', async () => {
     const insertSpy = jest.fn()
     mockFrom.mockImplementation(chainTabla({
       documentos_egreso: {
@@ -118,13 +118,13 @@ describe('crearDocumentoEgreso — CA-01', () => {
       documentos_egreso_items: { data: null, error: null },
     }))
     await crearDocumentoEgreso(
-      { tipo: 'prestamo', bodegaId: 'bod-1', clienteFinalId: 'cliente-1', pozoId: 'pozo-1', lineas: [{ producto_id: 'p1', cantidad: 1 }] },
+      { tipo: 'prestamo', bodegaId: 'bod-1', clienteFinalId: 'cliente-1', puntoEntregaId: 'punto-1', lineas: [{ producto_id: 'p1', cantidad: 1 }] },
       ACTOR
     )
-    expect(insertSpy).toHaveBeenCalledWith(expect.objectContaining({ cliente_final_id: null, pozo_id: null }))
+    expect(insertSpy).toHaveBeenCalledWith(expect.objectContaining({ cliente_final_id: null, punto_entrega_id: null }))
   })
 
-  it('persiste cliente_final_id/pozo_id en tipo venta', async () => {
+  it('persiste cliente_final_id/punto_entrega_id en tipo venta', async () => {
     const insertSpy = jest.fn()
     mockFrom.mockImplementation(chainTabla({
       documentos_egreso: {
@@ -134,11 +134,11 @@ describe('crearDocumentoEgreso — CA-01', () => {
       documentos_egreso_items: { data: null, error: null },
     }))
     const resultado = await crearDocumentoEgreso(
-      { tipo: 'venta', bodegaId: 'bod-1', clienteFinalId: 'cliente-1', pozoId: 'pozo-1', lineas: [{ producto_id: 'p1', cantidad: 1 }] },
+      { tipo: 'venta', bodegaId: 'bod-1', clienteFinalId: 'cliente-1', puntoEntregaId: 'punto-1', lineas: [{ producto_id: 'p1', cantidad: 1 }] },
       ACTOR
     )
     expect(resultado).toEqual({ ok: true, documentoId: 'doc-2', numero: 'EGR-2026-0002' })
-    expect(insertSpy).toHaveBeenCalledWith(expect.objectContaining({ cliente_final_id: 'cliente-1', pozo_id: 'pozo-1' }))
+    expect(insertSpy).toHaveBeenCalledWith(expect.objectContaining({ cliente_final_id: 'cliente-1', punto_entrega_id: 'punto-1' }))
   })
 })
 

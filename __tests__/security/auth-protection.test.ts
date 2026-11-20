@@ -10220,32 +10220,32 @@ describe('PUT /api/compras/bodega/clientes-finales/[id]', () => {
   })
 })
 
-describe('GET/POST /api/compras/bodega/pozos — Cliente Final opcional (CA-08)', () => {
-  const { GET, POST } = require('@/app/api/compras/bodega/pozos/route')
+describe('GET/POST /api/compras/bodega/puntos-entrega — Cliente Final opcional (CA-08)', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/puntos-entrega/route')
 
   it('GET devuelve 401 sin sesión', async () => {
     mockGetUser.mockResolvedValue(SIN_SESION)
-    const res = await GET(makeRequest('http://localhost/api/compras/bodega/pozos'))
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/puntos-entrega'))
     expect(res.status).toBe(401)
   })
 
   it('POST devuelve 403 para un rol sin permiso (gerencia)', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'gerencia' }, error: null } }))
-    const res = await POST(makeRequest('http://localhost/api/compras/bodega/pozos', {
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/puntos-entrega', {
       method: 'POST', body: JSON.stringify({ nombre: 'ARLIFT - BASE' }),
     }))
     expect(res.status).toBe(403)
   })
 
-  it('POST crea un Pozo sin Cliente Final (destino interno, ej. "ARLIFT - BASE")', async () => {
+  it('POST crea un Lugar de Entrega sin Cliente Final (destino interno, ej. "ARLIFT - BASE")', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     const chain = mockChainVacio()
     chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'bodega' }, error: null }))
     chain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() =>
-      Promise.resolve({ data: { id: 'pozo-1', nombre: 'ARLIFT - BASE', cliente_final_id: null, activo: true }, error: null })) })) }))
+      Promise.resolve({ data: { id: 'punto-1', nombre: 'ARLIFT - BASE', cliente_final_id: null, activo: true }, error: null })) })) }))
     mockFrom.mockReturnValue(chain)
-    const res = await POST(makeRequest('http://localhost/api/compras/bodega/pozos', {
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/puntos-entrega', {
       method: 'POST', body: JSON.stringify({ nombre: 'ARLIFT - BASE' }),
     }))
     expect(res.status).toBe(201)
@@ -10254,14 +10254,14 @@ describe('GET/POST /api/compras/bodega/pozos — Cliente Final opcional (CA-08)'
   })
 })
 
-describe('PUT /api/compras/bodega/pozos/[id]', () => {
-  const { PUT } = require('@/app/api/compras/bodega/pozos/[id]/route')
+describe('PUT /api/compras/bodega/puntos-entrega/[id]', () => {
+  const { PUT } = require('@/app/api/compras/bodega/puntos-entrega/[id]/route')
 
   it('devuelve 401 sin sesión', async () => {
     mockGetUser.mockResolvedValue(SIN_SESION)
     const res = await PUT(
-      makeRequest('http://localhost/api/compras/bodega/pozos/pozo-1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
-      { params: Promise.resolve({ id: 'pozo-1' }) }
+      makeRequest('http://localhost/api/compras/bodega/puntos-entrega/punto-1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 'punto-1' }) }
     )
     expect(res.status).toBe(401)
   })

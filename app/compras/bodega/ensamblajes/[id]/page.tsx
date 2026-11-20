@@ -8,10 +8,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/lib/toast'
+import { ProductoSearch } from '@/components/ProductoSearch'
 
-type Linea = { id: string; producto_id: string; cantidad: number }
+type Linea = { id: string; producto_id: string; codigo?: string | null; descripcion?: string | null; cantidad: number }
 type Orden = { id: string; numero: string; estado: string; insumos: Linea[]; resultados: Linea[] }
-type Producto = { id: string; codigo: string; descripcion: string }
 
 const ESTADO_LABEL: Record<string, string> = { generada: 'Generada', confirmada: 'Confirmada' }
 
@@ -19,7 +19,6 @@ const ESTADO_LABEL: Record<string, string> = { generada: 'Generada', confirmada:
 export default function DetalleEnsamblajePage() {
   const { id } = useParams<{ id: string }>()
   const [orden, setOrden] = useState<Orden | null>(null)
-  const [productos, setProductos] = useState<Producto[]>([])
   const [cargando, setCargando] = useState(true)
   const [insumosEdit, setInsumosEdit] = useState<Linea[]>([])
   const [resultadosEdit, setResultadosEdit] = useState<Linea[]>([])
@@ -32,16 +31,10 @@ export default function DetalleEnsamblajePage() {
       .then((r) => r.json())
       .then((data) => { setOrden(data); setInsumosEdit(data?.insumos ?? []); setResultadosEdit(data?.resultados ?? []); setCargando(false) })
       .catch(() => setCargando(false))
-    fetch('/api/compras/inventario').then((r) => r.json()).then((d) => setProductos(Array.isArray(d) ? d : [])).catch(() => {})
   }
   useEffect(() => { if (id) cargar() }, [id])
 
   const editable = orden && orden.estado === 'generada'
-
-  function nombre(productoId: string) {
-    const p = productos.find((p) => p.id === productoId)
-    return p ? `${p.codigo} — ${p.descripcion}` : productoId
-  }
 
   async function handleGuardar() {
     setGuardando(true)
@@ -80,7 +73,7 @@ export default function DetalleEnsamblajePage() {
         <CardContent className="text-sm"><p><strong>Estado:</strong> {ESTADO_LABEL[orden.estado] ?? orden.estado}</p></CardContent>
       </Card>
 
-      <Card>
+      <Card className="overflow-visible">
         <CardHeader><CardTitle>Insumos consumidos</CardTitle></CardHeader>
         <CardContent>
           <table className="w-full text-sm">
@@ -88,12 +81,16 @@ export default function DetalleEnsamblajePage() {
             <tbody>
               {insumosEdit.map((l, idx) => (
                 <tr key={l.id || idx} className="border-b">
-                  <td className="p-2">{editable ? (
-                    <select className="border rounded px-2 py-1 text-sm w-full" value={l.producto_id} onChange={(e) => setInsumosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, producto_id: e.target.value } : x))}>
-                      <option value="">— seleccionar —</option>
-                      {productos.map((p) => <option key={p.id} value={p.id}>{p.codigo} — {p.descripcion}</option>)}
-                    </select>
-                  ) : nombre(l.producto_id)}</td>
+                  <td className="p-2 min-w-[260px]">{editable ? (
+                    <>
+                      <ProductoSearch
+                        value={l.codigo ?? ''}
+                        onChange={(val) => setInsumosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, codigo: val, producto_id: '' } : x))}
+                        onSelect={(item) => setInsumosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, producto_id: item.id, codigo: item.codigo, descripcion: item.descripcion } : x))}
+                      />
+                      {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
+                    </>
+                  ) : (<><span className="font-mono text-xs text-slate-400 mr-1">{l.codigo ?? l.producto_id}</span>{l.descripcion}</>)}</td>
                   <td className="p-2 w-24">{editable ? (
                     <Input type="number" value={l.cantidad} onChange={(e) => setInsumosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, cantidad: Number(e.target.value) } : x))} />
                   ) : l.cantidad}</td>
@@ -104,7 +101,7 @@ export default function DetalleEnsamblajePage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="overflow-visible">
         <CardHeader><CardTitle>Producto(s) resultante(s)</CardTitle></CardHeader>
         <CardContent>
           <table className="w-full text-sm">
@@ -112,12 +109,16 @@ export default function DetalleEnsamblajePage() {
             <tbody>
               {resultadosEdit.map((l, idx) => (
                 <tr key={l.id || idx} className="border-b">
-                  <td className="p-2">{editable ? (
-                    <select className="border rounded px-2 py-1 text-sm w-full" value={l.producto_id} onChange={(e) => setResultadosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, producto_id: e.target.value } : x))}>
-                      <option value="">— seleccionar —</option>
-                      {productos.map((p) => <option key={p.id} value={p.id}>{p.codigo} — {p.descripcion}</option>)}
-                    </select>
-                  ) : nombre(l.producto_id)}</td>
+                  <td className="p-2 min-w-[260px]">{editable ? (
+                    <>
+                      <ProductoSearch
+                        value={l.codigo ?? ''}
+                        onChange={(val) => setResultadosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, codigo: val, producto_id: '' } : x))}
+                        onSelect={(item) => setResultadosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, producto_id: item.id, codigo: item.codigo, descripcion: item.descripcion } : x))}
+                      />
+                      {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
+                    </>
+                  ) : (<><span className="font-mono text-xs text-slate-400 mr-1">{l.codigo ?? l.producto_id}</span>{l.descripcion}</>)}</td>
                   <td className="p-2 w-24">{editable ? (
                     <Input type="number" value={l.cantidad} onChange={(e) => setResultadosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, cantidad: Number(e.target.value) } : x))} />
                   ) : l.cantidad}</td>
