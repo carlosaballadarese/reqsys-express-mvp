@@ -10773,3 +10773,56 @@ describe('GET /api/compras/bodega/reportes/stock-bajo-minimo/excel — HU-033 CA
     expect(res.headers.get('Content-Disposition')).toMatch(/^attachment; filename="Bodega_Stock_Bajo_Minimo_\d{8}_\d{4}\.xlsx"$/)
   })
 })
+
+// ── HU-035: Reportes de Bodega ──
+
+function setupReportesBodegaMock(opts: { rol?: string | null } = {}) {
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'perfiles') {
+      return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: opts.rol ? { rol: opts.rol } : null, error: null }) }) }) }
+    }
+    return mockChainVacio()
+  })
+}
+
+describe.each([
+  ['GET /api/compras/bodega/reportes/kardex/excel', '@/app/api/compras/bodega/reportes/kardex/excel/route', 'http://localhost/api/compras/bodega/reportes/kardex/excel?producto_id=prod-1', 'Bodega_Reporte_Kardex_Valorizado_'],
+  ['GET /api/compras/bodega/reportes/existencias/excel', '@/app/api/compras/bodega/reportes/existencias/excel/route', 'http://localhost/api/compras/bodega/reportes/existencias/excel', 'Bodega_Reporte_Existencias_Valorizadas_'],
+  ['GET /api/compras/bodega/reportes/movimientos/excel', '@/app/api/compras/bodega/reportes/movimientos/excel/route', 'http://localhost/api/compras/bodega/reportes/movimientos/excel', 'Bodega_Reporte_Movimientos_'],
+  ['GET /api/compras/bodega/reportes/sin-rotacion/excel', '@/app/api/compras/bodega/reportes/sin-rotacion/excel/route', 'http://localhost/api/compras/bodega/reportes/sin-rotacion/excel', 'Bodega_Reporte_Sin_Rotacion_'],
+])('%s — HU-035', (_nombre, modulo, url, prefijoArchivo) => {
+  const { GET } = require(modulo)
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest(url))
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'coordinador', 'asistente_compras'])('devuelve 403 para rol %s (CA-05)', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupReportesBodegaMock({ rol })
+    const res = await GET(makeRequest(url))
+    expect(res.status).toBe(403)
+  })
+
+  it.each(['bodega', 'compras', 'admin', 'gerencia', 'consulta'])('devuelve 200 con el .xlsx para rol %s (CA-05)', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupReportesBodegaMock({ rol })
+    const res = await GET(makeRequest(url))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    expect(res.headers.get('Content-Disposition')).toMatch(new RegExp(`^attachment; filename="${prefijoArchivo}\\d{8}_\\d{4}\\.xlsx"$`))
+  })
+})
+
+describe('GET /api/compras/bodega/reportes/kardex/excel — CA-01 exige producto_id', () => {
+  const { GET } = require('@/app/api/compras/bodega/reportes/kardex/excel/route')
+
+  it('devuelve 400 sin producto_id', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupReportesBodegaMock({ rol: 'bodega' })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/reportes/kardex/excel'))
+    expect(res.status).toBe(400)
+  })
+})

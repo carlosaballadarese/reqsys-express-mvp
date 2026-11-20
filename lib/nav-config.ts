@@ -151,7 +151,10 @@ export const NAV: GrupoNav[] = [
       { label: 'Reportes de OCA', href: '/compras/ocas/reportes', roles: ROLES_REPORTES_COMPLETOS },
       // Spec: HU-033 CA-04 — roles propios del reporte (incluye bodega/
       // consulta, a diferencia de ROLES_REPORTES_COMPLETOS).
-      { label: 'Stock Bajo Mínimo', href: '/compras/bodega/reportes/stock-bajo-minimo', roles: ['bodega', 'compras', 'admin', 'gerencia', 'consulta'] },
+      // Spec: HU-035 — consolida "Stock Bajo Mínimo" (HU-033) + los 4 reportes
+      // nuevos en un solo hub, mismo criterio que "Reportes de OCA"/"Reporte
+      // de Líneas" (un hub por dominio, no un ítem de nav por reporte).
+      { label: 'Reportes de Bodega', href: '/compras/bodega/reportes', roles: ['bodega', 'compras', 'admin', 'gerencia', 'consulta'] },
     ],
   },
   {

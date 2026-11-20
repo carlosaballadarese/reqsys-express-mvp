@@ -308,6 +308,8 @@ export async function proxy(req: NextRequest) {
         '/compras/bodega/egresos',
         // Spec: HU-031 CA-01 — mismo criterio para ensamblajes.
         '/compras/bodega/ensamblajes',
+        // Spec: HU-035 CA-05 — ROLES_REPORTES_BODEGA no incluye asistente_compras.
+        '/compras/bodega/reportes',
       ]
       const bloqueada = bloqueadas.some(b => pathname === b || pathname.startsWith(b + '/'))
       if (bloqueada) {
