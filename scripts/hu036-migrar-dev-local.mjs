@@ -45,6 +45,19 @@ function lotes(arr, tam) {
   return out
 }
 
+// Correccion post-cierre (ver sdd-validation.md, "Correccion post-cierre"):
+// `fecha.isoformat()` del extractor Python produce una fecha "naive" a
+// medianoche (ej. "2025-08-13T00:00:00"). Sin offset explicito, Postgres la
+// interpreta como medianoche UTC -- en un navegador con huso horario negativo
+// (ej. UTC-5, Ecuador) se renderiza como las 19:00 del dia ANTERIOR. Se fuerza
+// a mediodia UTC del mismo dia calendario real: cualquier huso de UTC-12 a
+// UTC+12 sigue mostrando el mismo dia.
+function aMedioDiaUTC(fechaIsoNaive) {
+  if (!fechaIsoNaive) return new Date().toISOString()
+  const fechaSolo = fechaIsoNaive.slice(0, 10) // "YYYY-MM-DD"
+  return `${fechaSolo}T12:00:00Z`
+}
+
 // Mismo hallazgo real ya documentado en HU-035 (DEF-HU-035-001): un SELECT
 // sin paginar sobre una tabla con mas de 1000 filas reales se corta en
 // silencio en PostgREST, sin error. Confirmado de nuevo en esta misma HU
@@ -63,12 +76,142 @@ async function seleccionarTodo(tabla, columnas) {
   return todas
 }
 
+// Replay cronologico en memoria (Paso 2) -- separado de main() para que el
+// modo de correccion (--solo-kardex, ver abajo) lo reutilice sin repetir
+// logica. `movimientos` ya viene ordenado cronologicamente por el extractor
+// Python (fecha, luego orden de fila como tiebreak) -- el indice global de
+// ESE orden es lo que se persiste como `secuencia_historica` (correccion
+// post-cierre, ver sdd-validation.md): desempata movimientos con la misma
+// fecha sin depender de `created_at` (que puede repetirse identico dentro de
+// un mismo batch/transaccion de insercion).
+function replayCronologico(movimientos) {
+  const saldoPorCodigo = new Map()
+  const costoPromedioPorCodigo = new Map()
+  const movimientosConReplay = []
+  let entradasSinCosto = 0
+  const entradasSinCostoPorTipo = {}
+
+  movimientos.forEach((m, index) => {
+    const codigo = m.codigo
+    const saldoAnterior = saldoPorCodigo.get(codigo) ?? 0
+    const costoAnterior = costoPromedioPorCodigo.get(codigo) ?? 0
+    const cantidad = Number(m.cantidad) || 0
+
+    if (m.mov === 'entrada') {
+      let costoEntrante = m.costo_unit_sheet
+      if (costoEntrante === null || costoEntrante === undefined) {
+        // Hallazgo real de Fase 3 (no documentado en v2, ver sdd-validation.md):
+        // 326 Entradas reales no tienen Costo Unitario capturado en el Excel
+        // (mayoria Reconteo). Se usa 0 — mismo default que el propio sistema
+        // en vivo usaria hoy si se dejara el campo en blanco al crear el
+        // documento (documentos_ingreso_items.costo_unitario DEFAULT 0).
+        costoEntrante = 0
+        entradasSinCosto++
+        entradasSinCostoPorTipo[m.tipo_excel] = (entradasSinCostoPorTipo[m.tipo_excel] ?? 0) + 1
+      }
+      const nuevoPromedio = calcularPromedioPonderado(saldoAnterior, costoAnterior, cantidad, costoEntrante)
+      const nuevoSaldo = saldoAnterior + cantidad
+      saldoPorCodigo.set(codigo, nuevoSaldo)
+      costoPromedioPorCodigo.set(codigo, nuevoPromedio)
+      movimientosConReplay.push({ ...m, secuencia_historica: index, costo_unitario_real: costoEntrante, saldo_resultante: nuevoSaldo, costo_promedio_resultante: nuevoPromedio })
+    } else {
+      // Salida: el costo no cambia, se registra el promedio vigente.
+      const nuevoSaldo = saldoAnterior + cantidad // cantidad ya viene negativa
+      saldoPorCodigo.set(codigo, nuevoSaldo)
+      movimientosConReplay.push({ ...m, secuencia_historica: index, costo_unitario_real: costoAnterior, saldo_resultante: nuevoSaldo, costo_promedio_resultante: costoAnterior })
+    }
+  })
+
+  return { saldoPorCodigo, costoPromedioPorCodigo, movimientosConReplay, entradasSinCosto, entradasSinCostoPorTipo }
+}
+
+// Correccion post-cierre: recarga SOLO kardex_movimientos (fecha a mediodia
+// UTC + secuencia_historica), sin tocar catalogo/inventario ya reconciliados
+// correctamente. Uso: node hu036-migrar-dev-local.mjs <json> --solo-kardex
+async function corregirSoloKardex(rutaJson) {
+  const data = JSON.parse(readFileSync(rutaJson, 'utf-8'))
+  const { movimientos } = data
+  console.log(`[--solo-kardex] Movimientos en JSON: ${movimientos.length}`)
+
+  const inventarioExistente = await seleccionarTodo('inventario', 'id, codigo')
+  const idPorCodigo = new Map(inventarioExistente.map((r) => [r.codigo, r.id]))
+  console.log(`[--solo-kardex] Productos reales en 'inventario': ${idPorCodigo.size}`)
+
+  // Confirma que el filtro de borrado captura EXACTAMENTE las filas
+  // historicas de HU-036 (sin documento real detras) antes de borrar nada.
+  const { count: totalKardexAntes } = await sb.from('kardex_movimientos').select('*', { count: 'exact', head: true })
+  const { count: historicasAntes } = await sb.from('kardex_movimientos').select('*', { count: 'exact', head: true })
+    .is('documento_ingreso_id', null).is('documento_egreso_id', null).is('orden_ensamblaje_id', null)
+  console.log(`[--solo-kardex] kardex_movimientos total: ${totalKardexAntes}, sin documento (candidatas a recarga historica): ${historicasAntes}`)
+  if (historicasAntes !== totalKardexAntes) {
+    throw new Error(`ABORTADO: hay ${totalKardexAntes - historicasAntes} fila(s) con documento real asociado (no son historicas de HU-036) — revisar antes de borrar, el filtro no debe tocarlas.`)
+  }
+
+  const { error: errDelete } = await sb.from('kardex_movimientos').delete()
+    .is('documento_ingreso_id', null).is('documento_egreso_id', null).is('orden_ensamblaje_id', null)
+  if (errDelete) throw new Error(`Error borrando kardex historico previo: ${errDelete.message}`)
+  console.log(`[--solo-kardex] ${historicasAntes} fila(s) historica(s) previa(s) borrada(s).`)
+
+  const { movimientosConReplay, entradasSinCosto, entradasSinCostoPorTipo } = replayCronologico(movimientos)
+  console.log(`[--solo-kardex] Entradas sin costo en el Excel (default=0): ${entradasSinCosto}`, entradasSinCostoPorTipo)
+
+  const filasKardex = movimientosConReplay
+    .map((m) => {
+      const productoId = idPorCodigo.get(m.codigo)
+      if (!productoId) return null
+      return {
+        producto_id: productoId,
+        bodega_id: null, // se resuelve abajo tras leer la bodega real ya sembrada
+        direccion: m.mov,
+        tipo: m.tipo,
+        cantidad: Math.abs(Number(m.cantidad) || 0),
+        costo_unitario: m.costo_unitario_real,
+        saldo_resultante: m.saldo_resultante,
+        costo_promedio_resultante: m.costo_promedio_resultante,
+        fecha: aMedioDiaUTC(m.fecha),
+        secuencia_historica: m.secuencia_historica,
+      }
+    })
+    .filter(Boolean)
+
+  const { data: bodegaReal, error: errBodegaReal } = await sb.from('bodegas').select('id').eq('codigo', BODEGA_CODIGO).single()
+  if (errBodegaReal || !bodegaReal) throw new Error(`No se encontro la bodega real ya sembrada ('${BODEGA_CODIGO}'): ${errBodegaReal?.message}`)
+  for (const fila of filasKardex) fila.bodega_id = bodegaReal.id
+
+  const sinProducto = movimientosConReplay.length - filasKardex.length
+  if (sinProducto > 0) console.log(`[--solo-kardex] AVISO: ${sinProducto} movimientos sin producto_id resoluble — omitidos.`)
+
+  let insertados = 0
+  for (const lote of lotes(filasKardex, 500)) {
+    const { error } = await sb.from('kardex_movimientos').insert(lote)
+    if (error) throw new Error(`Error insertando lote corregido de kardex: ${error.message}`)
+    insertados += lote.length
+  }
+  console.log(`[--solo-kardex] kardex_movimientos re-insertados con fecha corregida + secuencia_historica: ${insertados}`)
+
+  // Empates de fecha reales dentro del mismo producto (dimensiona el bug).
+  const clavesPorProductoFecha = new Map()
+  for (const fila of filasKardex) {
+    const clave = `${fila.producto_id}|${fila.fecha}`
+    clavesPorProductoFecha.set(clave, (clavesPorProductoFecha.get(clave) ?? 0) + 1)
+  }
+  const gruposConEmpate = [...clavesPorProductoFecha.values()].filter((n) => n > 1)
+  const filasEnEmpate = gruposConEmpate.reduce((a, n) => a + n, 0)
+  console.log(`[--solo-kardex] Grupos producto+fecha con 2+ movimientos (empate real): ${gruposConEmpate.length} grupos, ${filasEnEmpate} filas totales involucradas.`)
+}
+
 async function main() {
   const rutaJson = process.argv[2]
   if (!rutaJson) {
-    console.error('Uso: node hu036-migrar-dev-local.mjs <ruta_json_extraido>')
+    console.error('Uso: node hu036-migrar-dev-local.mjs <ruta_json_extraido> [--solo-kardex]')
     process.exit(1)
   }
+
+  if (process.argv[3] === '--solo-kardex') {
+    await corregirSoloKardex(rutaJson)
+    return
+  }
+
   const data = JSON.parse(readFileSync(rutaJson, 'utf-8'))
   const { productos, movimientos, resumen } = data
 
@@ -134,42 +277,7 @@ async function main() {
 
   // --- Paso 2: replay cronologico en memoria, por codigo ---
   console.log('\n--- Paso 2: replay cronologico ---')
-  const saldoPorCodigo = new Map()
-  const costoPromedioPorCodigo = new Map()
-  const movimientosConReplay = []
-  let entradasSinCosto = 0
-  const entradasSinCostoPorTipo = {}
-
-  for (const m of movimientos) {
-    const codigo = m.codigo
-    const saldoAnterior = saldoPorCodigo.get(codigo) ?? 0
-    const costoAnterior = costoPromedioPorCodigo.get(codigo) ?? 0
-    const cantidad = Number(m.cantidad) || 0
-
-    if (m.mov === 'entrada') {
-      let costoEntrante = m.costo_unit_sheet
-      if (costoEntrante === null || costoEntrante === undefined) {
-        // Hallazgo real de Fase 3 (no documentado en v2, ver sdd-validation.md):
-        // 326 Entradas reales no tienen Costo Unitario capturado en el Excel
-        // (mayoria Reconteo). Se usa 0 — mismo default que el propio sistema
-        // en vivo usaria hoy si se dejara el campo en blanco al crear el
-        // documento (documentos_ingreso_items.costo_unitario DEFAULT 0).
-        costoEntrante = 0
-        entradasSinCosto++
-        entradasSinCostoPorTipo[m.tipo_excel] = (entradasSinCostoPorTipo[m.tipo_excel] ?? 0) + 1
-      }
-      const nuevoPromedio = calcularPromedioPonderado(saldoAnterior, costoAnterior, cantidad, costoEntrante)
-      const nuevoSaldo = saldoAnterior + cantidad
-      saldoPorCodigo.set(codigo, nuevoSaldo)
-      costoPromedioPorCodigo.set(codigo, nuevoPromedio)
-      movimientosConReplay.push({ ...m, costo_unitario_real: costoEntrante, saldo_resultante: nuevoSaldo, costo_promedio_resultante: nuevoPromedio })
-    } else {
-      // Salida: el costo no cambia, se registra el promedio vigente.
-      const nuevoSaldo = saldoAnterior + cantidad // cantidad ya viene negativa
-      saldoPorCodigo.set(codigo, nuevoSaldo)
-      movimientosConReplay.push({ ...m, costo_unitario_real: costoAnterior, saldo_resultante: nuevoSaldo, costo_promedio_resultante: costoAnterior })
-    }
-  }
+  const { saldoPorCodigo, costoPromedioPorCodigo, movimientosConReplay, entradasSinCosto, entradasSinCostoPorTipo } = replayCronologico(movimientos)
   console.log(`Entradas sin costo en el Excel (default=0, ver sdd-validation.md): ${entradasSinCosto}`)
   console.log('Por tipo:', entradasSinCostoPorTipo)
 
@@ -238,7 +346,8 @@ async function main() {
         costo_unitario: m.costo_unitario_real,
         saldo_resultante: m.saldo_resultante,
         costo_promedio_resultante: m.costo_promedio_resultante,
-        fecha: m.fecha ?? new Date().toISOString(),
+        fecha: aMedioDiaUTC(m.fecha),
+        secuencia_historica: m.secuencia_historica,
       }
     })
     .filter(Boolean)

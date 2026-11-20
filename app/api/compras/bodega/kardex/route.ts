@@ -30,10 +30,18 @@ export async function GET(req: NextRequest) {
   const desde = url.searchParams.get('desde')
   const hasta = url.searchParams.get('hasta')
 
+  // Correccion post-cierre HU-036: orden ascendente real (un Kardex se lee
+  // de mas viejo a mas nuevo para seguir la evolucion del saldo) + desempate
+  // explicito para movimientos historicos con la misma fecha
+  // (secuencia_historica, NULL en movimientos en vivo) + created_at como
+  // ultimo desempate para movimientos en vivo (cada documento cierra en un
+  // instante real distinto).
   let query = adminClient()
     .from('kardex_movimientos')
     .select('id, producto_id, bodega_id, direccion, tipo, cantidad, costo_unitario, saldo_resultante, costo_promedio_resultante, documento_ingreso_id, fecha')
-    .order('fecha', { ascending: false })
+    .order('fecha', { ascending: true })
+    .order('secuencia_historica', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: true })
 
   if (productoId) query = query.eq('producto_id', productoId)
   if (bodegaId) query = query.eq('bodega_id', bodegaId)

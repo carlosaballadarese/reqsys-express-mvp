@@ -100,10 +100,16 @@ export async function obtenerMovimientosKardex(filtros: FiltrosReporteBodega): P
   // (CA-03) puede superar el límite por defecto de PostgREST; se pagina con
   // .range() igual que obtenerExistenciasValorizadas()/obtenerSinRotacion().
   const rows = await paginarRange((desde, hasta) => {
+    // Correccion post-cierre HU-036: mismo criterio que GET
+    // /api/compras/bodega/kardex — orden ascendente real + desempate
+    // explicito (secuencia_historica) para movimientos historicos con la
+    // misma fecha, created_at como ultimo desempate para movimientos en vivo.
     let query = adminClient()
       .from('kardex_movimientos')
       .select('id, producto_id, bodega_id, direccion, tipo, cantidad, costo_unitario, saldo_resultante, costo_promedio_resultante, fecha')
-      .order('fecha', { ascending: false })
+      .order('fecha', { ascending: true })
+      .order('secuencia_historica', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
       .range(desde, hasta)
 
     if (filtros.producto_id) query = query.eq('producto_id', filtros.producto_id)
