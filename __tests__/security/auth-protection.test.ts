@@ -212,6 +212,7 @@ function mockChainVacio() {
   chain.not    = noop
   chain.gte    = noop
   chain.lte    = noop
+  chain.range  = noop
   chain.limit  = jest.fn(() => Promise.resolve(resolved))
   chain.single = jest.fn(() => Promise.resolve({ data: null, error: null }))
   chain.maybeSingle = jest.fn(() => Promise.resolve({ data: null, error: null }))

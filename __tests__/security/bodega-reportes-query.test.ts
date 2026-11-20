@@ -25,6 +25,7 @@ function mockChain(data: unknown) {
   chain.gte = noop
   chain.lte = noop
   chain.in = noop
+  chain.range = noop
   chain.then = (resolve: any, reject: any) => Promise.resolve(resolved).then(resolve, reject)
   return chain
 }

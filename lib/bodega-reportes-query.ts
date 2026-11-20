@@ -14,6 +14,29 @@ async function enLotes<T, R>(items: T[], fn: (lote: T[]) => Promise<R[]>): Promi
   return resultados
 }
 
+// Spec: HU-035 — hallazgo real de la validación de caja negra: un SELECT sin
+// filtro sobre `inventario` (≥1177 filas reales) queda cortado en 1000 por
+// el límite por defecto de PostgREST, sin que el cliente lo note (no hay
+// error, solo menos filas) — CA-02/CA-04 escanean la tabla completa cuando
+// no hay filtro de bodega/categoría, así que necesitan paginar con `.range()`
+// en vez de un único `.select()`, a diferencia de los `.in()` de `enLotes()`
+// (ese límite es de longitud de URI, este es de conteo de filas de salida).
+async function paginarRange<T>(
+  construirQuery: (desde: number, hasta: number) => PromiseLike<{ data: T[] | null }>
+): Promise<T[]> {
+  const TAMANIO_PAGINA = 1000
+  const resultados: T[] = []
+  let desde = 0
+  for (;;) {
+    const { data } = await construirQuery(desde, desde + TAMANIO_PAGINA - 1)
+    const pagina = data ?? []
+    resultados.push(...pagina)
+    if (pagina.length < TAMANIO_PAGINA) break
+    desde += TAMANIO_PAGINA
+  }
+  return resultados
+}
+
 export type FiltrosReporteBodega = {
   producto_id?: string | null
   bodega_id?: string | null
@@ -72,19 +95,25 @@ export type FilaMovimiento = {
 // misma función de agregación — mismo patrón de enriquecimiento ya usado en
 // GET /api/compras/bodega/kardex (HU-028), sin duplicar la lógica.
 export async function obtenerMovimientosKardex(filtros: FiltrosReporteBodega): Promise<FilaMovimiento[]> {
-  let query = adminClient()
-    .from('kardex_movimientos')
-    .select('id, producto_id, bodega_id, direccion, tipo, cantidad, costo_unitario, saldo_resultante, costo_promedio_resultante, fecha')
-    .order('fecha', { ascending: false })
+  // Spec: restricciones técnicas de HU-035 — a escala real (≥3,104
+  // movimientos históricos tras HU-036), un SELECT sin filtro de producto
+  // (CA-03) puede superar el límite por defecto de PostgREST; se pagina con
+  // .range() igual que obtenerExistenciasValorizadas()/obtenerSinRotacion().
+  const rows = await paginarRange((desde, hasta) => {
+    let query = adminClient()
+      .from('kardex_movimientos')
+      .select('id, producto_id, bodega_id, direccion, tipo, cantidad, costo_unitario, saldo_resultante, costo_promedio_resultante, fecha')
+      .order('fecha', { ascending: false })
+      .range(desde, hasta)
 
-  if (filtros.producto_id) query = query.eq('producto_id', filtros.producto_id)
-  if (filtros.bodega_id) query = query.eq('bodega_id', filtros.bodega_id)
-  if (filtros.tipo) query = query.eq('tipo', filtros.tipo)
-  if (filtros.desde) query = query.gte('fecha', filtros.desde)
-  if (filtros.hasta) query = query.lte('fecha', filtros.hasta)
+    if (filtros.producto_id) query = query.eq('producto_id', filtros.producto_id)
+    if (filtros.bodega_id) query = query.eq('bodega_id', filtros.bodega_id)
+    if (filtros.tipo) query = query.eq('tipo', filtros.tipo)
+    if (filtros.desde) query = query.gte('fecha', filtros.desde)
+    if (filtros.hasta) query = query.lte('fecha', filtros.hasta)
 
-  const { data: movimientos } = await query
-  const rows = movimientos ?? []
+    return query
+  })
 
   const productoIds = [...new Set(rows.map((r) => r.producto_id))]
   const bodegaIds = [...new Set(rows.map((r) => r.bodega_id).filter((b): b is string => !!b))]
@@ -123,20 +152,25 @@ export type FilaExistencia = {
 // Spec: HU-035 CA-02 — existencias actuales valorizadas, filtrable por
 // Bodega/Categoría/Área Técnica (vía categorías cruzadas, ver categoriaIdsPorArea).
 export async function obtenerExistenciasValorizadas(filtros: FiltrosReporteBodega): Promise<FilaExistencia[]> {
-  let query = adminClient()
-    .from('inventario')
-    .select('id, codigo, descripcion, bodega_id, categoria_id, saldo_existencias, costo_unitario')
-    .order('codigo')
-
-  if (filtros.bodega_id) query = query.eq('bodega_id', filtros.bodega_id)
-  if (filtros.categoria_id) query = query.eq('categoria_id', filtros.categoria_id)
+  let categoriaIdsFiltro: string[] | null = null
   if (filtros.area_id) {
     const categoriaIds = await categoriaIdsPorArea(filtros.area_id)
-    query = query.in('categoria_id', categoriaIds.length > 0 ? categoriaIds : ['__ninguna__'])
+    categoriaIdsFiltro = categoriaIds.length > 0 ? categoriaIds : ['__ninguna__']
   }
 
-  const { data: productos } = await query
-  const rows = productos ?? []
+  const rows = await paginarRange((desde, hasta) => {
+    let query = adminClient()
+      .from('inventario')
+      .select('id, codigo, descripcion, bodega_id, categoria_id, saldo_existencias, costo_unitario')
+      .order('codigo')
+      .range(desde, hasta)
+
+    if (filtros.bodega_id) query = query.eq('bodega_id', filtros.bodega_id)
+    if (filtros.categoria_id) query = query.eq('categoria_id', filtros.categoria_id)
+    if (categoriaIdsFiltro) query = query.in('categoria_id', categoriaIdsFiltro)
+
+    return query
+  })
 
   const bodegaIds = [...new Set(rows.map((p) => p.bodega_id).filter((b): b is string => !!b))]
   const categoriaIds = [...new Set(rows.map((p) => p.categoria_id).filter((c): c is string => !!c))]
@@ -182,30 +216,29 @@ export async function obtenerSinRotacion(filtros: FiltrosReporteBodega): Promise
   fechaCorte.setMonth(fechaCorte.getMonth() - meses)
   const fechaCorteISO = fechaCorte.toISOString().slice(0, 10)
 
-  const { data: movimientosRecientes } = await adminClient()
-    .from('kardex_movimientos')
-    .select('producto_id, fecha')
-    .gte('fecha', fechaCorteISO)
+  const movimientosRecientes = await paginarRange((desde, hasta) =>
+    adminClient().from('kardex_movimientos').select('producto_id, fecha').gte('fecha', fechaCorteISO).range(desde, hasta)
+  )
 
-  const productosConMovimientoReciente = new Set((movimientosRecientes ?? []).map((m) => m.producto_id))
+  const productosConMovimientoReciente = new Set(movimientosRecientes.map((m) => m.producto_id))
 
   // Spec: última fecha real de movimiento (de cualquier fecha, no solo
   // dentro del rango) para mostrarla en el reporte — productos sin ningún
   // movimiento histórico muestran null.
-  const { data: ultimosMovimientos } = await adminClient()
-    .from('kardex_movimientos')
-    .select('producto_id, fecha')
-    .order('fecha', { ascending: false })
+  const ultimosMovimientos = await paginarRange((desde, hasta) =>
+    adminClient().from('kardex_movimientos').select('producto_id, fecha').order('fecha', { ascending: false }).range(desde, hasta)
+  )
   const ultimaFechaPorProducto = new Map<string, string>()
-  for (const m of ultimosMovimientos ?? []) {
+  for (const m of ultimosMovimientos) {
     if (!ultimaFechaPorProducto.has(m.producto_id)) ultimaFechaPorProducto.set(m.producto_id, m.fecha)
   }
 
-  let query = adminClient().from('inventario').select('id, codigo, descripcion, bodega_id, saldo_existencias').order('codigo')
-  if (filtros.bodega_id) query = query.eq('bodega_id', filtros.bodega_id)
-
-  const { data: productos } = await query
-  const sinRotacion = (productos ?? []).filter((p) => !productosConMovimientoReciente.has(p.id))
+  const productos = await paginarRange((desde, hasta) => {
+    let query = adminClient().from('inventario').select('id, codigo, descripcion, bodega_id, saldo_existencias').order('codigo').range(desde, hasta)
+    if (filtros.bodega_id) query = query.eq('bodega_id', filtros.bodega_id)
+    return query
+  })
+  const sinRotacion = productos.filter((p) => !productosConMovimientoReciente.has(p.id))
 
   const bodegaIds = [...new Set(sinRotacion.map((p) => p.bodega_id).filter((b): b is string => !!b))]
   const bodegas = await enLotes(bodegaIds, async (lote) => {
