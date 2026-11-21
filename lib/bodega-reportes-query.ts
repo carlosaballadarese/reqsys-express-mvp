@@ -21,7 +21,10 @@ async function enLotes<T, R>(items: T[], fn: (lote: T[]) => Promise<R[]>): Promi
 // no hay filtro de bodega/categoría, así que necesitan paginar con `.range()`
 // en vez de un único `.select()`, a diferencia de los `.in()` de `enLotes()`
 // (ese límite es de longitud de URI, este es de conteo de filas de salida).
-async function paginarRange<T>(
+// Spec: HU-038 — se exporta (antes privada) para reutilizarla en el fix
+// lateral de stock-bajo-minimo/excel/route.ts (mismo defecto de HU-033 ya
+// corregido aquí mismo en DEF-HU-035-001).
+export async function paginarRange<T>(
   construirQuery: (desde: number, hasta: number) => PromiseLike<{ data: T[] | null }>
 ): Promise<T[]> {
   const TAMANIO_PAGINA = 1000
@@ -153,6 +156,13 @@ export type FilaExistencia = {
   saldo_existencias: number
   costo_unitario: number
   valor_total: number
+  // Spec: HU-038 RN-04 — extensión aditiva: necesarios para que el Dashboard
+  // calcule alertas por producto (calcularAlertaStock/calcularAlertaConteo)
+  // sin una segunda consulta. El único consumidor previo (existencias/excel)
+  // no se ve afectado — solo lee los campos que ya conocía por nombre.
+  stock_minimo: number | null
+  stock_maximo: number | null
+  ultimo_conteo_fecha: string | null
 }
 
 // Spec: HU-035 CA-02 — existencias actuales valorizadas, filtrable por
@@ -167,7 +177,7 @@ export async function obtenerExistenciasValorizadas(filtros: FiltrosReporteBodeg
   const rows = await paginarRange((desde, hasta) => {
     let query = adminClient()
       .from('inventario')
-      .select('id, codigo, descripcion, bodega_id, categoria_id, saldo_existencias, costo_unitario')
+      .select('id, codigo, descripcion, bodega_id, categoria_id, saldo_existencias, costo_unitario, stock_minimo, stock_maximo, ultimo_conteo_fecha')
       .order('codigo')
       .range(desde, hasta)
 
@@ -202,6 +212,9 @@ export async function obtenerExistenciasValorizadas(filtros: FiltrosReporteBodeg
     saldo_existencias: Number(p.saldo_existencias),
     costo_unitario: Number(p.costo_unitario),
     valor_total: Number(p.saldo_existencias) * Number(p.costo_unitario),
+    stock_minimo: p.stock_minimo != null ? Number(p.stock_minimo) : null,
+    stock_maximo: p.stock_maximo != null ? Number(p.stock_maximo) : null,
+    ultimo_conteo_fecha: p.ultimo_conteo_fecha ?? null,
   }))
 }
 

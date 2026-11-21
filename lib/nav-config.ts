@@ -168,6 +168,9 @@ export const NAV: GrupoNav[] = [
       { label: 'Dashboard de NPs', href: '/compras/dashboard', exact: true },
       { label: 'Dashboard de OCs', href: '/compras/dashboard-ocs', exact: true, roles: ROLES_REPORTES_COMPLETOS },
       { label: 'Dashboard de OCA', href: '/compras/ocas/dashboard', exact: true, roles: ROLES_REPORTES_COMPLETOS },
+      // Spec: HU-038 CA-06 — mismos roles exactos que "Reportes de Bodega"
+      // (ROLES_REPORTES_BODEGA), no ROLES_REPORTES_COMPLETOS.
+      { label: 'Dashboard de Bodega', href: '/compras/bodega/dashboard', exact: true, roles: ['bodega', 'compras', 'admin', 'gerencia', 'consulta'] },
       { label: 'Reporte de Líneas (NP/OC/OCA)', href: '/compras/reportes/lineas', roles: ROLES_REPORTES_COMPLETOS },
       { label: 'Reportes de OCA', href: '/compras/ocas/reportes', roles: ROLES_REPORTES_COMPLETOS },
       // Spec: HU-033 CA-04 — roles propios del reporte (incluye bodega/

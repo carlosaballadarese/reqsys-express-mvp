@@ -124,15 +124,15 @@ describe('CA-08/CA-09: contenido de Reportes filtrado por rol', () => {
   const completosConBodega: Rol[] = ['compras', 'admin', 'gerencia']
   const limitados: Rol[] = ['solicitante', 'coordinador']
 
-  it.each(completosConBodega)('rol %s ve las 5 entradas completas de Reportes + Reportes de Bodega', (rol) => {
+  it.each(completosConBodega)('rol %s ve las 6 entradas completas de Reportes + Reportes de Bodega', (rol) => {
     const items = itemsVisibles(grupo('Reportes'), rol).map(i => i.label)
     expect(items).toEqual([
-      'Dashboard de NPs', 'Dashboard de OCs', 'Dashboard de OCA',
+      'Dashboard de NPs', 'Dashboard de OCs', 'Dashboard de OCA', 'Dashboard de Bodega',
       'Reporte de Líneas (NP/OC/OCA)', 'Reportes de OCA', 'Reportes de Bodega',
     ])
   })
 
-  it('rol asistente_compras ve las 5 entradas completas, sin Reportes de Bodega (HU-035 no lo incluye)', () => {
+  it('rol asistente_compras ve las 5 entradas completas, sin Dashboard/Reportes de Bodega (HU-035/HU-038 no lo incluyen)', () => {
     const items = itemsVisibles(grupo('Reportes'), 'asistente_compras').map(i => i.label)
     expect(items).toEqual([
       'Dashboard de NPs', 'Dashboard de OCs', 'Dashboard de OCA',
@@ -145,9 +145,9 @@ describe('CA-08/CA-09: contenido de Reportes filtrado por rol', () => {
     expect(items).toEqual(['Dashboard de NPs'])
   })
 
-  it.each(['bodega', 'consulta'] as Rol[])('rol %s ve Dashboard de NPs + Reportes de Bodega (HU-035)', (rol) => {
+  it.each(['bodega', 'consulta'] as Rol[])('rol %s ve Dashboard de NPs + Dashboard/Reportes de Bodega (HU-035/HU-038)', (rol) => {
     const items = itemsVisibles(grupo('Reportes'), rol).map(i => i.label)
-    expect(items).toEqual(['Dashboard de NPs', 'Reportes de Bodega'])
+    expect(items).toEqual(['Dashboard de NPs', 'Dashboard de Bodega', 'Reportes de Bodega'])
   })
 
   it.each(TODOS)('el ícono Reportes en sí es visible para todos los roles (%s)', (rol) => {

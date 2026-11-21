@@ -321,6 +321,9 @@ export async function proxy(req: NextRequest) {
         '/compras/bodega/ensamblajes',
         // Spec: HU-035 CA-05 — ROLES_REPORTES_BODEGA no incluye asistente_compras.
         '/compras/bodega/reportes',
+        // Spec: HU-038 CA-05 — mismo criterio, Dashboard de Bodega reutiliza
+        // ROLES_REPORTES_BODEGA tal cual.
+        '/compras/bodega/dashboard',
       ]
       const bloqueada = bloqueadas.some(b => pathname === b || pathname.startsWith(b + '/'))
       if (bloqueada) {

@@ -10904,7 +10904,18 @@ describe('GET /api/compras/bodega/reportes/stock-bajo-minimo/excel — HU-033 CA
     mockFrom.mockImplementation((table: string) => {
       if (table === 'perfiles') return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol }, error: null }) }) }) }
       if (table === 'inventario') {
-        return { select: () => ({ not: () => Promise.resolve({ data: [{ codigo: 'AL-I0001', descripcion: 'X', saldo_existencias: 2, stock_minimo: 10, bodega_id: 'bod-1' }], error: null }) }) }
+        // Spec: HU-038 — fix lateral de paginación (paginarRange), la query
+        // ahora encadena .range() después de .not().
+        return {
+          select: () => ({
+            not: () => ({
+              range: (desde: number) => Promise.resolve({
+                data: desde === 0 ? [{ codigo: 'AL-I0001', descripcion: 'X', saldo_existencias: 2, stock_minimo: 10, bodega_id: 'bod-1' }] : [],
+                error: null,
+              }),
+            }),
+          }),
+        }
       }
       return mockChainVacio()
     })
@@ -10912,6 +10923,36 @@ describe('GET /api/compras/bodega/reportes/stock-bajo-minimo/excel — HU-033 CA
     expect(res.status).toBe(200)
     expect(res.headers.get('Content-Type')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     expect(res.headers.get('Content-Disposition')).toMatch(/^attachment; filename="Bodega_Stock_Bajo_Minimo_\d{8}_\d{4}\.xlsx"$/)
+  })
+
+  it('HU-038: pagina en lotes de 1000 cuando hay más de una página de resultados', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const pagina1 = Array.from({ length: 1000 }, (_, i) => ({
+      codigo: `AL-I${i}`, descripcion: 'X', saldo_existencias: 1, stock_minimo: 10, bodega_id: null,
+    }))
+    const pagina2 = [{ codigo: 'AL-IEXTRA', descripcion: 'Y', saldo_existencias: 1, stock_minimo: 10, bodega_id: null }]
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'admin' }, error: null }) }) }) }
+      if (table === 'inventario') {
+        return {
+          select: () => ({
+            not: () => ({
+              range: (desde: number) => Promise.resolve({ data: desde === 0 ? pagina1 : pagina2, error: null }),
+            }),
+          }),
+        }
+      }
+      return mockChainVacio()
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/reportes/stock-bajo-minimo/excel'))
+    expect(res.status).toBe(200)
+    // Spec: antes del fix, el producto de la 2a página (AL-IEXTRA) se perdía
+    // en silencio (truncado a 1000 por PostgREST sin .range()) — se verifica
+    // que addRow() se invocó 1001 veces (los 1000 de la página 1 + el extra).
+    const ExcelJS = require('exceljs').default
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('cualquiera')
+    expect(ws.addRow.mock.calls.length).toBe(1001)
   })
 })
 
@@ -10965,5 +11006,52 @@ describe('GET /api/compras/bodega/reportes/kardex/excel — CA-01 exige producto
     setupReportesBodegaMock({ rol: 'bodega' })
     const res = await GET(makeRequest('http://localhost/api/compras/bodega/reportes/kardex/excel'))
     expect(res.status).toBe(400)
+  })
+})
+
+// ── HU-038: Dashboard de Bodega ──
+
+describe('GET /api/compras/bodega/dashboard — HU-038 CA-05', () => {
+  const { GET } = require('@/app/api/compras/bodega/dashboard/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/dashboard'))
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'coordinador', 'asistente_compras'])('devuelve 403 para rol %s', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupReportesBodegaMock({ rol })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/dashboard'))
+    expect(res.status).toBe(403)
+  })
+
+  it.each(['bodega', 'compras', 'admin', 'gerencia', 'consulta'])('devuelve 200 con el resumen para rol %s', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol }, error: null }) }) }) }
+      if (table === 'inventario') {
+        return {
+          select: () => ({
+            order: () => ({
+              range: (desde: number) => Promise.resolve({
+                data: desde === 0 ? [{
+                  id: 'p-1', codigo: 'AL-I0001', descripcion: 'X', bodega_id: 'bod-1', categoria_id: 'cat-1',
+                  saldo_existencias: 2, costo_unitario: 5, stock_minimo: 10, stock_maximo: null, ultimo_conteo_fecha: null,
+                }] : [],
+                error: null,
+              }),
+            }),
+          }),
+        }
+      }
+      return mockChainVacio()
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/dashboard'))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.kpis).toEqual(expect.objectContaining({ total_productos: 1, productos_con_alerta_stock: 1 }))
+    expect(data.productosConAlerta).toHaveLength(1)
   })
 })

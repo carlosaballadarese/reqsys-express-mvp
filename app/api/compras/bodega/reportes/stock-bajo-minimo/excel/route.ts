@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { adminClient } from '@/lib/supabase/clients'
 import { calcularAlertaStock } from '@/lib/bodega-alertas'
+import { paginarRange } from '@/lib/bodega-reportes-query'
 import ExcelJS from 'exceljs'
 
 // Spec: HU-033 CA-04 — roles propios de este reporte (incluye bodega/consulta,
@@ -37,10 +38,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
     }
 
-    const { data: productos } = await adminClient()
-      .from('inventario')
-      .select('codigo, descripcion, saldo_existencias, stock_minimo, bodega_id')
-      .not('stock_minimo', 'is', null)
+    // Spec: HU-038 — fix lateral del mismo defecto ya corregido en
+    // DEF-HU-035-001 (SELECT sin paginar sobre `inventario`, truncado en
+    // silencio a 1000 filas por PostgREST a escala real).
+    const productos = await paginarRange((desde, hasta) =>
+      adminClient()
+        .from('inventario')
+        .select('codigo, descripcion, saldo_existencias, stock_minimo, bodega_id')
+        .not('stock_minimo', 'is', null)
+        .range(desde, hasta)
+    )
 
     const bodegaIds = [...new Set((productos ?? []).map((p) => p.bodega_id).filter((b): b is string => !!b))]
     const { data: bodegas } = bodegaIds.length > 0
