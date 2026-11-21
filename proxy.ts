@@ -228,6 +228,10 @@ export async function proxy(req: NextRequest) {
         // (a diferencia de Clientes Finales/Lugar de Entrega, que bodega sí administra).
         '/compras/bodega/bodegas',
         '/compras/bodega/categorias',
+        // Spec: HU-037 CA-06 — Tipos de Ingreso/Egreso son admin/compras-only,
+        // mismo criterio que Bodegas/Categorías.
+        '/compras/bodega/tipos-ingreso',
+        '/compras/bodega/tipos-egreso',
       ]
       const bloqueada = bloqueadas.some(b => pathname === b || pathname.startsWith(b + '/'))
       if (bloqueada) {
@@ -247,6 +251,9 @@ export async function proxy(req: NextRequest) {
         '/compras/bodega/categorias',
         '/compras/bodega/clientes-finales',
         '/compras/bodega/puntos-entrega',
+        // Spec: HU-037 CA-06 — admin/compras-only, mismo criterio de arriba.
+        '/compras/bodega/tipos-ingreso',
+        '/compras/bodega/tipos-egreso',
         // Spec: HU-028 — gerencia/consulta nunca participan del ciclo
         // operativo de ingresos/Kardex (solo bodega/compras/admin/
         // asistente_compras, ver CA-03).
@@ -302,6 +309,10 @@ export async function proxy(req: NextRequest) {
         '/compras/bodega/categorias',
         '/compras/bodega/clientes-finales',
         '/compras/bodega/puntos-entrega',
+        // Spec: HU-037 CA-06 — ningún CA autoriza a asistente_compras a
+        // escribir estos 2 catálogos nuevos, mismo criterio de arriba.
+        '/compras/bodega/tipos-ingreso',
+        '/compras/bodega/tipos-egreso',
         // Spec: HU-030 CA-01 — a diferencia de Documentos de Ingreso,
         // asistente_compras no participa de Egresos (sin vínculo a ninguna
         // OC que gestione).

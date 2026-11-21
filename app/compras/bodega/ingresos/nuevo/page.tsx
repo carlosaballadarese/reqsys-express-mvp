@@ -11,10 +11,12 @@ import { Label } from '@/components/ui/label'
 import { toast } from '@/lib/toast'
 import { ComboConAlta } from '@/components/ComboConAlta'
 import { ProductoSearch } from '@/components/ProductoSearch'
+import { AltaProductoRapida } from '@/components/AltaProductoRapida'
 
 type Bodega = { id: string; nombre: string }
 type Linea = { producto_id: string; codigo: string; descripcion: string; cantidad: number; costo_unitario: number }
 type Prestamo = { id: string; numero: string }
+type TipoIngreso = { id: string; codigo: string; nombre: string }
 
 // Spec: HU-029 CA-01 — creación manual de Documento de Ingreso tipo
 // Devolución/Reconteo, sin OC de origen.
@@ -25,6 +27,10 @@ export default function NuevoIngresoManualPage() {
   const [egresoPrestamoId, setEgresoPrestamoId] = useState('')
   const [bodegas, setBodegas] = useState<Bodega[]>([])
   const [prestamosPendientes, setPrestamosPendientes] = useState<Prestamo[]>([])
+  // Spec: HU-037 CA-05 — tipos activos del catálogo; 'compra' nunca se
+  // ofrece aquí (la creación manual solo admite devolución/reconteo, ya
+  // validado así en crearDocumentoIngresoManual()).
+  const [tiposIngreso, setTiposIngreso] = useState<TipoIngreso[]>([])
   const [lineas, setLineas] = useState<Linea[]>([{ producto_id: '', codigo: '', descripcion: '', cantidad: 0, costo_unitario: 0 }])
   const [guardando, setGuardando] = useState(false)
 
@@ -32,6 +38,7 @@ export default function NuevoIngresoManualPage() {
     fetch('/api/compras/bodega/bodegas?todas=1').then((r) => r.json()).then((d) => setBodegas(Array.isArray(d) ? d : [])).catch(() => {})
     // Spec: HU-030 CA-05 — Préstamos pendientes, para seleccionar cuál cierra esta Devolución.
     fetch('/api/compras/bodega/egresos/prestamos-pendientes').then((r) => r.json()).then((d) => setPrestamosPendientes(Array.isArray(d) ? d : [])).catch(() => {})
+    fetch('/api/compras/bodega/tipos-ingreso').then((r) => r.json()).then((d) => setTiposIngreso(Array.isArray(d) ? d.filter((t: TipoIngreso) => t.codigo !== 'compra') : [])).catch(() => {})
   }, [])
 
   function actualizarLinea(idx: number, campo: keyof Linea, valor: string | number) {
@@ -85,8 +92,7 @@ export default function NuevoIngresoManualPage() {
                 value={tipoMovimiento}
                 onChange={(e) => setTipoMovimiento(e.target.value as 'devolucion' | 'reconteo')}
               >
-                <option value="devolucion">Devolución</option>
-                <option value="reconteo">Reconteo</option>
+                {tiposIngreso.map((t) => <option key={t.id} value={t.codigo}>{t.nombre}</option>)}
               </select>
             </div>
             <ComboConAlta
@@ -131,16 +137,25 @@ export default function NuevoIngresoManualPage() {
                   {lineas.map((l, idx) => (
                     <tr key={idx} className="border-b">
                       <td className="p-2 min-w-[260px]">
-                        <ProductoSearch
-                          value={l.codigo}
-                          onChange={(val) => { actualizarLinea(idx, 'codigo', val); actualizarLinea(idx, 'producto_id', '') }}
-                          onSelect={(item) => {
+                        <div className="flex items-start gap-2">
+                          <div className="flex-1">
+                            <ProductoSearch
+                              value={l.codigo}
+                              onChange={(val) => { actualizarLinea(idx, 'codigo', val); actualizarLinea(idx, 'producto_id', '') }}
+                              onSelect={(item) => {
+                                actualizarLinea(idx, 'producto_id', item.id)
+                                actualizarLinea(idx, 'codigo', item.codigo)
+                                actualizarLinea(idx, 'descripcion', item.descripcion)
+                              }}
+                            />
+                            {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
+                          </div>
+                          <AltaProductoRapida onCreado={(item) => {
                             actualizarLinea(idx, 'producto_id', item.id)
                             actualizarLinea(idx, 'codigo', item.codigo)
                             actualizarLinea(idx, 'descripcion', item.descripcion)
-                          }}
-                        />
-                        {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
+                          }} />
+                        </div>
                       </td>
                       <td className="p-2 w-24">
                         <Input type="number" value={l.cantidad} onChange={(e) => actualizarLinea(idx, 'cantidad', Number(e.target.value))} />

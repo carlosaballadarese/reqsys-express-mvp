@@ -10033,6 +10033,146 @@ describe('PUT /api/compras/bodega/bodegas/[id]', () => {
   })
 })
 
+describe('GET /api/compras/bodega/tipos-ingreso — HU-037 CA-05/CA-06', () => {
+  const { GET } = require('@/app/api/compras/bodega/tipos-ingreso/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/tipos-ingreso'))
+    expect(res.status).toBe(401)
+  })
+
+  it('sin ?todas= no requiere rol admin/compras (cualquier autenticado)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ tipos_ingreso: { data: [{ id: 't1', codigo: 'devolucion', nombre: 'Devolución', activo: true }], error: null } }))
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/tipos-ingreso'))
+    expect(res.status).toBe(200)
+  })
+
+  it('?todas=1 devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'bodega' }, error: null } }))
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/tipos-ingreso?todas=1'))
+    expect(res.status).toBe(403)
+  })
+
+  it('?todas=1 devuelve 200 con rol compras (incluye inactivos)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      tipos_ingreso: { data: [{ id: 't1', codigo: 'compra', nombre: 'Compra', activo: false }], error: null },
+    }))
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/tipos-ingreso?todas=1'))
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('PUT /api/compras/bodega/tipos-ingreso/[id] — HU-037 CA-06/RN-03', () => {
+  const { PUT } = require('@/app/api/compras/bodega/tipos-ingreso/[id]/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/tipos-ingreso/t1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 't1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'bodega' }, error: null } }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/tipos-ingreso/t1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 't1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 400 si activo no es booleano', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'admin' }, error: null } }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/tipos-ingreso/t1', { method: 'PUT', body: JSON.stringify({ activo: 'no' }) }),
+      { params: Promise.resolve({ id: 't1' }) }
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('desactiva un tipo (activo:false) sin DELETE físico — RN-03', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      tipos_ingreso: { data: null, error: null },
+    }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/tipos-ingreso/t1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 't1' }) }
+    )
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('GET /api/compras/bodega/tipos-egreso — HU-037 CA-05/CA-06', () => {
+  const { GET } = require('@/app/api/compras/bodega/tipos-egreso/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/tipos-egreso'))
+    expect(res.status).toBe(401)
+  })
+
+  it('sin ?todas= no requiere rol admin/compras (cualquier autenticado)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ tipos_egreso: { data: [{ id: 't1', codigo: 'venta', nombre: 'Venta', activo: true }], error: null } }))
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/tipos-egreso'))
+    expect(res.status).toBe(200)
+  })
+
+  it('?todas=1 devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'bodega' }, error: null } }))
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/tipos-egreso?todas=1'))
+    expect(res.status).toBe(403)
+  })
+})
+
+describe('PUT /api/compras/bodega/tipos-egreso/[id] — HU-037 CA-06/RN-03', () => {
+  const { PUT } = require('@/app/api/compras/bodega/tipos-egreso/[id]/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/tipos-egreso/t1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 't1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'asistente_compras' }, error: null } }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/tipos-egreso/t1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 't1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('desactiva un tipo (activo:false) sin DELETE físico — RN-03', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'admin' }, error: null },
+      tipos_egreso: { data: null, error: null },
+    }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/tipos-egreso/t1', { method: 'PUT', body: JSON.stringify({ activo: true }) }),
+      { params: Promise.resolve({ id: 't1' }) }
+    )
+    expect(res.status).toBe(200)
+  })
+})
+
 describe('GET/POST /api/compras/bodega/categorias', () => {
   const { GET, POST } = require('@/app/api/compras/bodega/categorias/route')
 

@@ -11,11 +11,13 @@ import { Label } from '@/components/ui/label'
 import { toast } from '@/lib/toast'
 import { ComboConAlta } from '@/components/ComboConAlta'
 import { ProductoSearch } from '@/components/ProductoSearch'
+import { AltaProductoRapida } from '@/components/AltaProductoRapida'
 
 type Bodega = { id: string; nombre: string }
 type ClienteFinal = { id: string; nombre: string }
 type PuntoEntrega = { id: string; nombre: string }
 type Linea = { producto_id: string; codigo: string; descripcion: string; cantidad: number }
+type TipoEgresoOpcion = { id: string; codigo: string; nombre: string }
 
 // Spec: HU-030 CA-01 — creación de Documento de Egreso (Venta/Gasto/Préstamo/Reconteo).
 export default function NuevoEgresoPage() {
@@ -27,6 +29,9 @@ export default function NuevoEgresoPage() {
   const [bodegas, setBodegas] = useState<Bodega[]>([])
   const [clientes, setClientes] = useState<ClienteFinal[]>([])
   const [puntosEntrega, setPuntosEntrega] = useState<PuntoEntrega[]>([])
+  // Spec: HU-037 CA-05 — tipos activos del catálogo (las 4 opciones son todas
+  // válidas en creación manual, a diferencia de Ingreso).
+  const [tiposEgreso, setTiposEgreso] = useState<TipoEgresoOpcion[]>([])
   const [lineas, setLineas] = useState<Linea[]>([{ producto_id: '', codigo: '', descripcion: '', cantidad: 0 }])
   const [guardando, setGuardando] = useState(false)
 
@@ -36,6 +41,7 @@ export default function NuevoEgresoPage() {
     fetch('/api/compras/bodega/bodegas?todas=1').then((r) => r.json()).then((d) => setBodegas(Array.isArray(d) ? d : [])).catch(() => {})
     fetch('/api/compras/bodega/clientes-finales?todas=1').then((r) => r.json()).then((d) => setClientes(Array.isArray(d) ? d : [])).catch(() => {})
     fetch('/api/compras/bodega/puntos-entrega?todas=1').then((r) => r.json()).then((d) => setPuntosEntrega(Array.isArray(d) ? d : [])).catch(() => {})
+    fetch('/api/compras/bodega/tipos-egreso').then((r) => r.json()).then((d) => setTiposEgreso(Array.isArray(d) ? d : [])).catch(() => {})
   }, [])
 
   function actualizarLinea(idx: number, campo: keyof Linea, valor: string | number) {
@@ -77,10 +83,7 @@ export default function NuevoEgresoPage() {
             <div>
               <Label>Tipo</Label>
               <select className="border rounded px-2 py-1 text-sm w-full h-9" value={tipo} onChange={(e) => setTipo(e.target.value as any)}>
-                <option value="venta">Venta</option>
-                <option value="gasto">Gasto</option>
-                <option value="prestamo">Préstamo</option>
-                <option value="reconteo">Reconteo</option>
+                {tiposEgreso.map((t) => <option key={t.id} value={t.codigo}>{t.nombre}</option>)}
               </select>
             </div>
             <ComboConAlta
@@ -139,16 +142,25 @@ export default function NuevoEgresoPage() {
                   {lineas.map((l, idx) => (
                     <tr key={idx} className="border-b">
                       <td className="p-2 min-w-[260px]">
-                        <ProductoSearch
-                          value={l.codigo}
-                          onChange={(val) => { actualizarLinea(idx, 'codigo', val); actualizarLinea(idx, 'producto_id', '') }}
-                          onSelect={(item) => {
+                        <div className="flex items-start gap-2">
+                          <div className="flex-1">
+                            <ProductoSearch
+                              value={l.codigo}
+                              onChange={(val) => { actualizarLinea(idx, 'codigo', val); actualizarLinea(idx, 'producto_id', '') }}
+                              onSelect={(item) => {
+                                actualizarLinea(idx, 'producto_id', item.id)
+                                actualizarLinea(idx, 'codigo', item.codigo)
+                                actualizarLinea(idx, 'descripcion', item.descripcion)
+                              }}
+                            />
+                            {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
+                          </div>
+                          <AltaProductoRapida onCreado={(item) => {
                             actualizarLinea(idx, 'producto_id', item.id)
                             actualizarLinea(idx, 'codigo', item.codigo)
                             actualizarLinea(idx, 'descripcion', item.descripcion)
-                          }}
-                        />
-                        {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
+                          }} />
+                        </div>
                       </td>
                       <td className="p-2 w-24">
                         <Input type="number" value={l.cantidad} onChange={(e) => actualizarLinea(idx, 'cantidad', Number(e.target.value))} />

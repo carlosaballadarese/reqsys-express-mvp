@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/lib/toast'
 import { ProductoSearch } from '@/components/ProductoSearch'
+import { AltaProductoRapida } from '@/components/AltaProductoRapida'
 
 type Linea = { id: string; producto_id: string; codigo?: string | null; descripcion?: string | null; cantidad: number }
 type Orden = { id: string; numero: string; estado: string; insumos: Linea[]; resultados: Linea[] }
@@ -82,14 +83,17 @@ export default function DetalleEnsamblajePage() {
               {insumosEdit.map((l, idx) => (
                 <tr key={l.id || idx} className="border-b">
                   <td className="p-2 min-w-[260px]">{editable ? (
-                    <>
-                      <ProductoSearch
-                        value={l.codigo ?? ''}
-                        onChange={(val) => setInsumosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, codigo: val, producto_id: '' } : x))}
-                        onSelect={(item) => setInsumosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, producto_id: item.id, codigo: item.codigo, descripcion: item.descripcion } : x))}
-                      />
-                      {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
-                    </>
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1">
+                        <ProductoSearch
+                          value={l.codigo ?? ''}
+                          onChange={(val) => setInsumosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, codigo: val, producto_id: '' } : x))}
+                          onSelect={(item) => setInsumosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, producto_id: item.id, codigo: item.codigo, descripcion: item.descripcion } : x))}
+                        />
+                        {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
+                      </div>
+                      <AltaProductoRapida onCreado={(item) => setInsumosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, producto_id: item.id, codigo: item.codigo, descripcion: item.descripcion } : x))} />
+                    </div>
                   ) : (<><span className="font-mono text-xs text-slate-400 mr-1">{l.codigo ?? l.producto_id}</span>{l.descripcion}</>)}</td>
                   <td className="p-2 w-24">{editable ? (
                     <Input type="number" value={l.cantidad} onChange={(e) => setInsumosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, cantidad: Number(e.target.value) } : x))} />
@@ -110,14 +114,17 @@ export default function DetalleEnsamblajePage() {
               {resultadosEdit.map((l, idx) => (
                 <tr key={l.id || idx} className="border-b">
                   <td className="p-2 min-w-[260px]">{editable ? (
-                    <>
-                      <ProductoSearch
-                        value={l.codigo ?? ''}
-                        onChange={(val) => setResultadosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, codigo: val, producto_id: '' } : x))}
-                        onSelect={(item) => setResultadosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, producto_id: item.id, codigo: item.codigo, descripcion: item.descripcion } : x))}
-                      />
-                      {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
-                    </>
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1">
+                        <ProductoSearch
+                          value={l.codigo ?? ''}
+                          onChange={(val) => setResultadosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, codigo: val, producto_id: '' } : x))}
+                          onSelect={(item) => setResultadosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, producto_id: item.id, codigo: item.codigo, descripcion: item.descripcion } : x))}
+                        />
+                        {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
+                      </div>
+                      <AltaProductoRapida onCreado={(item) => setResultadosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, producto_id: item.id, codigo: item.codigo, descripcion: item.descripcion } : x))} />
+                    </div>
                   ) : (<><span className="font-mono text-xs text-slate-400 mr-1">{l.codigo ?? l.producto_id}</span>{l.descripcion}</>)}</td>
                   <td className="p-2 w-24">{editable ? (
                     <Input type="number" value={l.cantidad} onChange={(e) => setResultadosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, cantidad: Number(e.target.value) } : x))} />

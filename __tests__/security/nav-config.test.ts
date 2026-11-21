@@ -39,7 +39,10 @@ describe('HU-026: catálogos base de Bodega en el nav', () => {
       'Documentos de Egreso',
       // Spec: HU-031 CA-01
       'Ensamblajes (Field Build)',
-      'Categorías', 'Bodegas', 'Inventario', 'Clientes Finales', 'Lugar de Entrega', 'Proveedores',
+      'Categorías', 'Bodegas',
+      // Spec: HU-037 CA-06
+      'Tipos de Ingreso', 'Tipos de Egreso',
+      'Inventario', 'Clientes Finales', 'Lugar de Entrega', 'Proveedores',
     ])
   })
 
@@ -62,8 +65,24 @@ describe('HU-026: catálogos base de Bodega en el nav', () => {
     const items = itemsVisibles(grupo('Bodega'), 'bodega').map(i => i.label)
     // Spec: HU-028 CA-02/CA-03/CA-08 — bodega también escribe Documentos de
     // Ingreso/Kardex; HU-030 CA-01 agrega Documentos de Egreso; HU-031 CA-01
-    // agrega Ensamblajes.
+    // agrega Ensamblajes. HU-037 CA-06: bodega no ve Tipos de Ingreso/Egreso.
     expect(items).toEqual(['Kardex', 'Documentos de Ingreso', 'Documentos de Egreso', 'Ensamblajes (Field Build)', 'Inventario', 'Clientes Finales', 'Lugar de Entrega'])
+  })
+})
+
+describe('HU-037: Tipos de Ingreso/Egreso en el nav', () => {
+  it('son solo compras/admin, mismo criterio que Bodegas/Categorías', () => {
+    const porLabel = (label: string) => (grupo('Bodega').children ?? []).find(c => c.label === label)!
+    expect(porLabel('Tipos de Ingreso').roles).toEqual(['compras', 'admin'])
+    expect(porLabel('Tipos de Ingreso').href).toBe('/compras/bodega/tipos-ingreso')
+    expect(porLabel('Tipos de Egreso').roles).toEqual(['compras', 'admin'])
+    expect(porLabel('Tipos de Egreso').href).toBe('/compras/bodega/tipos-egreso')
+  })
+
+  it.each(['bodega', 'asistente_compras', 'gerencia', 'consulta'] as Rol[])('rol %s no ve Tipos de Ingreso ni Tipos de Egreso', (rol) => {
+    const items = itemsVisibles(grupo('Bodega'), rol).map(i => i.label)
+    expect(items).not.toContain('Tipos de Ingreso')
+    expect(items).not.toContain('Tipos de Egreso')
   })
 })
 

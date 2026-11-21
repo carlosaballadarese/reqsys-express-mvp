@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { toast } from '@/lib/toast'
 import { ComboConAlta } from '@/components/ComboConAlta'
 import { ProductoSearch } from '@/components/ProductoSearch'
+import { AltaProductoRapida } from '@/components/AltaProductoRapida'
 
 type Bodega = { id: string; nombre: string }
 type Linea = { producto_id: string; codigo: string; descripcion: string; cantidad: number }
@@ -64,16 +65,25 @@ export default function NuevoEnsamblajePage() {
             {lineas.map((l, idx) => (
               <tr key={idx} className="border-b">
                 <td className="p-2 min-w-[260px]">
-                  <ProductoSearch
-                    value={l.codigo}
-                    onChange={(val) => { actualizar(lineas, setLineas, idx, 'codigo', val); actualizar(lineas, setLineas, idx, 'producto_id', '') }}
-                    onSelect={(item) => {
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1">
+                      <ProductoSearch
+                        value={l.codigo}
+                        onChange={(val) => { actualizar(lineas, setLineas, idx, 'codigo', val); actualizar(lineas, setLineas, idx, 'producto_id', '') }}
+                        onSelect={(item) => {
+                          actualizar(lineas, setLineas, idx, 'producto_id', item.id)
+                          actualizar(lineas, setLineas, idx, 'codigo', item.codigo)
+                          actualizar(lineas, setLineas, idx, 'descripcion', item.descripcion)
+                        }}
+                      />
+                      {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
+                    </div>
+                    <AltaProductoRapida onCreado={(item) => {
                       actualizar(lineas, setLineas, idx, 'producto_id', item.id)
                       actualizar(lineas, setLineas, idx, 'codigo', item.codigo)
                       actualizar(lineas, setLineas, idx, 'descripcion', item.descripcion)
-                    }}
-                  />
-                  {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
+                    }} />
+                  </div>
                 </td>
                 <td className="p-2 w-24"><Input type="number" value={l.cantidad} onChange={(e) => actualizar(lineas, setLineas, idx, 'cantidad', Number(e.target.value))} /></td>
                 <td className="p-2">

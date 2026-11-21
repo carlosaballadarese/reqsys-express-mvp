@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/lib/toast'
 import { ProductoSearch } from '@/components/ProductoSearch'
+import { AltaProductoRapida } from '@/components/AltaProductoRapida'
 
 type Linea = {
   id: string
@@ -51,6 +52,10 @@ export default function DetalleIngresoPage() {
   const [lineasEdit, setLineasEdit] = useState<Linea[]>([])
   const [guardando, setGuardando] = useState(false)
   const [cerrando, setCerrando] = useState(false)
+  // Spec: HU-037 — etiqueta del Tipo tomada del catálogo en vez de un
+  // mapeo hardcodeado, para que una corrección futura de etiqueta se
+  // refleje aquí sin tocar código.
+  const [tiposIngreso, setTiposIngreso] = useState<{ codigo: string; nombre: string }[]>([])
 
   function cargar() {
     setCargando(true)
@@ -65,6 +70,9 @@ export default function DetalleIngresoPage() {
   }
 
   useEffect(() => { if (id) cargar() }, [id])
+  useEffect(() => {
+    fetch('/api/compras/bodega/tipos-ingreso').then((r) => r.json()).then((d) => setTiposIngreso(Array.isArray(d) ? d : [])).catch(() => {})
+  }, [])
 
   const editable = doc && ['generado', 'en_validacion'].includes(doc.estado)
 
@@ -129,7 +137,7 @@ export default function DetalleIngresoPage() {
           <CardTitle>Documento de Ingreso {doc.numero}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
-          <p><strong>Tipo:</strong> {doc.tipo_movimiento === 'compra' ? 'Compra' : doc.tipo_movimiento === 'devolucion' ? 'Devolución' : 'Reconteo'}</p>
+          <p><strong>Tipo:</strong> {tiposIngreso.find((t) => t.codigo === doc.tipo_movimiento)?.nombre ?? doc.tipo_movimiento}</p>
           <p><strong>Estado:</strong> {ESTADO_LABEL[doc.estado] ?? doc.estado}</p>
           {doc.numero_oc && <p><strong>OC de origen:</strong> {doc.numero_oc}</p>}
           {doc.motivo_anulacion && <p className="text-red-600"><strong>Anulado:</strong> {doc.motivo_anulacion}</p>}
@@ -167,19 +175,26 @@ export default function DetalleIngresoPage() {
                     </td>
                     <td className="p-2 min-w-[240px]">
                       {editable ? (
-                        <>
-                          <ProductoSearch
-                            value={l.producto_codigo ?? ''}
-                            onChange={(val) => { actualizarLinea(idx, 'producto_codigo', val); actualizarLinea(idx, 'producto_id', null) }}
-                            onSelect={(item) => {
-                              actualizarLinea(idx, 'producto_id', item.id)
-                              actualizarLinea(idx, 'producto_codigo', item.codigo)
-                              actualizarLinea(idx, 'producto_descripcion', item.descripcion)
-                            }}
-                            placeholder="— sin producto vinculado —"
-                          />
-                          {l.producto_descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.producto_descripcion}</p>}
-                        </>
+                        <div className="flex items-start gap-2">
+                          <div className="flex-1">
+                            <ProductoSearch
+                              value={l.producto_codigo ?? ''}
+                              onChange={(val) => { actualizarLinea(idx, 'producto_codigo', val); actualizarLinea(idx, 'producto_id', null) }}
+                              onSelect={(item) => {
+                                actualizarLinea(idx, 'producto_id', item.id)
+                                actualizarLinea(idx, 'producto_codigo', item.codigo)
+                                actualizarLinea(idx, 'producto_descripcion', item.descripcion)
+                              }}
+                              placeholder="— sin producto vinculado —"
+                            />
+                            {l.producto_descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.producto_descripcion}</p>}
+                          </div>
+                          <AltaProductoRapida onCreado={(item) => {
+                            actualizarLinea(idx, 'producto_id', item.id)
+                            actualizarLinea(idx, 'producto_codigo', item.codigo)
+                            actualizarLinea(idx, 'producto_descripcion', item.descripcion)
+                          }} />
+                        </div>
                       ) : (l.producto_codigo ?? '— sin vincular —')}
                     </td>
                     <td className="p-2 w-24">

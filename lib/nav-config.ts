@@ -113,6 +113,16 @@ export const NAV: GrupoNav[] = [
         label: 'Bodegas', href: '/compras/bodega/bodegas',
         roles: ['compras', 'admin'],
       },
+      // Spec: HU-037 CA-06 — solo listado + toggle activo, sin alta de tipo
+      // nuevo (RN-01) y sin DELETE físico (RN-03).
+      {
+        label: 'Tipos de Ingreso', href: '/compras/bodega/tipos-ingreso',
+        roles: ['compras', 'admin'],
+      },
+      {
+        label: 'Tipos de Egreso', href: '/compras/bodega/tipos-egreso',
+        roles: ['compras', 'admin'],
+      },
       { label: 'Inventario', href: '/compras/inventario' },
       {
         label: 'Clientes Finales', href: '/compras/bodega/clientes-finales',
