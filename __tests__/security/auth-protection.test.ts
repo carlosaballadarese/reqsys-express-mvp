@@ -10998,14 +10998,14 @@ describe.each([
   })
 })
 
-describe('GET /api/compras/bodega/reportes/kardex/excel — CA-01 exige producto_id', () => {
+describe('GET /api/compras/bodega/reportes/kardex/excel — HU-040 CA-01 producto_id opcional', () => {
   const { GET } = require('@/app/api/compras/bodega/reportes/kardex/excel/route')
 
-  it('devuelve 400 sin producto_id', async () => {
+  it('devuelve 200 sin producto_id (exporta el Kardex de todos los productos)', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
     setupReportesBodegaMock({ rol: 'bodega' })
     const res = await GET(makeRequest('http://localhost/api/compras/bodega/reportes/kardex/excel'))
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(200)
   })
 })
 
@@ -11100,5 +11100,46 @@ describe('POST /api/compras/bodega/analisis-migracion — HU-039 CA-01/RN-04', (
     fd.append('file', new File(['x'], 'archivo.csv'))
     const res = await POST(makeRequest('http://localhost/api/compras/bodega/analisis-migracion', { method: 'POST', body: fd }))
     expect(res.status).toBe(400)
+  })
+})
+
+// ── HU-040: Exportación Excel de Catálogos de Bodega ──
+
+describe.each([
+  ['GET /api/compras/bodega/reportes/catalogos/bodegas/excel', '@/app/api/compras/bodega/reportes/catalogos/bodegas/excel/route', 'Bodega_Catalogo_Bodegas_'],
+  ['GET /api/compras/bodega/reportes/catalogos/categorias/excel', '@/app/api/compras/bodega/reportes/catalogos/categorias/excel/route', 'Bodega_Catalogo_Categorias_'],
+  ['GET /api/compras/bodega/reportes/catalogos/clientes-finales/excel', '@/app/api/compras/bodega/reportes/catalogos/clientes-finales/excel/route', 'Bodega_Catalogo_ClientesFinales_'],
+  ['GET /api/compras/bodega/reportes/catalogos/puntos-entrega/excel', '@/app/api/compras/bodega/reportes/catalogos/puntos-entrega/excel/route', 'Bodega_Catalogo_LugarEntrega_'],
+  ['GET /api/compras/bodega/reportes/catalogos/tipos-ingreso/excel', '@/app/api/compras/bodega/reportes/catalogos/tipos-ingreso/excel/route', 'Bodega_Catalogo_TiposIngreso_'],
+  ['GET /api/compras/bodega/reportes/catalogos/tipos-egreso/excel', '@/app/api/compras/bodega/reportes/catalogos/tipos-egreso/excel/route', 'Bodega_Catalogo_TiposEgreso_'],
+  ['GET /api/compras/bodega/reportes/catalogos/proveedores/excel', '@/app/api/compras/bodega/reportes/catalogos/proveedores/excel/route', 'Bodega_Catalogo_Proveedores_'],
+])('%s — HU-040', (_nombre, modulo, prefijoArchivo) => {
+  const { GET } = require(modulo)
+  const url = `http://localhost${_nombre.split(' ')[1]}`
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest(url))
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'coordinador', 'asistente_compras'])('devuelve 403 para rol %s (CA-09)', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupReportesBodegaMock({ rol })
+    const res = await GET(makeRequest(url))
+    expect(res.status).toBe(403)
+  })
+
+  it.each(['bodega', 'compras', 'admin', 'gerencia', 'consulta'])('devuelve 200 con el .xlsx para rol %s (CA-09)', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) =>
+      table === 'perfiles'
+        ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol }, error: null }) }) }) }
+        : mockChainVacio()
+    )
+    const res = await GET(makeRequest(url))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    expect(res.headers.get('Content-Disposition')).toMatch(new RegExp(`^attachment; filename="${prefijoArchivo}\\d{8}_\\d{4}\\.xlsx"$`))
   })
 })

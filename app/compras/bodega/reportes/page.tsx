@@ -34,17 +34,17 @@ export default function ReportesBodegaPage() {
       <h1 className="text-2xl font-bold text-slate-800">Reportes de Bodega</h1>
 
       <Card className="overflow-visible">
-        <CardHeader><CardTitle className="text-base">Kardex Valorizado (CA-01)</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">Kardex (CA-01)</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <div>
-            <Label>Producto</Label>
+            <Label>Producto (opcional — déjalo vacío para exportar todos)</Label>
             <ProductoSearch
               value={productoCodigo}
               onChange={(val) => { setProductoCodigo(val); setProductoId('') }}
               onSelect={(item) => { setProductoId(item.id); setProductoCodigo(item.codigo) }}
             />
           </div>
-          <Button size="sm" disabled={!productoId} onClick={() => descargar(`/api/compras/bodega/reportes/kardex/excel?producto_id=${productoId}`)}>⬇ Exportar a Excel</Button>
+          <Button size="sm" onClick={() => descargar(`/api/compras/bodega/reportes/kardex/excel${productoId ? `?producto_id=${productoId}` : ''}`)}>⬇ Exportar a Excel</Button>
         </CardContent>
       </Card>
 
@@ -59,14 +59,6 @@ export default function ReportesBodegaPage() {
             </select>
           </div>
           <Button size="sm" onClick={() => descargar(`/api/compras/bodega/reportes/existencias/excel${bodegaId ? `?bodega_id=${bodegaId}` : ''}`)}>⬇ Exportar a Excel</Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle className="text-base">Movimientos por Filtro (CA-03)</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-gray-600">Descarga todos los movimientos de Kardex (rango de fecha/tipo/bodega configurables vía URL).</p>
-          <Button size="sm" onClick={() => descargar('/api/compras/bodega/reportes/movimientos/excel')}>⬇ Exportar a Excel</Button>
         </CardContent>
       </Card>
 
@@ -86,6 +78,21 @@ export default function ReportesBodegaPage() {
         <CardContent className="space-y-3">
           <p className="text-sm text-gray-600">Productos cuyo saldo actual está por debajo de su Stock Mínimo configurado.</p>
           <Button size="sm" onClick={() => descargar('/api/compras/bodega/reportes/stock-bajo-minimo/excel')}>⬇ Exportar a Excel</Button>
+        </CardContent>
+      </Card>
+
+      <h2 className="text-lg font-semibold text-slate-700 pt-2">Catálogos (HU-040)</h2>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Catálogos de Bodega</CardTitle></CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => descargar('/api/compras/bodega/reportes/catalogos/bodegas/excel')}>⬇ Bodegas</Button>
+          <Button size="sm" variant="outline" onClick={() => descargar('/api/compras/bodega/reportes/catalogos/categorias/excel')}>⬇ Categorías</Button>
+          <Button size="sm" variant="outline" onClick={() => descargar('/api/compras/bodega/reportes/catalogos/clientes-finales/excel')}>⬇ Clientes Finales</Button>
+          <Button size="sm" variant="outline" onClick={() => descargar('/api/compras/bodega/reportes/catalogos/puntos-entrega/excel')}>⬇ Lugar de Entrega</Button>
+          <Button size="sm" variant="outline" onClick={() => descargar('/api/compras/bodega/reportes/catalogos/tipos-ingreso/excel')}>⬇ Tipos de Ingreso</Button>
+          <Button size="sm" variant="outline" onClick={() => descargar('/api/compras/bodega/reportes/catalogos/tipos-egreso/excel')}>⬇ Tipos de Egreso</Button>
+          <Button size="sm" variant="outline" onClick={() => descargar('/api/compras/bodega/reportes/catalogos/proveedores/excel')}>⬇ Proveedores</Button>
         </CardContent>
       </Card>
     </div>

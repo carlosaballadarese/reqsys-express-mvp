@@ -20,7 +20,9 @@ function nombreArchivo(): string {
   return `Bodega_Reporte_Kardex_Valorizado_${fecha}_${hora}.xlsx`
 }
 
-// Spec: HU-035 CA-01 — Kardex valorizado (exige producto_id).
+// Spec: HU-040 CA-01 — producto_id ahora es OPCIONAL (antes exigido, HU-035
+// CA-01): si se omite, exporta el Kardex valorizado de todos los productos
+// (obtenerMovimientosKardex() ya soporta ambos casos sin cambios).
 export async function GET(req: NextRequest) {
   try {
     const supabase = await createSupabaseServerClient()
@@ -33,9 +35,6 @@ export async function GET(req: NextRequest) {
     }
 
     const filtros = parsearFiltrosReporte(req.nextUrl.searchParams)
-    if (!filtros.producto_id) {
-      return NextResponse.json({ error: 'producto_id es requerido para este reporte' }, { status: 400 })
-    }
     const filas = await obtenerMovimientosKardex(filtros)
 
     const wb = new ExcelJS.Workbook()
