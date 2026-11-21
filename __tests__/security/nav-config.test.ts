@@ -1,6 +1,6 @@
 // Spec: SC-008-v2.md — CA-01, CA-06, CA-07, CA-08, CA-09, CA-10, CA-11
 
-import { NAV, gruposVisibles, itemsVisibles, type Rol } from '@/lib/nav-config'
+import { NAV, gruposVisibles, itemsVisibles, subitemsVisibles, type Rol } from '@/lib/nav-config'
 
 const TODOS: Rol[] = ['solicitante', 'bodega', 'coordinador', 'asistente_compras', 'compras', 'gerencia', 'consulta', 'admin']
 
@@ -8,6 +8,14 @@ function grupo(label: string) {
   const g = NAV.find(g => g.label === label)
   if (!g) throw new Error(`grupo no encontrado: ${label}`)
   return g
+}
+
+// Spec: subgrupo de 2do nivel (2026-11-20) — "Movimientos"/"Catálogos" dentro
+// de "Bodega". Busca en la estructura cruda (no filtrada por rol).
+function subgrupo(label: string) {
+  const item = (grupo('Bodega').children ?? []).find(c => c.label === label)
+  if (!item) throw new Error(`subgrupo no encontrado: ${label}`)
+  return item
 }
 
 describe('NAV — estructura general', () => {
@@ -29,31 +37,33 @@ describe('CA-06: ícono Compras sin Reporte de Líneas', () => {
   })
 })
 
-describe('HU-026: catálogos base de Bodega en el nav', () => {
-  it('Bodega gana Proveedores (movido desde Compras) + Bodegas/Categorías/Clientes Finales/Lugar de Entrega, reordenado por prioridad de uso (2026-11-20)', () => {
+describe('HU-026/post-SRS: catálogos base de Bodega en el nav, reagrupado en 2 niveles (2026-11-20)', () => {
+  it('Bodega tiene 4 ítems de nivel superior: Kardex, Movimientos, Inventario, Catálogos', () => {
     const labels = (grupo('Bodega').children ?? []).map(c => c.label)
+    expect(labels).toEqual(['Kardex', 'Movimientos', 'Inventario', 'Catálogos'])
+  })
+
+  it('"Movimientos" agrupa Documentos de Ingreso/Egreso + Ensamblajes (Field Build)', () => {
+    const labels = subgrupo('Movimientos').children!.map(c => c.label)
+    expect(labels).toEqual(['Documentos de Ingreso', 'Documentos de Egreso', 'Ensamblajes (Field Build)'])
+  })
+
+  it('"Catálogos" agrupa Categorías/Bodegas/Tipos de Ingreso/Tipos de Egreso/Clientes Finales/Lugar de Entrega/Proveedores (movido desde Compras)', () => {
+    const labels = subgrupo('Catálogos').children!.map(c => c.label)
     expect(labels).toEqual([
-      // Spec: HU-028 CA-02/CA-03/CA-08
-      'Kardex', 'Documentos de Ingreso',
-      // Spec: HU-030 CA-01
-      'Documentos de Egreso',
-      // Spec: HU-031 CA-01
-      'Ensamblajes (Field Build)',
-      'Categorías', 'Bodegas',
-      // Spec: HU-037 CA-06
-      'Tipos de Ingreso', 'Tipos de Egreso',
-      'Inventario', 'Clientes Finales', 'Lugar de Entrega', 'Proveedores',
+      'Categorías', 'Bodegas', 'Tipos de Ingreso', 'Tipos de Egreso',
+      'Clientes Finales', 'Lugar de Entrega', 'Proveedores',
     ])
   })
 
   it('Proveedores conserva exactamente los mismos roles que tenía bajo Compras', () => {
-    const proveedores = (grupo('Bodega').children ?? []).find(c => c.label === 'Proveedores')!
+    const proveedores = subgrupo('Catálogos').children!.find(c => c.label === 'Proveedores')!
     expect(proveedores.href).toBe('/compras/proveedores')
     expect(proveedores.roles).toEqual(['compras', 'admin', 'asistente_compras'])
   })
 
   it('Bodegas y Categorías son solo compras/admin; Clientes Finales y Lugar de Entrega también incluyen bodega', () => {
-    const porLabel = (label: string) => (grupo('Bodega').children ?? []).find(c => c.label === label)!
+    const porLabel = (label: string) => subgrupo('Catálogos').children!.find(c => c.label === label)!
     expect(porLabel('Bodegas').roles).toEqual(['compras', 'admin'])
     expect(porLabel('Categorías').roles).toEqual(['compras', 'admin'])
     expect(porLabel('Clientes Finales').roles).toEqual(['compras', 'admin', 'bodega'])
@@ -61,18 +71,34 @@ describe('HU-026: catálogos base de Bodega en el nav', () => {
     expect(porLabel('Lugar de Entrega').href).toBe('/compras/bodega/puntos-entrega')
   })
 
-  it('bodega ve Clientes Finales y Lugar de Entrega pero no Bodegas ni Categorías', () => {
-    const items = itemsVisibles(grupo('Bodega'), 'bodega').map(i => i.label)
+  it('bodega ve el subgrupo Movimientos con sus 3 hijos, y Catálogos acotado a Clientes Finales + Lugar de Entrega', () => {
+    const topItems = itemsVisibles(grupo('Bodega'), 'bodega').map(i => i.label)
     // Spec: HU-028 CA-02/CA-03/CA-08 — bodega también escribe Documentos de
     // Ingreso/Kardex; HU-030 CA-01 agrega Documentos de Egreso; HU-031 CA-01
     // agrega Ensamblajes. HU-037 CA-06: bodega no ve Tipos de Ingreso/Egreso.
-    expect(items).toEqual(['Kardex', 'Documentos de Ingreso', 'Documentos de Egreso', 'Ensamblajes (Field Build)', 'Inventario', 'Clientes Finales', 'Lugar de Entrega'])
+    expect(topItems).toEqual(['Kardex', 'Movimientos', 'Inventario', 'Catálogos'])
+    expect(subitemsVisibles(subgrupo('Movimientos'), 'bodega').map(i => i.label)).toEqual([
+      'Documentos de Ingreso', 'Documentos de Egreso', 'Ensamblajes (Field Build)',
+    ])
+    expect(subitemsVisibles(subgrupo('Catálogos'), 'bodega').map(i => i.label)).toEqual([
+      'Clientes Finales', 'Lugar de Entrega',
+    ])
+  })
+
+  it('gerencia no ve Movimientos ni Catálogos (0 hijos visibles) — Bodega colapsa a solo Inventario', () => {
+    const topItems = itemsVisibles(grupo('Bodega'), 'gerencia').map(i => i.label)
+    expect(topItems).toEqual(['Inventario'])
+  })
+
+  it('asistente_compras: Movimientos queda acotado a Documentos de Ingreso, Catálogos a Proveedores', () => {
+    expect(subitemsVisibles(subgrupo('Movimientos'), 'asistente_compras').map(i => i.label)).toEqual(['Documentos de Ingreso'])
+    expect(subitemsVisibles(subgrupo('Catálogos'), 'asistente_compras').map(i => i.label)).toEqual(['Proveedores'])
   })
 })
 
-describe('HU-037: Tipos de Ingreso/Egreso en el nav', () => {
+describe('HU-037: Tipos de Ingreso/Egreso en el nav (dentro del subgrupo Catálogos)', () => {
   it('son solo compras/admin, mismo criterio que Bodegas/Categorías', () => {
-    const porLabel = (label: string) => (grupo('Bodega').children ?? []).find(c => c.label === label)!
+    const porLabel = (label: string) => subgrupo('Catálogos').children!.find(c => c.label === label)!
     expect(porLabel('Tipos de Ingreso').roles).toEqual(['compras', 'admin'])
     expect(porLabel('Tipos de Ingreso').href).toBe('/compras/bodega/tipos-ingreso')
     expect(porLabel('Tipos de Egreso').roles).toEqual(['compras', 'admin'])
@@ -80,7 +106,7 @@ describe('HU-037: Tipos de Ingreso/Egreso en el nav', () => {
   })
 
   it.each(['bodega', 'asistente_compras', 'gerencia', 'consulta'] as Rol[])('rol %s no ve Tipos de Ingreso ni Tipos de Egreso', (rol) => {
-    const items = itemsVisibles(grupo('Bodega'), rol).map(i => i.label)
+    const items = subitemsVisibles(subgrupo('Catálogos'), rol).map(i => i.label)
     expect(items).not.toContain('Tipos de Ingreso')
     expect(items).not.toContain('Tipos de Egreso')
   })
@@ -88,23 +114,24 @@ describe('HU-037: Tipos de Ingreso/Egreso en el nav', () => {
 
 describe('HU-028: Documentos de Ingreso y Kardex en el nav', () => {
   it('visibles para bodega/asistente_compras/compras/admin, no para gerencia', () => {
-    const porLabel = (label: string) => (grupo('Bodega').children ?? []).find(c => c.label === label)!
-    expect(porLabel('Documentos de Ingreso').roles).toEqual(['compras', 'admin', 'bodega', 'asistente_compras'])
-    expect(porLabel('Kardex').roles).toEqual(['compras', 'admin', 'bodega', 'asistente_compras'])
+    const documentoIngreso = subgrupo('Movimientos').children!.find(c => c.label === 'Documentos de Ingreso')!
+    const kardex = (grupo('Bodega').children ?? []).find(c => c.label === 'Kardex')!
+    expect(documentoIngreso.roles).toEqual(['compras', 'admin', 'bodega', 'asistente_compras'])
+    expect(kardex.roles).toEqual(['compras', 'admin', 'bodega', 'asistente_compras'])
   })
 })
 
 describe('HU-030: Documentos de Egreso en el nav', () => {
   it('visible para bodega/compras/admin, sin asistente_compras ni gerencia', () => {
-    const porLabel = (label: string) => (grupo('Bodega').children ?? []).find(c => c.label === label)!
-    expect(porLabel('Documentos de Egreso').roles).toEqual(['compras', 'admin', 'bodega'])
+    const documentoEgreso = subgrupo('Movimientos').children!.find(c => c.label === 'Documentos de Egreso')!
+    expect(documentoEgreso.roles).toEqual(['compras', 'admin', 'bodega'])
   })
 })
 
 describe('HU-031: Ensamblajes (Field Build) en el nav', () => {
   it('visible para bodega/compras/admin, sin asistente_compras ni gerencia', () => {
-    const porLabel = (label: string) => (grupo('Bodega').children ?? []).find(c => c.label === label)!
-    expect(porLabel('Ensamblajes (Field Build)').roles).toEqual(['compras', 'admin', 'bodega'])
+    const ensamblajes = subgrupo('Movimientos').children!.find(c => c.label === 'Ensamblajes (Field Build)')!
+    expect(ensamblajes.roles).toEqual(['compras', 'admin', 'bodega'])
   })
 })
 
