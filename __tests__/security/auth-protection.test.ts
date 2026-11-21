@@ -11055,3 +11055,50 @@ describe('GET /api/compras/bodega/dashboard — HU-038 CA-05', () => {
     expect(data.productosConAlerta).toHaveLength(1)
   })
 })
+
+// ── HU-039: Análisis de Archivo de Migración de Inventario ──
+
+describe('POST /api/compras/bodega/analisis-migracion — HU-039 CA-01/RN-04', () => {
+  const { POST } = require('@/app/api/compras/bodega/analisis-migracion/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/analisis-migracion', { method: 'POST', body: new FormData() }))
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'coordinador', 'bodega', 'asistente_compras', 'gerencia', 'consulta'])('devuelve 403 para rol %s', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) =>
+      table === 'perfiles'
+        ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol }, error: null }) }) }) }
+        : mockChainVacio()
+    )
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/analisis-migracion', { method: 'POST', body: new FormData() }))
+    expect(res.status).toBe(403)
+  })
+
+  it.each(['compras', 'admin'])('rol %s pasa la autorización — 400 sin archivo (RN-04)', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) =>
+      table === 'perfiles'
+        ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol }, error: null }) }) }) }
+        : mockChainVacio()
+    )
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/analisis-migracion', { method: 'POST', body: new FormData() }))
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 400 si el archivo no es .xlsx', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) =>
+      table === 'perfiles'
+        ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'admin' }, error: null }) }) }) }
+        : mockChainVacio()
+    )
+    const fd = new FormData()
+    fd.append('file', new File(['x'], 'archivo.csv'))
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/analisis-migracion', { method: 'POST', body: fd }))
+    expect(res.status).toBe(400)
+  })
+})

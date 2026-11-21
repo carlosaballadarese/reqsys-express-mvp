@@ -206,6 +206,10 @@ export const NAV: GrupoNav[] = [
       { label: 'Acciones', href: '/compras/acciones' },
       { label: 'Auditoría', href: '/compras/auditoria' },
       { label: 'Accesos', href: '/compras/accesos' },
+      // Spec: HU-039 RN-06 — herramienta administrativa de uso ocasional,
+      // mismo criterio que el resto de "Configuración" (no en "Bodega", que
+      // se acaba de simplificar para uso operativo diario, 2026-11-20).
+      { label: 'Análisis de Migración', href: '/compras/bodega/analisis-migracion' },
     ],
   },
 ]

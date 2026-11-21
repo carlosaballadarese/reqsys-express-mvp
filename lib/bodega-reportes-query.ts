@@ -6,7 +6,9 @@ export const ROLES_REPORTES_BODEGA = ['bodega', 'compras', 'admin', 'gerencia', 
 
 // Spec: HU-016 CA-10/HU-021/SC-002 — patrón de lotes de 100 para .in() a
 // escala real, evita el límite de URI de PostgREST/Kong.
-async function enLotes<T, R>(items: T[], fn: (lote: T[]) => Promise<R[]>): Promise<R[]> {
+// Spec: HU-039 — se exporta (antes privada) para reutilizarla en la
+// comparación contra `inventario` real de la nueva herramienta de análisis.
+export async function enLotes<T, R>(items: T[], fn: (lote: T[]) => Promise<R[]>): Promise<R[]> {
   const resultados: R[] = []
   for (let i = 0; i < items.length; i += 100) {
     resultados.push(...(await fn(items.slice(i, i + 100))))

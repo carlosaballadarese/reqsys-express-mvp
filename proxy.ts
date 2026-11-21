@@ -21,7 +21,7 @@ const COMPRAS_ONLY = [
 const ADMIN_ONLY: string[] = []
 
 // Admin y compras
-const ADMIN_COMPRAS_ONLY = ['/compras/auditoria', '/compras/configuracion', '/compras/accesos', '/compras/empresa', '/compras/feriados', '/compras/acciones']
+const ADMIN_COMPRAS_ONLY = ['/compras/auditoria', '/compras/configuracion', '/compras/accesos', '/compras/empresa', '/compras/feriados', '/compras/acciones', '/compras/bodega/analisis-migracion']
 
 // Dashboard OCs — fuente de verdad para acceso a /compras/dashboard-ocs
 const DASHBOARD_OCS_ROLES = ['compras', 'admin', 'asistente_compras', 'gerencia']
