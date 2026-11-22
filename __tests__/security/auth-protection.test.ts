@@ -552,21 +552,148 @@ describe('POST /api/compras/nps', () => {
   })
 })
 
-// ── 8. Importación masiva de inventario ──────────────────────────────────────
+// ── 8. Reemplazo Total de Inventario desde Archivo Maestro (HU-041) ──────────
+// Spec: HU-041 CA-11 — reemplaza al importador viejo (xlsx, escribía
+// saldo/costo directo sin Kardex); nunca convive con él.
 
-describe('POST /api/compras/inventario/importar', () => {
-  const { POST } = require('@/app/api/compras/inventario/importar/route')
+function mockPerfil(rol: string, extra: Record<string, unknown> = {}) {
+  mockFrom.mockImplementation((table: string) =>
+    table === 'perfiles'
+      ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol, ...extra }, error: null }) }) }) }
+      : mockChainVacio()
+  )
+}
+
+describe('POST /api/compras/bodega/reemplazo-inventario/analizar — HU-041 CA-01/CA-09', () => {
+  const { POST } = require('@/app/api/compras/bodega/reemplazo-inventario/analizar/route')
 
   it('devuelve 401 sin sesión', async () => {
     mockGetUser.mockResolvedValue(SIN_SESION)
-    const fd = new FormData()
     const res = await POST(
-      makeRequest('http://localhost/api/compras/inventario/importar', {
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/analizar', {
         method: 'POST',
-        body: fd,
+        body: new FormData(),
       })
     )
     expect(res.status).toBe(401)
+  })
+
+  it.each(['bodega', 'asistente_compras', 'gerencia', 'consulta', 'solicitante'])(
+    'devuelve 403 para rol %s (CA-09 — solo admin/compras)',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      mockPerfil(rol)
+      const res = await POST(
+        makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/analizar', {
+          method: 'POST',
+          body: new FormData(),
+        })
+      )
+      expect(res.status).toBe(403)
+    }
+  )
+
+  it.each(['admin', 'compras'])('rol %s pasa la autorización — 400 sin archivo adjunto', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockPerfil(rol)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/analizar', {
+        method: 'POST',
+        body: new FormData(),
+      })
+    )
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('POST /api/compras/bodega/reemplazo-inventario/ejecutar — HU-041 CA-02/CA-09', () => {
+  const { POST } = require('@/app/api/compras/bodega/reemplazo-inventario/ejecutar/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/ejecutar', {
+        method: 'POST',
+        body: JSON.stringify({ filas: [] }),
+      })
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol bodega', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockPerfil('bodega')
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/ejecutar', {
+        method: 'POST',
+        body: JSON.stringify({ filas: [] }),
+      })
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 400 sin filas', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockPerfil('admin', { nombre: 'Admin', email: 'a@a.com' })
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/ejecutar', {
+        method: 'POST',
+        body: JSON.stringify({ filas: [] }),
+      })
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 400 con filas pero sin bodegaId (documentos_egreso.bodega_id es NOT NULL)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockPerfil('admin', { nombre: 'Admin', email: 'a@a.com' })
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/ejecutar', {
+        method: 'POST',
+        body: JSON.stringify({ filas: [{ tipo: 'desactivacion', codigo: 'X', productoId: 'p1' }] }),
+      })
+    )
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('POST /api/compras/bodega/reemplazo-inventario/excel — HU-041 CA-08/CA-09', () => {
+  const { POST } = require('@/app/api/compras/bodega/reemplazo-inventario/excel/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/excel', {
+        method: 'POST',
+        body: JSON.stringify({ filas: [] }),
+      })
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol gerencia (CA-09 — solo admin/compras)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockPerfil('gerencia')
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/excel', {
+        method: 'POST',
+        body: JSON.stringify({ filas: [] }),
+      })
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 200 con el detalle para rol admin', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockPerfil('admin')
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/excel', {
+        method: 'POST',
+        body: JSON.stringify({ filas: [] }),
+      })
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Disposition')).toContain('Reemplazo_Total_Inventario_')
   })
 })
 

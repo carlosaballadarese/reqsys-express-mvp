@@ -30,6 +30,9 @@ export async function GET(req: NextRequest) {
   const { data, error } = await adminClient()
     .from('inventario')
     .select('id, codigo, descripcion, costo_unitario, saldo_existencias, categoria')
+    // Spec: HU-041 CA-12 — un producto desactivado no debe poder
+    // seleccionarse en ningún autocompletado operativo.
+    .eq('activo', true)
     .or(`descripcion.ilike.%${q}%,codigo.ilike.%${q}%`)
     .limit(10)
 

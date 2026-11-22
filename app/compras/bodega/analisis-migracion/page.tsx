@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 
@@ -83,6 +84,14 @@ export default function AnalisisMigracionPage() {
               <p className={`text-sm font-medium ${informe.recomendacion.apto ? 'text-green-700' : 'text-amber-700'}`}>
                 {informe.recomendacion.resumen}
               </p>
+              {/* Spec: HU-041 CA-10 — puente explícito: este análisis es solo
+                  lectura; si el archivo convence, el reemplazo real se ejecuta
+                  en la otra herramienta. */}
+              <div className="mt-3">
+                <Link href="/compras/bodega/reemplazo-inventario">
+                  <Button size="sm" variant="outline">Si este archivo te convence, continuar con el reemplazo real →</Button>
+                </Link>
+              </div>
             </CardContent>
           </Card>
 

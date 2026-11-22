@@ -181,6 +181,53 @@ describe('cerrarDocumentoIngreso — CA-04/CA-05/CA-06', () => {
     expect(docUpdateSpy).toHaveBeenCalledWith(expect.objectContaining({ estado: 'cerrado' }))
   })
 
+  // Spec: HU-041 RN-04/RN-05/RN-07
+  it('ajuste_masivo: el costo resultante es el del archivo directo, sin promediar (RN-04)', async () => {
+    const kardexInsertSpy = jest.fn()
+    const inventarioUpdateSpy = jest.fn()
+
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: {
+        data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'generado', bodega_id: null, tipo_movimiento: 'ajuste_masivo' },
+        error: null,
+      },
+      documentos_ingreso_items: {
+        data: [{ id: 'l1', producto_id: 'prod-1', descripcion_oc: 'Ajuste masivo', cantidad: 20, costo_unitario: 7.5 }],
+        error: null,
+      },
+      kardex_movimientos: { data: [], error: null, onInsert: kardexInsertSpy },
+      inventario: { data: { saldo_existencias: 100, costo_unitario: 10 }, error: null, onUpdate: inventarioUpdateSpy },
+    }))
+
+    const resultado = await cerrarDocumentoIngreso('doc-1', ACTOR)
+    expect(resultado.ok).toBe(true)
+    // saldo 100+10*10=100 tras promedio normal sería distinto a 7.5; aquí
+    // debe quedar EXACTAMENTE 7.5 (el costo del archivo), no mezclado.
+    expect(kardexInsertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ tipo: 'ajuste_masivo', cantidad: 20, saldo_resultante: 120, costo_promedio_resultante: 7.5 })
+    )
+    expect(inventarioUpdateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ saldo_existencias: 120, costo_unitario: 7.5, ultimo_conteo_fecha: expect.any(String) })
+    )
+  })
+
+  it('ajuste_masivo: admite cantidad=0 (ajuste de solo-costo, RN-05) — reconteo/compra lo rechazan', async () => {
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: {
+        data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'generado', bodega_id: null, tipo_movimiento: 'ajuste_masivo' },
+        error: null,
+      },
+      documentos_ingreso_items: {
+        data: [{ id: 'l1', producto_id: 'prod-1', descripcion_oc: 'Solo costo', cantidad: 0, costo_unitario: 9 }],
+        error: null,
+      },
+      kardex_movimientos: { data: [], error: null },
+      inventario: { data: { saldo_existencias: 50, costo_unitario: 5 }, error: null },
+    }))
+    const resultado = await cerrarDocumentoIngreso('doc-1', ACTOR)
+    expect(resultado.ok).toBe(true)
+  })
+
   it('cierra un Reconteo correctamente: el movimiento de Kardex usa tipo=reconteo, no compra (HU-029 CA-02)', async () => {
     const kardexInsertSpy = jest.fn()
     mockFrom.mockImplementation(chainTabla({

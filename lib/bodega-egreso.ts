@@ -106,6 +106,67 @@ export async function crearDocumentoEgreso(
   return { ok: true, documentoId: documento.id, numero: documento.numero }
 }
 
+type LineaEgresoMasiva = { producto_id: string; cantidad: number; costo_objetivo: number }
+
+// Spec: HU-041 CA-06 — 1 solo Documento de Egreso tipo ajuste_masivo con
+// TODAS las líneas de delta negativo (o solo-costo) de una ejecución de
+// Reemplazo Total, en vez de 1 documento por producto. costo_objetivo
+// (columna nueva, solo tiene efecto para este tipo) viaja con cada línea
+// para que cerrarDocumentoEgreso() pueda reestatar el costo al cerrar.
+export async function crearDocumentoEgresoMasivo(
+  lineas: LineaEgresoMasiva[],
+  bodegaId: string | null,
+  actor: ActorEgreso
+): Promise<ResultadoCreacion> {
+  if (lineas.length === 0) return { ok: false, error: 'Sin líneas para el ajuste masivo' }
+
+  const año = new Date().getFullYear()
+  const { data: numeroData } = await adminClient().rpc('siguiente_numero_egreso', { p_year: año })
+  const numero = `EGR-${año}-${String(numeroData).padStart(4, '0')}`
+
+  const { data: documento, error: errDoc } = await adminClient()
+    .from('documentos_egreso')
+    .insert({
+      numero,
+      bodega_id: bodegaId,
+      tipo: 'ajuste_masivo',
+      estado: 'generado',
+      cliente_final_id: null,
+      punto_entrega_id: null,
+      creado_por_id: actor.id,
+    })
+    .select('id, numero')
+    .single()
+
+  if (errDoc || !documento) {
+    console.error('Error al crear Documento de Egreso de ajuste masivo:', errDoc)
+    return { ok: false, error: 'Error al crear el documento' }
+  }
+
+  const { error: errLineas } = await adminClient().from('documentos_egreso_items').insert(
+    lineas.map((l) => ({
+      documento_egreso_id: documento.id,
+      producto_id: l.producto_id,
+      cantidad: Number(l.cantidad),
+      costo_objetivo: Number(l.costo_objetivo),
+    }))
+  )
+  if (errLineas) {
+    console.error('Error al insertar líneas del ajuste masivo (egreso):', errLineas)
+    return { ok: false, error: 'Error al guardar las líneas' }
+  }
+
+  await registrarAuditoria({
+    accion: 'crear_documento_egreso_ajuste_masivo',
+    entidad: 'documento_egreso',
+    entidad_id: documento.id,
+    referencia: documento.numero,
+    detalle: { lineas: lineas.length, actor_rol: actor.rol },
+  })
+
+  return { ok: true, documentoId: documento.id, numero: documento.numero }
+}
+
 type ResultadoCierreEgreso =
   | { ok: true }
   | { ok: false; error: string; lineasExcedidas?: string[] }
@@ -130,13 +191,18 @@ export async function cerrarDocumentoEgreso(
 
   const { data: lineas } = await adminClient()
     .from('documentos_egreso_items')
-    .select('id, producto_id, cantidad')
+    .select('id, producto_id, cantidad, costo_objetivo')
     .eq('documento_egreso_id', documentoId)
 
   const todasLasLineas = lineas ?? []
   if (todasLasLineas.length === 0) return { ok: false, error: 'El documento no tiene líneas' }
-  if (todasLasLineas.some((l) => Number(l.cantidad) <= 0)) {
-    return { ok: false, error: 'Hay líneas con cantidad 0 o inválida' }
+
+  // Spec: HU-041 RN-05 — un ajuste_masivo de solo-costo (saldo sin cambio,
+  // costo distinto) permite cantidad=0. Cantidad negativa sigue inválida.
+  const esAjusteMasivo = documento.tipo === 'ajuste_masivo'
+  const cantidadInvalida = (cantidad: number) => (esAjusteMasivo ? cantidad < 0 : cantidad <= 0)
+  if (todasLasLineas.some((l) => cantidadInvalida(Number(l.cantidad)))) {
+    return { ok: false, error: 'Hay líneas con cantidad inválida' }
   }
 
   const permiteOverride = !!opciones?.override && actor.rol === 'admin' && !!opciones?.justificacion?.trim()
@@ -182,6 +248,10 @@ export async function cerrarDocumentoEgreso(
     const costoActual = Number(producto?.costo_unitario ?? 0)
     const cantidad = Number(linea.cantidad)
     const nuevoSaldo = saldoActual - cantidad
+    // Spec: HU-041 RN-04 — un ajuste_masivo reestata el costo con el dato
+    // directo del archivo maestro (costo_objetivo), nunca con el costo
+    // vigente del producto como hace cualquier otra Salida (RN-BOD-07/082).
+    const costoResultante = esAjusteMasivo ? Number(linea.costo_objetivo ?? costoActual) : costoActual
 
     const { error: errKardex } = await adminClient().from('kardex_movimientos').insert({
       producto_id: linea.producto_id,
@@ -189,10 +259,11 @@ export async function cerrarDocumentoEgreso(
       direccion: 'salida',
       tipo: documento.tipo,
       cantidad,
-      costo_unitario: costoActual,
+      costo_unitario: costoResultante,
       saldo_resultante: nuevoSaldo,
-      // Spec: RN-BOD-07/082 — la Salida nunca recalcula el promedio ponderado.
-      costo_promedio_resultante: costoActual,
+      // Spec: RN-BOD-07/082 — la Salida nunca recalcula el promedio ponderado
+      // (excepto ajuste_masivo, que reestata el costo directo — HU-041 RN-04).
+      costo_promedio_resultante: costoResultante,
       documento_egreso_id: documentoId,
     })
 
@@ -203,9 +274,10 @@ export async function cerrarDocumentoEgreso(
 
     await adminClient().from('inventario').update({
       saldo_existencias: nuevoSaldo,
-      // Spec: HU-034 CA-03 — un Reconteo actualiza la fecha de último conteo
-      // físico; ningún otro tipo de movimiento la toca.
-      ...(documento.tipo === 'reconteo'
+      ...(esAjusteMasivo ? { costo_unitario: costoResultante } : {}),
+      // Spec: HU-034 CA-03 + HU-041 RN-07 — Reconteo y Ajuste Masivo
+      // actualizan la fecha de último conteo físico; ningún otro tipo la toca.
+      ...(documento.tipo === 'reconteo' || esAjusteMasivo
         ? { ultimo_conteo_fecha: new Date().toISOString().slice(0, 10) }
         : {}),
     }).eq('id', linea.producto_id)

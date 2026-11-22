@@ -215,11 +215,26 @@ describe('Regresión: NPs y Configuración sin cambios de autorización', () => 
 })
 
 describe('HU-039: Análisis de Migración en el nav (grupo Configuración)', () => {
-  it('es el último hijo de Configuración, sin roles propios (hereda compras/admin del grupo)', () => {
-    const labels = (grupo('Configuración').children ?? []).map(c => c.label)
-    expect(labels[labels.length - 1]).toBe('Análisis de Migración')
+  it('sin roles propios (hereda compras/admin del grupo)', () => {
     const item = (grupo('Configuración').children ?? []).find(c => c.label === 'Análisis de Migración')!
     expect(item.href).toBe('/compras/bodega/analisis-migracion')
+    expect(item.roles).toBeUndefined()
+  })
+
+  it.each(['bodega', 'asistente_compras', 'gerencia', 'consulta', 'solicitante', 'coordinador'] as Rol[])(
+    'rol %s no ve el grupo Configuración (y por lo tanto no ve este ítem)',
+    (rol) => {
+      expect(gruposVisibles(rol).map(g => g.label)).not.toContain('Configuración')
+    }
+  )
+})
+
+describe('HU-041: Reemplazo Total de Inventario en el nav (grupo Configuración)', () => {
+  it('es el último hijo de Configuración, sin roles propios (hereda compras/admin del grupo)', () => {
+    const labels = (grupo('Configuración').children ?? []).map(c => c.label)
+    expect(labels[labels.length - 1]).toBe('Reemplazo Total de Inventario')
+    const item = (grupo('Configuración').children ?? []).find(c => c.label === 'Reemplazo Total de Inventario')!
+    expect(item.href).toBe('/compras/bodega/reemplazo-inventario')
     expect(item.roles).toBeUndefined()
   })
 

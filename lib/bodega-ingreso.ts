@@ -206,6 +206,70 @@ export async function crearDocumentoIngresoManual(
   return { ok: true, documentoId: documento.id, numero: documento.numero }
 }
 
+type LineaMasiva = { producto_id: string; cantidad: number; costo_unitario: number }
+type ResultadoCreacionMasiva =
+  | { ok: true; documentoId: string; numero: string }
+  | { ok: false; error: string }
+
+// Spec: HU-041 CA-06 — 1 solo Documento de Ingreso tipo ajuste_masivo con
+// TODAS las líneas de delta positivo (o solo-costo) de una ejecución de
+// Reemplazo Total, en vez de 1 documento por producto. Reutiliza
+// cerrarDocumentoIngreso() tal cual (ya procesa N líneas secuencialmente).
+export async function crearDocumentoIngresoMasivo(
+  lineas: LineaMasiva[],
+  bodegaId: string | null,
+  actor: ActorIngreso
+): Promise<ResultadoCreacionMasiva> {
+  if (lineas.length === 0) return { ok: false, error: 'Sin líneas para el ajuste masivo' }
+
+  const año = new Date().getFullYear()
+  const { data: numeroData } = await adminClient().rpc('siguiente_numero_ingreso', { p_year: año })
+  const numero = `ING-${año}-${String(numeroData).padStart(4, '0')}`
+
+  const { data: documento, error: errDoc } = await adminClient()
+    .from('documentos_ingreso')
+    .insert({
+      numero,
+      bodega_id: bodegaId,
+      estado: 'generado',
+      tipo_movimiento: 'ajuste_masivo',
+      registro_compras_id: null,
+      creado_por_id: actor.id,
+    })
+    .select('id, numero')
+    .single()
+
+  if (errDoc || !documento) {
+    console.error('Error al crear Documento de Ingreso de ajuste masivo:', errDoc)
+    return { ok: false, error: 'Error al crear el documento' }
+  }
+
+  const { error: errLineas } = await adminClient().from('documentos_ingreso_items').insert(
+    lineas.map((l) => ({
+      documento_ingreso_id: documento.id,
+      producto_id: l.producto_id,
+      codigo_oc: null,
+      descripcion_oc: 'Ajuste masivo — Reemplazo Total de Inventario',
+      cantidad: Number(l.cantidad),
+      costo_unitario: Number(l.costo_unitario),
+    }))
+  )
+  if (errLineas) {
+    console.error('Error al insertar líneas del ajuste masivo (ingreso):', errLineas)
+    return { ok: false, error: 'Error al guardar las líneas' }
+  }
+
+  await registrarAuditoria({
+    accion: 'crear_documento_ingreso_ajuste_masivo',
+    entidad: 'documento_ingreso',
+    entidad_id: documento.id,
+    referencia: documento.numero,
+    detalle: { lineas: lineas.length, actor_rol: actor.rol },
+  })
+
+  return { ok: true, documentoId: documento.id, numero: documento.numero }
+}
+
 type ResultadoCierre =
   | { ok: true }
   | { ok: false; error: string; lineasInvalidas?: string[] }
@@ -238,11 +302,17 @@ export async function cerrarDocumentoIngreso(
     return { ok: false, error: 'El documento no tiene líneas' }
   }
 
+  // Spec: HU-041 RN-05 — un ajuste_masivo de solo-costo (saldo sin cambio,
+  // costo distinto) es un evento real de revaluación; se permite cantidad=0
+  // únicamente para este tipo. Cantidad negativa sigue inválida siempre.
+  const esAjusteMasivo = documento.tipo_movimiento === 'ajuste_masivo'
+  const cantidadInvalida = (cantidad: number) => (esAjusteMasivo ? cantidad < 0 : cantidad <= 0)
+
   // Spec: CA-05/RN-BOD-08, HU-032 CA-02b — bloqueo de cierre con datos
   // inválidos; para una línea de importación, el costo efectivo (FOB×Factor)
   // es el que debe ser válido, no el costo_unitario original de la OC.
   const lineasInvalidas = todasLasLineas
-    .filter((l) => !l.producto_id || Number(l.cantidad) <= 0 || resolverCostoUnitarioEfectivo(l) <= 0)
+    .filter((l) => !l.producto_id || cantidadInvalida(Number(l.cantidad)) || resolverCostoUnitarioEfectivo(l) <= 0)
     .map((l) => l.descripcion_oc)
 
   if (lineasInvalidas.length > 0) {
@@ -277,9 +347,12 @@ export async function cerrarDocumentoIngreso(
     // costo_unitario pactado en la OC para líneas marcadas como importación.
     const costoUnitario = resolverCostoUnitarioEfectivo(linea)
 
-    const nuevoPromedio = calcularPromedioPonderado(
-      saldoAnterior, costoPromedioAnterior, cantidad, costoUnitario
-    )
+    // Spec: HU-041 RN-04 — un ajuste_masivo reestata el costo con el dato
+    // directo del archivo maestro, nunca mezclado/promediado con el historial
+    // previo del producto (a diferencia de un reconteo puntual).
+    const nuevoPromedio = esAjusteMasivo
+      ? costoUnitario
+      : calcularPromedioPonderado(saldoAnterior, costoPromedioAnterior, cantidad, costoUnitario)
     const nuevoSaldo = saldoAnterior + cantidad
 
     const { error: errKardex } = await adminClient().from('kardex_movimientos').insert({
@@ -306,9 +379,9 @@ export async function cerrarDocumentoIngreso(
       .update({
         saldo_existencias: nuevoSaldo,
         costo_unitario: nuevoPromedio,
-        // Spec: HU-034 CA-03 — un Reconteo actualiza la fecha de último
-        // conteo físico; ningún otro tipo de movimiento la toca.
-        ...(documento.tipo_movimiento === 'reconteo'
+        // Spec: HU-034 CA-03 + HU-041 RN-07 — Reconteo y Ajuste Masivo
+        // actualizan la fecha de último conteo físico; ningún otro tipo la toca.
+        ...(documento.tipo_movimiento === 'reconteo' || esAjusteMasivo
           ? { ultimo_conteo_fecha: new Date().toISOString().slice(0, 10) }
           : {}),
       })

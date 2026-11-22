@@ -18,7 +18,9 @@ export async function GET(req: NextRequest) {
     .from('inventario')
     // Spec: HU-027 CA-01 — expone las 5 columnas nuevas (bodega_id/categoria_id/
     // stock_minimo/stock_maximo/ultimo_conteo_fecha) junto a las ya existentes.
-    .select('id, codigo, descripcion, area, categoria, saldo_existencias, costo_unitario, locacion, marca, bodega_id, categoria_id, stock_minimo, stock_maximo, ultimo_conteo_fecha')
+    // HU-041 CA-12 — expone `activo`; el listado administrativo muestra
+    // ambos estados (a diferencia de search/search-interno, que solo activos).
+    .select('id, codigo, descripcion, area, categoria, saldo_existencias, costo_unitario, locacion, marca, bodega_id, categoria_id, stock_minimo, stock_maximo, ultimo_conteo_fecha, activo')
     .order('codigo')
 
   if (q)         query = query.or(`descripcion.ilike.%${q}%,codigo.ilike.%${q}%,marca.ilike.%${q}%`)

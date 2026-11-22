@@ -202,6 +202,37 @@ describe('cerrarDocumentoEgreso — CA-02/CA-03/CA-06', () => {
     expect(inventarioUpdateSpy).toHaveBeenCalledWith(expect.objectContaining({ saldo_existencias: 90, ultimo_conteo_fecha: expect.any(String) }))
   })
 
+  // Spec: HU-041 RN-04/RN-05/RN-07
+  it('ajuste_masivo: reestata el costo con costo_objetivo del archivo, no con el vigente (RN-04)', async () => {
+    const kardexInsertSpy = jest.fn()
+    const inventarioUpdateSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      documentos_egreso: { data: { id: 'doc-1', numero: 'EGR-2026-0001', estado: 'generado', tipo: 'ajuste_masivo', bodega_id: null }, error: null },
+      documentos_egreso_items: { data: [{ id: 'l1', producto_id: 'prod-1', cantidad: 15, costo_objetivo: 6.2 }], error: null },
+      inventario: { data: [{ id: 'prod-1', codigo: 'AL-I0001', saldo_existencias: 100, costo_unitario: 12 }], error: null, onUpdate: inventarioUpdateSpy },
+      kardex_movimientos: { data: [], error: null, onInsert: kardexInsertSpy },
+    }))
+    const resultado = await cerrarDocumentoEgreso('doc-1', ACTOR)
+    expect(resultado.ok).toBe(true)
+    expect(kardexInsertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ costo_unitario: 6.2, costo_promedio_resultante: 6.2, saldo_resultante: 85 })
+    )
+    expect(inventarioUpdateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ saldo_existencias: 85, costo_unitario: 6.2, ultimo_conteo_fecha: expect.any(String) })
+    )
+  })
+
+  it('ajuste_masivo: admite cantidad=0 (ajuste de solo-costo, RN-05)', async () => {
+    mockFrom.mockImplementation(chainTabla({
+      documentos_egreso: { data: { id: 'doc-1', numero: 'EGR-2026-0001', estado: 'generado', tipo: 'ajuste_masivo', bodega_id: null }, error: null },
+      documentos_egreso_items: { data: [{ id: 'l1', producto_id: 'prod-1', cantidad: 0, costo_objetivo: 3 }], error: null },
+      inventario: { data: [{ id: 'prod-1', codigo: 'AL-I0001', saldo_existencias: 40, costo_unitario: 5 }], error: null },
+      kardex_movimientos: { data: [], error: null },
+    }))
+    const resultado = await cerrarDocumentoEgreso('doc-1', ACTOR)
+    expect(resultado.ok).toBe(true)
+  })
+
   it('HU-034 CA-03: cerrar un Egreso tipo venta NO toca ultimo_conteo_fecha', async () => {
     const inventarioUpdateSpy = jest.fn()
     mockFrom.mockImplementation(chainTabla({

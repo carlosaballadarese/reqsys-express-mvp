@@ -210,6 +210,9 @@ export const NAV: GrupoNav[] = [
       // mismo criterio que el resto de "Configuración" (no en "Bodega", que
       // se acaba de simplificar para uso operativo diario, 2026-11-20).
       { label: 'Análisis de Migración', href: '/compras/bodega/analisis-migracion' },
+      // Spec: HU-041 CA-09 — mismo criterio que Análisis de Migración (alto
+      // impacto, uso ocasional, admin/compras).
+      { label: 'Reemplazo Total de Inventario', href: '/compras/bodega/reemplazo-inventario' },
     ],
   },
 ]
