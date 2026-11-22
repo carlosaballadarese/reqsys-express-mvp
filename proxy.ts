@@ -264,6 +264,9 @@ export async function proxy(req: NextRequest) {
         '/compras/bodega/egresos',
         // Spec: HU-031 — mismo criterio para ensamblajes.
         '/compras/bodega/ensamblajes',
+        // Spec: HU-042 CA-20 — gerencia/consulta no emiten ni consultan guías.
+        '/compras/bodega/guias',
+        '/compras/bodega/transportistas',
       ]
       const estaBloqueada = bloqueadas.some(
         b => pathname === b || pathname.startsWith(b + '/')
@@ -319,6 +322,9 @@ export async function proxy(req: NextRequest) {
         '/compras/bodega/egresos',
         // Spec: HU-031 CA-01 — mismo criterio para ensamblajes.
         '/compras/bodega/ensamblajes',
+        // Spec: HU-042 CA-20 — guías y transportistas siguen a Egresos (bodega/compras/admin).
+        '/compras/bodega/guias',
+        '/compras/bodega/transportistas',
         // Spec: HU-035 CA-05 — ROLES_REPORTES_BODEGA no incluye asistente_compras.
         '/compras/bodega/reportes',
         // Spec: HU-038 CA-05 — mismo criterio, Dashboard de Bodega reutiliza

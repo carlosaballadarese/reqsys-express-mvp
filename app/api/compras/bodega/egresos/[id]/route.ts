@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { adminClient } from '@/lib/supabase/clients'
 import { registrarAuditoria } from '@/lib/auditoria'
-import { verificarAutorizacionEgreso } from '@/lib/bodega-egreso'
+import { verificarAutorizacionEgreso, resolverRequiereGuiaLineas } from '@/lib/bodega-egreso'
 
 // Spec: HU-030 CA-01/CA-06 — detalle con líneas.
 export async function GET(
@@ -20,7 +20,7 @@ export async function GET(
 
   const { data: documento, error } = await adminClient()
     .from('documentos_egreso')
-    .select('id, numero, bodega_id, tipo, estado, cliente_final_id, punto_entrega_id, override_admin, justificacion_override, created_at, cerrado_en')
+    .select('id, numero, bodega_id, tipo, estado, cliente_final_id, punto_entrega_id, datos_traslado, override_admin, justificacion_override, created_at, cerrado_en')
     .eq('id', id)
     .single()
 
@@ -28,7 +28,7 @@ export async function GET(
 
   const { data: lineas } = await adminClient()
     .from('documentos_egreso_items')
-    .select('id, producto_id, cantidad')
+    .select('id, producto_id, cantidad, requiere_guia')
     .eq('documento_egreso_id', id)
 
   // Enriquecer con código/descripción del producto — evita que la pantalla
@@ -53,7 +53,7 @@ export async function GET(
   return NextResponse.json({ ...documento, lineas: lineasConProducto })
 }
 
-type LineaEdit = { id?: string; producto_id: string; cantidad: number }
+type LineaEdit = { id?: string; producto_id: string; cantidad: number; requiere_guia?: boolean }
 
 // Spec: HU-030 CA-01/CA-06 — edita líneas mientras no esté cerrado, mismo
 // patrón de reemplazo completo que HU-028.
@@ -87,18 +87,27 @@ export async function PUT(
   await adminClient().from('documentos_egreso_items').delete().eq('documento_egreso_id', id)
 
   if (lineas.length > 0) {
+    // Spec: HU-042 CA-02 — override por línea o valor por defecto del producto.
+    const requiereGuia = await resolverRequiereGuiaLineas(lineas)
     const { error: errInsert } = await adminClient().from('documentos_egreso_items').insert(
-      lineas.map((l) => ({
+      lineas.map((l, i) => ({
         documento_egreso_id: id,
         producto_id: l.producto_id,
         cantidad: Number(l.cantidad),
+        requiere_guia: requiereGuia[i],
       }))
     )
     if (errInsert) return NextResponse.json({ error: errInsert.message }, { status: 500 })
   }
 
-  if (documento.estado === 'generado') {
-    await adminClient().from('documentos_egreso').update({ estado: 'en_validacion' }).eq('id', id)
+  // Spec: HU-042 CA-04b — el borrador de traslado solo se reemplaza si el cliente lo envía.
+  const actualizar: Record<string, unknown> = {}
+  if (documento.estado === 'generado') actualizar.estado = 'en_validacion'
+  if ('datos_traslado' in body) {
+    actualizar.datos_traslado = body.datos_traslado && typeof body.datos_traslado === 'object' ? body.datos_traslado : null
+  }
+  if (Object.keys(actualizar).length > 0) {
+    await adminClient().from('documentos_egreso').update(actualizar).eq('id', id)
   }
 
   await registrarAuditoria({

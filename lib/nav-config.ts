@@ -106,6 +106,11 @@ export const NAV: GrupoNav[] = [
             label: 'Documentos de Egreso', href: '/compras/bodega/egresos',
             roles: ['compras', 'admin', 'bodega'],
           },
+          // Spec: HU-042 CA-18/CA-20 — la guía se emite desde un egreso, mismos roles.
+          {
+            label: 'Guías de Remisión', href: '/compras/bodega/guias',
+            roles: ['compras', 'admin', 'bodega'],
+          },
           // Spec: HU-031 CA-01 — mismos roles que Egresos.
           {
             label: 'Ensamblajes (Field Build)', href: '/compras/bodega/ensamblajes',
@@ -145,6 +150,12 @@ export const NAV: GrupoNav[] = [
           // con `permiteDestino` ya usado en Egreso.
           {
             label: 'Lugar de Entrega', href: '/compras/bodega/puntos-entrega',
+            roles: ['compras', 'admin', 'bodega'],
+          },
+          // Spec: HU-042 CA-11 — catálogo de transportistas, bodega también lo administra
+          // (alta rápida desde el formulario de guía).
+          {
+            label: 'Transportistas', href: '/compras/bodega/transportistas',
             roles: ['compras', 'admin', 'bodega'],
           },
           // Spec: HU-026 CA-11 — "Proveedores" se mueve aquí desde "Compras"

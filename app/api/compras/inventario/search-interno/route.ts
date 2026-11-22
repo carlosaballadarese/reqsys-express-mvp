@@ -29,7 +29,8 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await adminClient()
     .from('inventario')
-    .select('id, codigo, descripcion, costo_unitario, saldo_existencias, categoria')
+    // Spec: HU-042 CA-02 — requiere_guia para que la línea del egreso herede el valor del producto.
+    .select('id, codigo, descripcion, costo_unitario, saldo_existencias, categoria, requiere_guia')
     // Spec: HU-041 CA-12 — un producto desactivado no debe poder
     // seleccionarse en ningún autocompletado operativo.
     .eq('activo', true)

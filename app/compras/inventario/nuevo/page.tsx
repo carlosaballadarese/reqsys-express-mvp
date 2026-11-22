@@ -37,6 +37,8 @@ export default function NuevoItemPage() {
     categoria_id:       '',
     stock_minimo:       '',
     stock_maximo:       '',
+    unidad:             'EA',
+    requiere_guia:      'true',
   })
 
   // Sugerir próximo código AL-I automáticamente y cargar catálogos
@@ -78,6 +80,8 @@ export default function NuevoItemPage() {
           categoria_id: form.categoria_id || null,
           stock_minimo: form.stock_minimo,
           stock_maximo: form.stock_maximo,
+          requiere_guia: form.requiere_guia !== 'false',
+          unidad:        form.unidad,
         }),
       })
       const data = await res.json()
@@ -181,6 +185,19 @@ export default function NuevoItemPage() {
                 <div>
                   <Label className="text-xs">Stock Máximo</Label>
                   <Input type="number" step="0.01" min="0" value={form.stock_maximo} onChange={e => setField('stock_maximo', e.target.value)} className="mt-1 h-8 text-sm" />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mt-3">
+                <div>
+                  <Label className="text-xs">Unidad de medida</Label>
+                  <Input value={form.unidad} onChange={e => setField('unidad', e.target.value)} placeholder="EA, M, KG..." className="mt-1 h-8 text-sm" />
+                </div>
+                <div>
+                  <Label className="text-xs">¿Requiere guía de remisión?</Label>
+                  <select value={form.requiere_guia} onChange={e => setField('requiere_guia', e.target.value)} className="mt-1 h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm">
+                    <option value="true">Sí</option>
+                    <option value="false">No (consumo interno)</option>
+                  </select>
                 </div>
               </div>
             </div>

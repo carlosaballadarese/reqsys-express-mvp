@@ -19,6 +19,15 @@ type Empresa = {
   revision_oc:         string | null
   documento_numero_np: string | null
   revision_np:         string | null
+  // Spec: HU-042 CA-15/CA-22 — datos fijos del encabezado de la guía de remisión.
+  guia_serie:                    string
+  guia_autorizacion_sri:         string | null
+  guia_leyenda_agente_retencion: string | null
+  guia_documento_categorizado:   string
+  guia_punto_partida_defecto:    string
+  guia_numero_desde:             string | null
+  guia_numero_hasta:             string | null
+  guia_vigencia_hasta:           string | null
 }
 
 export default function EmpresaPage() {
@@ -26,6 +35,9 @@ export default function EmpresaPage() {
     razon_social: '', ruc: '', direccion: '', contacto: '',
     telefono: '', email: '', documento_numero_oc: '', revision_oc: '',
     documento_numero_np: '', revision_np: '',
+    guia_serie: '001-001', guia_autorizacion_sri: '', guia_leyenda_agente_retencion: '',
+    guia_documento_categorizado: 'NO', guia_punto_partida_defecto: 'BASE ARLIFT',
+    guia_numero_desde: '', guia_numero_hasta: '', guia_vigencia_hasta: '',
   })
   const [guardando, setGuardando] = useState(false)
   const [msg, setMsg]             = useState('')
@@ -46,6 +58,14 @@ export default function EmpresaPage() {
           revision_oc:         data.revision_oc != null  ? String(data.revision_oc) : '1',
           documento_numero_np: data.documento_numero_np ?? 'AL-L4-07-F01',
           revision_np:         data.revision_np != null  ? String(data.revision_np) : '1',
+          guia_serie:                    data.guia_serie ?? '001-001',
+          guia_autorizacion_sri:         data.guia_autorizacion_sri ?? '',
+          guia_leyenda_agente_retencion: data.guia_leyenda_agente_retencion ?? '',
+          guia_documento_categorizado:   data.guia_documento_categorizado ?? 'NO',
+          guia_punto_partida_defecto:    data.guia_punto_partida_defecto ?? 'BASE ARLIFT',
+          guia_numero_desde:             data.guia_numero_desde != null ? String(data.guia_numero_desde) : '',
+          guia_numero_hasta:             data.guia_numero_hasta != null ? String(data.guia_numero_hasta) : '',
+          guia_vigencia_hasta:           data.guia_vigencia_hasta ?? '',
         })
         setCargando(false)
       })
@@ -190,6 +210,45 @@ export default function EmpresaPage() {
                 />
               </div>
             </div>
+          </div>
+
+          <div className="border-t pt-4">
+            <p className="text-xs font-medium text-slate-500 mb-3 uppercase tracking-wide">Guía de Remisión (encabezado y autorización)</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <Label className="text-xs">Serie</Label>
+                <Input value={form.guia_serie ?? ''} onChange={e => setField('guia_serie', e.target.value)} className="mt-1 h-8 text-sm font-mono" />
+              </div>
+              <div>
+                <Label className="text-xs">Autorización SRI</Label>
+                <Input value={form.guia_autorizacion_sri ?? ''} onChange={e => setField('guia_autorizacion_sri', e.target.value)} className="mt-1 h-8 text-sm font-mono" />
+              </div>
+              <div>
+                <Label className="text-xs">Punto de partida por defecto</Label>
+                <Input value={form.guia_punto_partida_defecto ?? ''} onChange={e => setField('guia_punto_partida_defecto', e.target.value)} className="mt-1 h-8 text-sm" />
+              </div>
+              <div className="sm:col-span-2">
+                <Label className="text-xs">Leyenda de agente de retención</Label>
+                <Input value={form.guia_leyenda_agente_retencion ?? ''} onChange={e => setField('guia_leyenda_agente_retencion', e.target.value)} className="mt-1 h-8 text-sm" />
+              </div>
+              <div>
+                <Label className="text-xs">Documento categorizado</Label>
+                <Input value={form.guia_documento_categorizado ?? ''} onChange={e => setField('guia_documento_categorizado', e.target.value)} className="mt-1 h-8 text-sm" />
+              </div>
+              <div>
+                <Label className="text-xs">Rango autorizado — desde (opcional)</Label>
+                <Input type="number" value={form.guia_numero_desde ?? ''} onChange={e => setField('guia_numero_desde', e.target.value)} className="mt-1 h-8 text-sm" />
+              </div>
+              <div>
+                <Label className="text-xs">Rango autorizado — hasta (opcional)</Label>
+                <Input type="number" value={form.guia_numero_hasta ?? ''} onChange={e => setField('guia_numero_hasta', e.target.value)} className="mt-1 h-8 text-sm" />
+              </div>
+              <div>
+                <Label className="text-xs">Vigencia de la autorización (opcional)</Label>
+                <Input type="date" value={form.guia_vigencia_hasta ?? ''} onChange={e => setField('guia_vigencia_hasta', e.target.value)} className="mt-1 h-8 text-sm" />
+              </div>
+            </div>
+            <p className="text-xs text-slate-400 mt-2">Si defines el rango o la vigencia, el sistema bloquea la emisión de guías fuera de ellos. RUC, dirección, teléfono y correo salen de la sección de arriba.</p>
           </div>
 
           {msg && (

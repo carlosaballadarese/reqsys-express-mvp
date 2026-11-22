@@ -45,6 +45,30 @@ export async function PUT(req: NextRequest) {
     if (revision_np != null && (isNaN(Number(revision_np)) || Number(revision_np) < 1))
       return NextResponse.json({ error: 'La revisión NP debe ser un número entero positivo' }, { status: 400 })
 
+    // Spec: HU-042 CA-15 — datos fijos del encabezado de la guía de remisión.
+    const camposGuia: Record<string, unknown> = {}
+    const texto = (k: string, def: string | null) => {
+      if (body[k] !== undefined) camposGuia[k] = body[k]?.toString().trim() || def
+    }
+    texto('guia_serie', '001-001')
+    texto('guia_autorizacion_sri', null)
+    texto('guia_leyenda_agente_retencion', null)
+    texto('guia_documento_categorizado', 'NO')
+    texto('guia_punto_partida_defecto', 'BASE ARLIFT')
+    if (typeof body.guia_obligado_contabilidad === 'boolean') camposGuia.guia_obligado_contabilidad = body.guia_obligado_contabilidad
+    for (const k of ['guia_numero_desde', 'guia_numero_hasta'] as const) {
+      if (body[k] === undefined) continue
+      if (body[k] === null || body[k] === '') { camposGuia[k] = null; continue }
+      const n = Number(body[k])
+      if (!Number.isInteger(n) || n < 1) return NextResponse.json({ error: 'El rango de guías debe ser un entero positivo' }, { status: 400 })
+      camposGuia[k] = n
+    }
+    if (body.guia_vigencia_hasta !== undefined) {
+      if (!body.guia_vigencia_hasta) camposGuia.guia_vigencia_hasta = null
+      else if (/^\d{4}-\d{2}-\d{2}$/.test(body.guia_vigencia_hasta)) camposGuia.guia_vigencia_hasta = body.guia_vigencia_hasta
+      else return NextResponse.json({ error: 'La vigencia debe tener formato AAAA-MM-DD' }, { status: 400 })
+    }
+
     const { error } = await adminClient()
       .from('configuracion_empresa')
       .update({
@@ -61,6 +85,8 @@ export async function PUT(req: NextRequest) {
         // Spec: HU-026 CA-10 — patrón sugerido/informativo, sin validación de
         // formato (ya que v1 deja el código de Bodega como texto libre).
         patron_codigo_bodega: patron_codigo_bodega || null,
+        // Spec: HU-042 CA-15/CA-22 — solo se tocan si el cliente los envía.
+        ...camposGuia,
         updated_at:          new Date().toISOString(),
       })
       .eq('id', 1)

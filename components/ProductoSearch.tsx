@@ -10,6 +10,7 @@ export type InvItem = {
   costo_unitario: number
   saldo_existencias: number
   categoria: string
+  requiere_guia?: boolean
 }
 
 type ProductoSearchProps = {

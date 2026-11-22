@@ -45,14 +45,14 @@ describe('HU-026/post-SRS: catálogos base de Bodega en el nav, reagrupado en 2 
 
   it('"Movimientos" agrupa Documentos de Ingreso/Egreso + Ensamblajes (Field Build)', () => {
     const labels = subgrupo('Movimientos').children!.map(c => c.label)
-    expect(labels).toEqual(['Documentos de Ingreso', 'Documentos de Egreso', 'Ensamblajes (Field Build)'])
+    expect(labels).toEqual(['Documentos de Ingreso', 'Documentos de Egreso', 'Guías de Remisión', 'Ensamblajes (Field Build)'])
   })
 
   it('"Catálogos" agrupa Categorías/Bodegas/Tipos de Ingreso/Tipos de Egreso/Clientes Finales/Lugar de Entrega/Proveedores (movido desde Compras)', () => {
     const labels = subgrupo('Catálogos').children!.map(c => c.label)
     expect(labels).toEqual([
       'Categorías', 'Bodegas', 'Tipos de Ingreso', 'Tipos de Egreso',
-      'Clientes Finales', 'Lugar de Entrega', 'Proveedores',
+      'Clientes Finales', 'Lugar de Entrega', 'Transportistas', 'Proveedores',
     ])
   })
 
@@ -78,10 +78,10 @@ describe('HU-026/post-SRS: catálogos base de Bodega en el nav, reagrupado en 2 
     // agrega Ensamblajes. HU-037 CA-06: bodega no ve Tipos de Ingreso/Egreso.
     expect(topItems).toEqual(['Kardex', 'Movimientos', 'Inventario', 'Catálogos'])
     expect(subitemsVisibles(subgrupo('Movimientos'), 'bodega').map(i => i.label)).toEqual([
-      'Documentos de Ingreso', 'Documentos de Egreso', 'Ensamblajes (Field Build)',
+      'Documentos de Ingreso', 'Documentos de Egreso', 'Guías de Remisión', 'Ensamblajes (Field Build)',
     ])
     expect(subitemsVisibles(subgrupo('Catálogos'), 'bodega').map(i => i.label)).toEqual([
-      'Clientes Finales', 'Lugar de Entrega',
+      'Clientes Finales', 'Lugar de Entrega', 'Transportistas',
     ])
   })
 
@@ -244,4 +244,27 @@ describe('HU-041: Reemplazo Total de Inventario en el nav (grupo Configuración)
       expect(gruposVisibles(rol).map(g => g.label)).not.toContain('Configuración')
     }
   )
+})
+
+describe('HU-042: Guías de Remisión y Transportistas en el nav', () => {
+  it('"Guías de Remisión" va en Movimientos justo después de Documentos de Egreso, con los mismos roles que Egresos', () => {
+    const hijos = subgrupo('Movimientos').children!
+    const idx = hijos.findIndex(c => c.label === 'Guías de Remisión')
+    expect(hijos[idx - 1].label).toBe('Documentos de Egreso')
+    expect(hijos[idx].href).toBe('/compras/bodega/guias')
+    expect(hijos[idx].roles).toEqual(['compras', 'admin', 'bodega'])
+  })
+
+  it('"Transportistas" va en Catálogos para compras/admin/bodega', () => {
+    const t = subgrupo('Catálogos').children!.find(c => c.label === 'Transportistas')!
+    expect(t.href).toBe('/compras/bodega/transportistas')
+    expect(t.roles).toEqual(['compras', 'admin', 'bodega'])
+  })
+
+  it.each(['asistente_compras', 'gerencia', 'consulta'] as Rol[])('rol %s no ve Guías de Remisión ni Transportistas', (rol) => {
+    const mov = subitemsVisibles(subgrupo('Movimientos'), rol).map(i => i.label)
+    const cat = subitemsVisibles(subgrupo('Catálogos'), rol).map(i => i.label)
+    expect(mov).not.toContain('Guías de Remisión')
+    expect(cat).not.toContain('Transportistas')
+  })
 })

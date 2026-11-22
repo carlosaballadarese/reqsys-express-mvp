@@ -30,7 +30,19 @@ export async function verificarAutorizacionEgreso(): Promise<AuthEgreso> {
 
 type ActorEgreso = { id: string; nombre: string; email: string; rol: string }
 type TipoEgreso = 'venta' | 'gasto' | 'prestamo' | 'reconteo'
-type LineaEgreso = { producto_id: string; cantidad: number }
+type LineaEgreso = { producto_id: string; cantidad: number; requiere_guia?: boolean }
+
+// Spec: HU-042 CA-02 — cada línea hereda el indicador del producto (inventario.requiere_guia)
+// salvo que el cliente envíe un valor explícito (override por línea).
+export async function resolverRequiereGuiaLineas(lineas: LineaEgreso[]): Promise<boolean[]> {
+  const faltantes = [...new Set(lineas.filter((l) => typeof l.requiere_guia !== 'boolean' && l.producto_id).map((l) => l.producto_id))]
+  const porProducto = new Map<string, boolean>()
+  if (faltantes.length > 0) {
+    const { data } = await adminClient().from('inventario').select('id, requiere_guia').in('id', faltantes)
+    for (const p of data ?? []) porProducto.set(p.id, p.requiere_guia !== false)
+  }
+  return lineas.map((l) => (typeof l.requiere_guia === 'boolean' ? l.requiere_guia : (porProducto.get(l.producto_id) ?? true)))
+}
 
 type ResultadoCreacion =
   | { ok: true; documentoId: string; numero: string }
@@ -45,6 +57,8 @@ export async function crearDocumentoEgreso(
     bodegaId: string
     clienteFinalId?: string | null
     puntoEntregaId?: string | null
+    // Spec: HU-042 CA-04b — borrador de "Datos del traslado" (sin número, RN-09).
+    datosTraslado?: Record<string, unknown> | null
     lineas: LineaEgreso[]
   },
   actor: ActorEgreso
@@ -73,6 +87,7 @@ export async function crearDocumentoEgreso(
       estado: 'generado',
       cliente_final_id: permiteDestino ? (input.clienteFinalId ?? null) : null,
       punto_entrega_id: permiteDestino ? (input.puntoEntregaId ?? null) : null,
+      datos_traslado: input.datosTraslado ?? null,
       creado_por_id: actor.id,
     })
     .select('id, numero')
@@ -83,11 +98,13 @@ export async function crearDocumentoEgreso(
     return { ok: false, error: 'Error al crear el documento' }
   }
 
+  const requiereGuia = await resolverRequiereGuiaLineas(input.lineas)
   const { error: errLineas } = await adminClient().from('documentos_egreso_items').insert(
-    input.lineas.map((l) => ({
+    input.lineas.map((l, i) => ({
       documento_egreso_id: documento.id,
       producto_id: l.producto_id,
       cantidad: Number(l.cantidad),
+      requiere_guia: requiereGuia[i],
     }))
   )
   if (errLineas) {

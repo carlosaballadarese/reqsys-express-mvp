@@ -38,6 +38,8 @@ export async function PUT(
       codigo, descripcion, area, categoria,
       locacion, codigo_origen, descripcion_origen, marca, observaciones,
       bodega_id, categoria_id, stock_minimo, stock_maximo,
+      // Spec: HU-042 CA-01/CA-21 — solo se actualizan si el cliente los envía.
+      requiere_guia, unidad,
       // Spec: HU-027 CA-04/CA-05 — `costo_unitario`/`saldo_existencias` ya NO
       // se aceptan del body; nunca aparecen en el `update(...)` de abajo, sin
       // importar qué envíe el cliente. Solo cambian vía Kardex (HU-028).
@@ -75,6 +77,8 @@ export async function PUT(
         categoria_id:       categoria_id || null,
         stock_minimo:       stock_minimo != null && stock_minimo !== '' ? Number(stock_minimo) : null,
         stock_maximo:       stock_maximo != null && stock_maximo !== '' ? Number(stock_maximo) : null,
+        ...(typeof requiere_guia === 'boolean' ? { requiere_guia } : {}),
+        ...(typeof unidad === 'string' && unidad.trim() ? { unidad: unidad.trim().toUpperCase() } : {}),
       })
       .eq('id', id)
 

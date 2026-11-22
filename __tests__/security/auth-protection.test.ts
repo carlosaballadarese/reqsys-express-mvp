@@ -151,6 +151,29 @@ jest.mock('@/lib/bodega-egreso', () => ({
   crearDocumentoEgreso: (...args: unknown[]) => mockCrearDocumentoEgreso(...args),
   cerrarDocumentoEgreso: (...args: unknown[]) => mockCerrarDocumentoEgreso(...args),
   listarPrestamosPendientes: (...args: unknown[]) => mockListarPrestamosPendientes(...args),
+  // Spec: HU-042 CA-02 — por defecto cada línea hereda 'va en guía'.
+  resolverRequiereGuiaLineas: (lineas: unknown[]) => Promise.resolve(lineas.map(() => true)),
+}))
+
+// Spec: HU-042 — emitirGuia/anularGuia/verificarAutorizacionGuia mockeados (lógica real cubierta
+// por bodega-guia.test.ts); las funciones puras se conservan reales.
+type EmisionGuiaMock =
+  | { ok: true; guiaId: string; numero: number }
+  | { ok: false; status: 400 | 404 | 409 | 500; error: string; excedidas?: string[] }
+const mockVerificarAutorizacionGuia = jest.fn<Promise<AuthEgresoMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, userId: 'user-gr-1', rol: 'compras', nombre: 'Compras Test', email: 'compras@arlift.com' })
+)
+const mockEmitirGuia = jest.fn<Promise<EmisionGuiaMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, guiaId: 'g-1', numero: 1822 })
+)
+const mockAnularGuia = jest.fn<Promise<{ ok: true } | { ok: false; status: 400 | 404 | 409; error: string }>, unknown[]>(
+  (..._args: unknown[]) => Promise.resolve({ ok: true })
+)
+jest.mock('@/lib/bodega-guia', () => ({
+  ...jest.requireActual('@/lib/bodega-guia'),
+  verificarAutorizacionGuia: (...args: unknown[]) => mockVerificarAutorizacionGuia(...args),
+  emitirGuia: (...args: unknown[]) => mockEmitirGuia(...args),
+  anularGuia: (...args: unknown[]) => mockAnularGuia(...args),
 }))
 
 // Spec: HU-031 — mockeado (lógica real cubierta por bodega-ensamblaje.test.ts).
@@ -10913,6 +10936,239 @@ describe('GET /api/compras/bodega/egresos/prestamos-pendientes — HU-030 CA-05'
     expect(res.status).toBe(200)
     const data = await res.json()
     expect(data).toHaveLength(1)
+  })
+})
+
+// ── HU-042: Guía de Remisión desde un Documento de Egreso ──
+
+describe('Transportistas — HU-042 CA-11/CA-20', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/transportistas/route')
+  const { PUT } = require('@/app/api/compras/bodega/transportistas/[id]/route')
+
+  it('GET 401 sin sesión', async () => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/transportistas'))
+    expect(res.status).toBe(401)
+  })
+
+  it('GET 403 con rol sin permiso', async () => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: false, status: 403 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/transportistas'))
+    expect(res.status).toBe(403)
+  })
+
+  it('GET 200 con rol autorizado', async () => {
+    mockFrom.mockReturnValue(mockChainVacio())
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/transportistas'))
+    expect(res.status).toBe(200)
+  })
+
+  it('POST 400 sin nombre o sin cédula/RUC', async () => {
+    const sinNombre = await POST(makeRequest('http://localhost/api/compras/bodega/transportistas', { method: 'POST', body: JSON.stringify({ identificacion: '0912345678' }) }))
+    expect(sinNombre.status).toBe(400)
+    const sinId = await POST(makeRequest('http://localhost/api/compras/bodega/transportistas', { method: 'POST', body: JSON.stringify({ nombre: 'Juan' }) }))
+    expect(sinId.status).toBe(400)
+  })
+
+  it('POST 401 sin sesión', async () => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/transportistas', { method: 'POST', body: '{}' }))
+    expect(res.status).toBe(401)
+  })
+
+  it('PUT 403 con rol sin permiso', async () => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: false, status: 403 })
+    const res = await PUT(makeRequest('http://localhost/api/compras/bodega/transportistas/t1', { method: 'PUT', body: JSON.stringify({ activo: false }) }), { params: Promise.resolve({ id: 't1' }) })
+    expect(res.status).toBe(403)
+  })
+
+  it('PUT 400 sin cambios', async () => {
+    const res = await PUT(makeRequest('http://localhost/api/compras/bodega/transportistas/t1', { method: 'PUT', body: '{}' }), { params: Promise.resolve({ id: 't1' }) })
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('GET/POST /api/compras/bodega/egresos/[id]/guias — HU-042 CA-04/CA-05', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/egresos/[id]/guias/route')
+  const ctx = { params: Promise.resolve({ id: 'egr-1' }) }
+
+  it('GET 401 sin sesión', async () => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/guias'), ctx)
+    expect(res.status).toBe(401)
+  })
+
+  it('GET 404 si el egreso no existe', async () => {
+    mockFrom.mockImplementation(() => ({ select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }) }))
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/guias'), ctx)
+    expect(res.status).toBe(404)
+  })
+
+  it('POST 403 con rol sin permiso', async () => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: false, status: 403 })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/guias', { method: 'POST', body: '{}' }), ctx)
+    expect(res.status).toBe(403)
+  })
+
+  it('POST 201 con el número asignado', async () => {
+    mockEmitirGuia.mockResolvedValueOnce({ ok: true, guiaId: 'g-9', numero: 1823 })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/guias', { method: 'POST', body: '{"punto_llegada":"X"}' }), ctx)
+    expect(res.status).toBe(201)
+    expect((await res.json()).numero).toBe(1823)
+  })
+
+  it('POST propaga el estado de emitirGuia (409 saldo/vigencia, 400 datos)', async () => {
+    mockEmitirGuia.mockResolvedValueOnce({ ok: false, status: 409, error: 'La cantidad supera el saldo por guiar', excedidas: ['i1'] })
+    const r409 = await POST(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/guias', { method: 'POST', body: '{}' }), ctx)
+    expect(r409.status).toBe(409)
+    expect((await r409.json()).excedidas).toEqual(['i1'])
+    mockEmitirGuia.mockResolvedValueOnce({ ok: false, status: 400, error: 'El punto de llegada es requerido' })
+    const r400 = await POST(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/guias', { method: 'POST', body: '{}' }), ctx)
+    expect(r400.status).toBe(400)
+  })
+})
+
+describe('Guías de remisión (listado/detalle/anular/PDF) — HU-042 CA-14/CA-16/CA-18/CA-20', () => {
+  const lista = require('@/app/api/compras/bodega/guias/route')
+  const detalle = require('@/app/api/compras/bodega/guias/[id]/route')
+  const anular = require('@/app/api/compras/bodega/guias/[id]/anular/route')
+  const pdf = require('@/app/api/compras/bodega/guias/[id]/pdf/route')
+  const ctx = { params: Promise.resolve({ id: 'g-1' }) }
+
+  it.each([
+    ['listado', () => lista.GET(makeRequest('http://localhost/api/compras/bodega/guias'))],
+    ['detalle', () => detalle.GET(makeRequest('http://localhost/api/compras/bodega/guias/g-1'), ctx)],
+    ['pdf', () => pdf.GET(makeRequest('http://localhost/api/compras/bodega/guias/g-1/pdf'), ctx)],
+    ['anular', () => anular.POST(makeRequest('http://localhost/api/compras/bodega/guias/g-1/anular', { method: 'POST', body: '{}' }), ctx)],
+  ])('%s: 401 sin sesión', async (_n, llamar) => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: false, status: 401 })
+    expect((await llamar()).status).toBe(401)
+  })
+
+  it.each([
+    ['listado', () => lista.GET(makeRequest('http://localhost/api/compras/bodega/guias'))],
+    ['detalle', () => detalle.GET(makeRequest('http://localhost/api/compras/bodega/guias/g-1'), ctx)],
+    ['pdf', () => pdf.GET(makeRequest('http://localhost/api/compras/bodega/guias/g-1/pdf'), ctx)],
+  ])('%s: 403 para roles sin permiso (asistente_compras/gerencia/consulta)', async (_n, llamar) => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: false, status: 403 })
+    expect((await llamar()).status).toBe(403)
+  })
+
+  it('listado: 200 para un rol autorizado', async () => {
+    mockFrom.mockReturnValue(mockChainVacio())
+    const res = await lista.GET(makeRequest('http://localhost/api/compras/bodega/guias?estado=emitida'))
+    expect(res.status).toBe(200)
+  })
+
+  it('detalle: 404 si la guía no existe', async () => {
+    mockFrom.mockImplementation(() => ({ select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }) }))
+    const res = await detalle.GET(makeRequest('http://localhost/api/compras/bodega/guias/g-1'), ctx)
+    expect(res.status).toBe(404)
+  })
+
+  it('anular: 403 para bodega (CA-16: solo compras/admin) sin llamar a anularGuia', async () => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: true, userId: 'u', rol: 'bodega', nombre: 'B', email: 'b@a.com' })
+    const res = await anular.POST(makeRequest('http://localhost/api/compras/bodega/guias/g-1/anular', { method: 'POST', body: '{"motivo":"x"}' }), ctx)
+    expect(res.status).toBe(403)
+    expect(mockAnularGuia).not.toHaveBeenCalled()
+  })
+
+  it.each(['compras', 'admin'])('anular: 200 para %s', async (rol) => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: true, userId: 'u', rol, nombre: 'C', email: 'c@a.com' })
+    const res = await anular.POST(makeRequest('http://localhost/api/compras/bodega/guias/g-1/anular', { method: 'POST', body: '{"motivo":"Placa incorrecta"}' }), ctx)
+    expect(res.status).toBe(200)
+    expect(mockAnularGuia).toHaveBeenCalledWith('g-1', 'Placa incorrecta', expect.objectContaining({ rol }))
+  })
+
+  it('anular: propaga 400 (sin motivo) y 409 (ya anulada)', async () => {
+    mockAnularGuia.mockResolvedValueOnce({ ok: false, status: 400, error: 'El motivo de anulación es obligatorio' })
+    expect((await anular.POST(makeRequest('http://localhost/api/compras/bodega/guias/g-1/anular', { method: 'POST', body: '{}' }), ctx)).status).toBe(400)
+    mockAnularGuia.mockResolvedValueOnce({ ok: false, status: 409, error: 'La guía ya está anulada' })
+    expect((await anular.POST(makeRequest('http://localhost/api/compras/bodega/guias/g-1/anular', { method: 'POST', body: '{"motivo":"x"}' }), ctx)).status).toBe(409)
+  })
+})
+
+describe('POST /api/compras/bodega/egresos/[id]/cerrar con emitir_guia — HU-042 CA-04c', () => {
+  const { POST } = require('@/app/api/compras/bodega/egresos/[id]/cerrar/route')
+  const ctx = { params: Promise.resolve({ id: 'egr-1' }) }
+  const req = (body: object) => makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/cerrar', { method: 'POST', body: JSON.stringify(body) })
+
+  it('cierra y emite la guía en el mismo acto, devolviendo su número', async () => {
+    mockCerrarDocumentoEgreso.mockResolvedValueOnce({ ok: true })
+    mockEmitirGuia.mockClear()
+    mockEmitirGuia.mockResolvedValueOnce({ ok: true, guiaId: 'g-5', numero: 1830 })
+    const res = await POST(req({ emitir_guia: true }), ctx)
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.guia).toEqual({ id: 'g-5', numero: 1830 })
+    expect(mockEmitirGuia).toHaveBeenCalledTimes(1)
+  })
+
+  it('si el cierre falla NO intenta emitir la guía (no se consume número)', async () => {
+    mockEmitirGuia.mockClear()
+    mockCerrarDocumentoEgreso.mockResolvedValueOnce({ ok: false, error: 'Saldo insuficiente', lineasExcedidas: ['AL-I0001'] })
+    const res = await POST(req({ emitir_guia: true }), ctx)
+    expect(res.status).toBe(400)
+    expect(mockEmitirGuia).not.toHaveBeenCalled()
+  })
+
+  it('si el cierre funciona pero la guía falla: 200 con guia_error (el egreso queda cerrado)', async () => {
+    mockCerrarDocumentoEgreso.mockResolvedValueOnce({ ok: true })
+    mockEmitirGuia.mockResolvedValueOnce({ ok: false, status: 400, error: 'La placa del vehículo es requerida' })
+    const res = await POST(req({ emitir_guia: true }), ctx)
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.success).toBe(true)
+    expect(data.guia_error).toBe('La placa del vehículo es requerida')
+  })
+
+  it('sin emitir_guia no toca guías (comportamiento de HU-030 intacto)', async () => {
+    mockEmitirGuia.mockClear()
+    mockCerrarDocumentoEgreso.mockResolvedValueOnce({ ok: true })
+    const res = await POST(req({}), ctx)
+    expect(res.status).toBe(200)
+    expect(mockEmitirGuia).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/compras/bodega/egresos — borrador datos_traslado — HU-042 CA-04b', () => {
+  const { POST } = require('@/app/api/compras/bodega/egresos/route')
+
+  it('pasa datos_traslado a crearDocumentoEgreso', async () => {
+    mockCrearDocumentoEgreso.mockClear()
+    mockCrearDocumentoEgreso.mockResolvedValueOnce({ ok: true, documentoId: 'egr-7', numero: 'EGR-2026-0007' })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/egresos', {
+      method: 'POST',
+      body: JSON.stringify({ tipo: 'venta', bodega_id: 'b1', datos_traslado: { placa: 'PFQ-2422' }, lineas: [{ producto_id: 'p1', cantidad: 1 }] }),
+    }))
+    expect(res.status).toBe(201)
+    expect(mockCrearDocumentoEgreso.mock.calls[0][0]).toMatchObject({ datosTraslado: { placa: 'PFQ-2422' } })
+  })
+})
+
+describe('PUT /api/compras/configuracion/empresa — campos de guía — HU-042 CA-15/CA-22', () => {
+  const { PUT } = require('@/app/api/compras/configuracion/empresa/route')
+
+  it('400 si el rango autorizado no es un entero positivo', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u-adm' } } })
+    mockFrom.mockImplementation((tabla: string) => tabla === 'perfiles'
+      ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'admin' }, error: null }) }) }) }
+      : mockChainVacio())
+    const res = await PUT(makeRequest('http://localhost/api/compras/configuracion/empresa', {
+      method: 'PUT', body: JSON.stringify({ razon_social: 'ARLIFT', guia_numero_hasta: -5 }),
+    }))
+    expect(res.status).toBe(400)
+  })
+
+  it('400 si la vigencia no tiene formato AAAA-MM-DD', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u-adm' } } })
+    mockFrom.mockImplementation((tabla: string) => tabla === 'perfiles'
+      ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'admin' }, error: null }) }) }) }
+      : mockChainVacio())
+    const res = await PUT(makeRequest('http://localhost/api/compras/configuracion/empresa', {
+      method: 'PUT', body: JSON.stringify({ razon_social: 'ARLIFT', guia_vigencia_hasta: '21/11/2026' }),
+    }))
+    expect(res.status).toBe(400)
   })
 })
 
