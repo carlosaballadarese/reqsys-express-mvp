@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { adminClient } from '@/lib/supabase/clients'
+import { paginarRange } from '@/lib/bodega-reportes-query'
 
 
 export async function GET(req: NextRequest) {
@@ -14,22 +15,32 @@ export async function GET(req: NextRequest) {
   const categoria = searchParams.get('categoria')
   const area      = searchParams.get('area')
 
-  let query = adminClient()
-    .from('inventario')
-    // Spec: HU-027 CA-01 — expone las 5 columnas nuevas (bodega_id/categoria_id/
-    // stock_minimo/stock_maximo/ultimo_conteo_fecha) junto a las ya existentes.
-    // HU-041 CA-12 — expone `activo`; el listado administrativo muestra
-    // ambos estados (a diferencia de search/search-interno, que solo activos).
-    .select('id, codigo, descripcion, area, categoria, saldo_existencias, costo_unitario, locacion, marca, bodega_id, categoria_id, stock_minimo, stock_maximo, ultimo_conteo_fecha, activo, requiere_guia, unidad')
-    .order('codigo')
+  // Fix: hallazgo real (2026-11-23) — sin ningún filtro (carga inicial de
+  // /compras/inventario), el SELECT sobre ~1257 productos reales quedaba
+  // cortado en silencio a 1000 filas por el límite por defecto de PostgREST
+  // (mismo patrón ya corregido 3 veces en el proyecto — DEF-HU-035-001,
+  // stock-bajo-minimo/excel de HU-033, reemplazo-inventario/analizar de
+  // HU-041 — nunca aplicado a este endpoint, el más antiguo y de mayor uso).
+  const resultado = await paginarRange((desde, hasta) =>
+    (() => {
+      let query = adminClient()
+        .from('inventario')
+        // Spec: HU-027 CA-01 — expone las 5 columnas nuevas (bodega_id/categoria_id/
+        // stock_minimo/stock_maximo/ultimo_conteo_fecha) junto a las ya existentes.
+        // HU-041 CA-12 — expone `activo`; el listado administrativo muestra
+        // ambos estados (a diferencia de search/search-interno, que solo activos).
+        .select('id, codigo, descripcion, area, categoria, saldo_existencias, costo_unitario, locacion, marca, bodega_id, categoria_id, stock_minimo, stock_maximo, ultimo_conteo_fecha, activo, requiere_guia, unidad')
+        .order('codigo')
+        .range(desde, hasta)
 
-  if (q)         query = query.or(`descripcion.ilike.%${q}%,codigo.ilike.%${q}%,marca.ilike.%${q}%`)
-  if (categoria) query = query.eq('categoria', categoria)
-  if (area)      query = query.eq('area', area)
+      if (q)         query = query.or(`descripcion.ilike.%${q}%,codigo.ilike.%${q}%,marca.ilike.%${q}%`)
+      if (categoria) query = query.eq('categoria', categoria)
+      if (area)      query = query.eq('area', area)
 
-  const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data ?? [])
+      return query
+    })()
+  )
+  return NextResponse.json(resultado)
 }
 
 export async function POST(req: NextRequest) {
