@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { NAV, gruposVisibles, itemsVisibles, type GrupoNav, type Rol } from '@/lib/nav-config'
+import { NAV, gruposVisibles, itemsVisibles, subitemsVisibles, type GrupoNav, type ItemNav, type Rol } from '@/lib/nav-config'
 
 type Perfil = { nombre: string; rol: string; email: string }
 
@@ -45,6 +45,9 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
   const [perfil, setPerfil]           = useState<Perfil | null>(null)
   const [menuAbierto, setMenuAbierto] = useState(false)
   const [dropdown, setDropdown]       = useState<string | null>(null)
+  // Spec: subgrupo de 2do nivel (2026-11-20) — a lo sumo 1 subgrupo expandido
+  // a la vez, dentro del dropdown de nivel superior ya abierto.
+  const [subDropdown, setSubDropdown] = useState<string | null>(null)
   const pathname = usePathname()
   const router   = useRouter()
   const navRef   = useRef<HTMLDivElement>(null)
@@ -58,13 +61,13 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (navRef.current && !navRef.current.contains(e.target as Node)) setDropdown(null)
+      if (navRef.current && !navRef.current.contains(e.target as Node)) { setDropdown(null); setSubDropdown(null) }
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  useEffect(() => { setDropdown(null); setMenuAbierto(false) }, [pathname])
+  useEffect(() => { setDropdown(null); setSubDropdown(null); setMenuAbierto(false) }, [pathname])
 
   async function handleLogout() {
     const supabase = createSupabaseBrowserClient()
@@ -78,9 +81,17 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
   const configuracion = NAV.find(g => g.label === 'Configuración')
   const configuracionVisible = configuracion ? gruposVisibles(rol).some(g => g.label === 'Configuración') : false
 
+  // Spec: subgrupo de 2do nivel (2026-11-20) — recorre `children` si el ítem
+  // es un subgrupo ("Movimientos"/"Catálogos"), mismo criterio de activo que
+  // ya existía para una hoja (preservado tal cual, solo se generaliza).
+  function itemActivo(item: ItemNav): boolean {
+    if (item.href) return item.exact ? pathname === item.href : pathname.startsWith(item.href + '/')
+    return subitemsVisibles(item, rol).some(itemActivo)
+  }
+
   function isGroupActive(g: GrupoNav): boolean {
     if (g.href) return g.exact ? pathname === g.href : pathname.startsWith(g.href)
-    return itemsVisibles(g, rol).some(c => c.exact ? pathname === c.href : pathname.startsWith(c.href + '/'))
+    return itemsVisibles(g, rol).some(itemActivo)
   }
 
   function isChildActive(href: string): boolean {
@@ -90,6 +101,26 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
   const activeStyle   = { background: '#c9a840' }
   const activeClass   = 'text-[#0d2e2e]'
   const inactiveClass = 'text-white/70 hover:text-white hover:bg-white/10'
+
+  // Spec: subgrupo de 2do nivel (2026-11-20) — fila de hoja reutilizada por
+  // el dropdown de escritorio tanto para un hijo directo como para el único
+  // hijo de un subgrupo colapsado a 1 elemento, y para cada hijo de un
+  // subgrupo expandido (con sangría extra via `indent`).
+  function FilaLink({ item, indent }: { item: ItemNav; indent?: boolean }) {
+    const href = item.href!
+    const activa = isChildActive(href)
+    return (
+      <Link href={href}>
+        <span className={`flex items-center ${indent ? 'pl-7 pr-4' : 'px-4'} py-2 text-sm transition-colors ${
+          activa
+            ? 'bg-teal-50 text-[#1a5252] font-semibold border-l-2 border-[#1a5252]'
+            : indent ? 'text-slate-600 hover:bg-slate-50 hover:text-[#1a5252]' : 'text-slate-700 hover:bg-slate-50 hover:text-[#1a5252]'
+        }`}>
+          {item.label}
+        </span>
+      </Link>
+    )
+  }
 
   function IconoSidebar({ grupo, abrirHaciaArriba }: { grupo: GrupoNav; abrirHaciaArriba?: boolean }) {
     const active = isGroupActive(grupo)
@@ -108,23 +139,29 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
 
     const hijos = itemsVisibles(grupo, rol)
 
-    // CA-19 (comportamiento preexistente): un solo hijo visible -> enlace directo
+    // CA-19 (comportamiento preexistente): un solo hijo visible -> enlace
+    // directo. Si ese único hijo es a su vez un subgrupo (ver 2do nivel,
+    // 2026-11-20), se drilea hasta la hoja real — no ocurre con la
+    // configuración de roles actual, pero se cubre por correctitud de tipos.
     if (hijos.length === 1) {
       const solo = hijos[0]
-      const soloActive = isChildActive(solo.href)
-      return (
-        <Link href={solo.href} title={grupo.label}
-          className={`flex items-center justify-center w-10 h-10 rounded-lg transition-all ${soloActive ? activeClass : inactiveClass}`}
-          style={soloActive ? activeStyle : {}}>
-          <Icono nombre={grupo.icono} />
-        </Link>
-      )
+      const soloHref = solo.href ?? subitemsVisibles(solo, rol)[0]?.href
+      if (soloHref) {
+        const soloActive = isChildActive(soloHref)
+        return (
+          <Link href={soloHref} title={grupo.label}
+            className={`flex items-center justify-center w-10 h-10 rounded-lg transition-all ${soloActive ? activeClass : inactiveClass}`}
+            style={soloActive ? activeStyle : {}}>
+            <Icono nombre={grupo.icono} />
+          </Link>
+        )
+      }
     }
 
     return (
       <div className="relative">
         <button type="button" title={grupo.label}
-          onClick={() => setDropdown(open ? null : grupo.label)}
+          onClick={() => { setDropdown(open ? null : grupo.label); setSubDropdown(null) }}
           className={`flex items-center justify-center w-10 h-10 rounded-lg transition-all ${active ? activeClass : inactiveClass}`}
           style={active ? activeStyle : {}}>
           <Icono nombre={grupo.icono} />
@@ -134,17 +171,28 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
           <div className={`absolute ${abrirHaciaArriba ? 'bottom-0' : 'top-0'} left-full ml-2 min-w-[220px] bg-white rounded-md shadow-xl border border-slate-100 z-50 py-1 overflow-hidden`}
             style={{ borderLeft: '3px solid #1a5252' }}>
             <p className="px-4 py-1.5 text-xs font-semibold uppercase tracking-widest text-slate-400">{grupo.label}</p>
-            {hijos.map(hijo => (
-              <Link key={hijo.label} href={hijo.href}>
-                <span className={`flex items-center px-4 py-2 text-sm transition-colors ${
-                  isChildActive(hijo.href)
-                    ? 'bg-teal-50 text-[#1a5252] font-semibold border-l-2 border-[#1a5252]'
-                    : 'text-slate-700 hover:bg-slate-50 hover:text-[#1a5252]'
-                }`}>
-                  {hijo.label}
-                </span>
-              </Link>
-            ))}
+            {hijos.map(hijo => {
+              if (hijo.children) {
+                const subHijos = subitemsVisibles(hijo, rol)
+                // CA-19 aplicado también al subgrupo: 1 solo hijo visible -> fila directa.
+                if (subHijos.length === 1) return <FilaLink key={hijo.label} item={subHijos[0]} />
+                const expandido = subDropdown === hijo.label
+                return (
+                  <div key={hijo.label}>
+                    <button type="button"
+                      onClick={() => setSubDropdown(expandido ? null : hijo.label)}
+                      className={`w-full flex items-center justify-between px-4 py-2 text-sm transition-colors ${
+                        itemActivo(hijo) ? 'text-[#1a5252] font-semibold' : 'text-slate-700 hover:bg-slate-50 hover:text-[#1a5252]'
+                      }`}>
+                      <span>{hijo.label}</span>
+                      <span className="text-xs text-slate-400">{expandido ? '▾' : '▸'}</span>
+                    </button>
+                    {expandido && subHijos.map(sub => <FilaLink key={sub.label} item={sub} indent />)}
+                  </div>
+                )
+              }
+              return <FilaLink key={hijo.label} item={hijo} />
+            })}
           </div>
         )}
       </div>
@@ -209,30 +257,72 @@ export default function ComprasNav({ children }: { children: React.ReactNode }) 
               if (!hijos || hijos.length === 0) return null
               if (hijos.length === 1) {
                 const solo = hijos[0]
-                const soloActive = isChildActive(solo.href)
-                return (
-                  <Link key={grupo.label} href={solo.href}>
-                    <span className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium ${soloActive ? activeClass : 'text-white/80'}`}
-                      style={soloActive ? activeStyle : {}}>
-                      <Icono nombre={grupo.icono} />{grupo.label}
-                    </span>
-                  </Link>
-                )
+                const soloHref = solo.href ?? subitemsVisibles(solo, rol)[0]?.href
+                if (soloHref) {
+                  const soloActive = isChildActive(soloHref)
+                  return (
+                    <Link key={grupo.label} href={soloHref}>
+                      <span className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium ${soloActive ? activeClass : 'text-white/80'}`}
+                        style={soloActive ? activeStyle : {}}>
+                        <Icono nombre={grupo.icono} />{grupo.label}
+                      </span>
+                    </Link>
+                  )
+                }
               }
               return (
                 <div key={grupo.label} className="pt-1">
                   <p className="flex items-center gap-2 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-white/40">
                     <Icono nombre={grupo.icono} />{grupo.label}
                   </p>
-                  {hijos.map(hijo => (
-                    <Link key={hijo.label} href={hijo.href}>
-                      <span className={`block px-9 py-1.5 text-sm rounded-md ${
-                        isChildActive(hijo.href) ? 'text-[#c9a840] font-semibold' : 'text-white/70 hover:text-white'
-                      }`}>
-                        {hijo.label}
-                      </span>
-                    </Link>
-                  ))}
+                  {hijos.map(hijo => {
+                    if (hijo.children) {
+                      const subHijos = subitemsVisibles(hijo, rol)
+                      if (subHijos.length === 1) {
+                        const solo = subHijos[0]
+                        return (
+                          <Link key={hijo.label} href={solo.href!}>
+                            <span className={`block px-9 py-1.5 text-sm rounded-md ${
+                              isChildActive(solo.href!) ? 'text-[#c9a840] font-semibold' : 'text-white/70 hover:text-white'
+                            }`}>
+                              {solo.label}
+                            </span>
+                          </Link>
+                        )
+                      }
+                      const expandido = subDropdown === hijo.label
+                      return (
+                        <div key={hijo.label}>
+                          <button type="button"
+                            onClick={() => setSubDropdown(expandido ? null : hijo.label)}
+                            className={`w-full flex items-center justify-between px-9 py-1.5 text-sm rounded-md ${
+                              itemActivo(hijo) ? 'text-[#c9a840] font-semibold' : 'text-white/70 hover:text-white'
+                            }`}>
+                            <span>{hijo.label}</span>
+                            <span className="text-xs text-white/40">{expandido ? '▾' : '▸'}</span>
+                          </button>
+                          {expandido && subHijos.map(sub => (
+                            <Link key={sub.label} href={sub.href!}>
+                              <span className={`block px-14 py-1.5 text-sm rounded-md ${
+                                isChildActive(sub.href!) ? 'text-[#c9a840] font-semibold' : 'text-white/60 hover:text-white'
+                              }`}>
+                                {sub.label}
+                              </span>
+                            </Link>
+                          ))}
+                        </div>
+                      )
+                    }
+                    return (
+                      <Link key={hijo.label} href={hijo.href!}>
+                        <span className={`block px-9 py-1.5 text-sm rounded-md ${
+                          isChildActive(hijo.href!) ? 'text-[#c9a840] font-semibold' : 'text-white/70 hover:text-white'
+                        }`}>
+                          {hijo.label}
+                        </span>
+                      </Link>
+                    )
+                  })}
                 </div>
               )
             })}

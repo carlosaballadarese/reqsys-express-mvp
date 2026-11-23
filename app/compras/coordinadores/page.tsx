@@ -18,7 +18,7 @@ type Coordinador = {
   activo: boolean
 }
 
-type AreaCatalogo = { id: string; nombre: string; activo: boolean }
+type AreaCatalogo = { id: string; nombre: string; activo: boolean; habilitada_para_bodega: boolean }
 
 // Spec: SC-002 — el form identifica el área por id, seleccionada de un
 // catálogo con CRUD propio (ver sección "Áreas" más abajo).
@@ -97,6 +97,19 @@ export default function CoordinadoresPage() {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ activo: !a.activo }),
+    })
+    const data = await res.json()
+    if (data.success) cargar()
+    else toast.error(data.error || 'Error al actualizar área')
+  }
+
+  // Spec: HU-026 CA-02 — una misma área puede servir al enrutamiento de
+  // aprobación de NP y/o a la clasificación de Bodega, de forma independiente.
+  async function handleToggleHabilitadaBodega(a: AreaCatalogo) {
+    const res = await fetch(`/api/compras/areas/${a.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ habilitada_para_bodega: !a.habilitada_para_bodega }),
     })
     const data = await res.json()
     if (data.success) cargar()
@@ -270,11 +283,19 @@ export default function CoordinadoresPage() {
                 {areas.map(a => (
                   <li key={a.id} className="flex items-center justify-between text-sm border rounded-md px-3 py-1.5 bg-slate-50">
                     <span className={a.activo ? '' : 'text-slate-400'}>{a.nombre}</span>
-                    <button onClick={() => handleToggleAreaActivo(a)}
-                      className={`text-xs px-2 py-0.5 rounded-full border ${a.activo ? 'bg-green-50 text-green-700 border-green-300 hover:bg-green-100' : 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200'}`}
-                      title="Clic para activar/desactivar">
-                      {a.activo ? 'Activa' : 'Inactiva'}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {/* Spec: HU-026 CA-02 — independiente de activo (aprobación de NP) */}
+                      <button onClick={() => handleToggleHabilitadaBodega(a)}
+                        className={`text-xs px-2 py-0.5 rounded-full border ${a.habilitada_para_bodega ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
+                        title="Habilita esta área para clasificar productos de Bodega">
+                        {a.habilitada_para_bodega ? 'Habilitada p/ Bodega' : 'No habilitada p/ Bodega'}
+                      </button>
+                      <button onClick={() => handleToggleAreaActivo(a)}
+                        className={`text-xs px-2 py-0.5 rounded-full border ${a.activo ? 'bg-green-50 text-green-700 border-green-300 hover:bg-green-100' : 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200'}`}
+                        title="Clic para activar/desactivar">
+                        {a.activo ? 'Activa' : 'Inactiva'}
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>

@@ -36,8 +36,13 @@ export async function PUT(
     const body   = await req.json()
     const {
       codigo, descripcion, area, categoria,
-      saldo_existencias, costo_unitario,
       locacion, codigo_origen, descripcion_origen, marca, observaciones,
+      bodega_id, categoria_id, stock_minimo, stock_maximo,
+      // Spec: HU-042 CA-01/CA-21 — solo se actualizan si el cliente los envía.
+      requiere_guia, unidad,
+      // Spec: HU-027 CA-04/CA-05 — `costo_unitario`/`saldo_existencias` ya NO
+      // se aceptan del body; nunca aparecen en el `update(...)` de abajo, sin
+      // importar qué envíe el cliente. Solo cambian vía Kardex (HU-028).
     } = body
 
     if (!codigo || !descripcion) {
@@ -63,13 +68,17 @@ export async function PUT(
         descripcion:        descripcion.trim(),
         area:               area               || null,
         categoria:          categoria?.trim()  || null,
-        saldo_existencias:  Number(saldo_existencias)  || 0,
-        costo_unitario:     Number(costo_unitario)     || 0,
         locacion:           locacion?.trim()           || null,
         codigo_origen:      codigo_origen?.trim()      || null,
         descripcion_origen: descripcion_origen?.trim() || null,
         marca:              marca?.trim()              || null,
         observaciones:      observaciones?.trim()      || null,
+        bodega_id:          bodega_id    || null,
+        categoria_id:       categoria_id || null,
+        stock_minimo:       stock_minimo != null && stock_minimo !== '' ? Number(stock_minimo) : null,
+        stock_maximo:       stock_maximo != null && stock_maximo !== '' ? Number(stock_maximo) : null,
+        ...(typeof requiere_guia === 'boolean' ? { requiere_guia } : {}),
+        ...(typeof unidad === 'string' && unidad.trim() ? { unidad: unidad.trim().toUpperCase() } : {}),
       })
       .eq('id', id)
 
@@ -80,7 +89,7 @@ export async function PUT(
       entidad:    'inventario',
       entidad_id: id,
       referencia: `${codigo} — ${descripcion.trim()}`,
-      detalle:    { area, categoria, saldo_existencias: Number(saldo_existencias) || 0 },
+      detalle:    { area, categoria, bodega_id, categoria_id },
     })
 
     return NextResponse.json({ success: true })

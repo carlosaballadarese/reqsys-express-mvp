@@ -2,11 +2,12 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { calcularAlertaStock, calcularAlertaConteo } from '@/lib/bodega-alertas'
 
 type Item = {
   id: string
@@ -18,13 +19,23 @@ type Item = {
   costo_unitario: number
   locacion: string | null
   marca: string | null
+  // Spec: HU-033 CA-01 — ya devueltos por el GET desde HU-027.
+  stock_minimo: number | null
+  stock_maximo: number | null
+  // Spec: HU-034 CA-04 — ya devuelto por el GET desde HU-027.
+  ultimo_conteo_fecha: string | null
+  // Spec: HU-041 CA-12 — el listado administrativo muestra ambos estados.
+  activo: boolean
 }
 
-type ImportResult = {
-  total: number
-  insertados: number
-  actualizados: number
-  errores: string[]
+const SEMAFORO_LABEL: Record<string, string> = {
+  verde: 'Conteo reciente', amarillo: 'Conteo hace 9m-1a', rojo: 'Conteo hace +1 año', sin_conteo: 'Sin conteo registrado',
+}
+const SEMAFORO_COLOR: Record<string, string> = {
+  verde: 'bg-green-100 text-green-700',
+  amarillo: 'bg-amber-100 text-amber-700',
+  rojo: 'bg-red-100 text-red-700',
+  sin_conteo: 'bg-gray-100 text-gray-500',
 }
 
 export default function InventarioPage() {
@@ -33,12 +44,6 @@ export default function InventarioPage() {
   const [q, setQ]                 = useState('')
   const [categoria, setCategoria] = useState('')
   const [categorias, setCategorias] = useState<string[]>([])
-
-  const [dialogOpen, setDialogOpen]       = useState(false)
-  const [importando, setImportando]       = useState(false)
-  const [importResult, setImportResult]   = useState<ImportResult | null>(null)
-  const [importError, setImportError]     = useState('')
-  const fileRef = useRef<HTMLInputElement>(null)
 
   const cargar = useCallback(() => {
     setCargando(true)
@@ -61,30 +66,6 @@ export default function InventarioPage() {
 
   useEffect(() => { cargar() }, [cargar])
 
-  async function handleImportar() {
-    const file = fileRef.current?.files?.[0]
-    if (!file) { setImportError('Seleccioná un archivo .xlsx'); return }
-    setImportando(true); setImportError(''); setImportResult(null)
-    try {
-      const fd = new FormData()
-      fd.append('file', file)
-      const res = await fetch('/api/compras/inventario/importar', { method: 'POST', body: fd })
-      const data = await res.json()
-      if (data.success) {
-        setImportResult(data)
-        cargar()
-      } else {
-        setImportError(data.error ?? 'Error al importar')
-      }
-    } catch { setImportError('Error de conexión') }
-    finally { setImportando(false) }
-  }
-
-  function abrirDialog() {
-    setDialogOpen(true); setImportResult(null); setImportError('')
-    if (fileRef.current) fileRef.current.value = ''
-  }
-
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="page-header px-6 py-4">
@@ -94,7 +75,11 @@ export default function InventarioPage() {
             <a href="/api/exportar/inventario" download>
               <Button variant="outline" className="bg-transparent border-white/40 text-white hover:bg-white/10 text-sm">⬇ Excel</Button>
             </a>
-            <Button onClick={abrirDialog} variant="outline" className="bg-transparent border-white/40 text-white hover:bg-white/10 text-sm">↑ Importar Excel</Button>
+            {/* Spec: HU-041 CA-11 — reemplaza al importador viejo (xlsx,
+                escribía saldo/costo sin Kardex). Ver /compras/bodega/reemplazo-inventario. */}
+            <Link href="/compras/bodega/reemplazo-inventario">
+              <Button variant="outline" className="bg-transparent border-white/40 text-white hover:bg-white/10 text-sm">↑ Reemplazo Total desde Archivo</Button>
+            </Link>
             <Link href="/compras/inventario/nuevo">
               <Button className="bg-white text-[#0d2e2e] hover:bg-slate-50 text-sm font-semibold">+ Nuevo Ítem</Button>
             </Link>
@@ -160,7 +145,12 @@ export default function InventarioPage() {
                     {items.map(item => (
                       <tr key={item.id} className="border-b hover:bg-slate-50 transition-colors">
                         <td className="py-3 pr-4 font-mono text-xs text-slate-600">{item.codigo}</td>
-                        <td className="py-3 pr-4 font-medium">{item.descripcion}</td>
+                        <td className="py-3 pr-4 font-medium">
+                          {item.descripcion}
+                          {!item.activo && (
+                            <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-200 text-gray-600">Inactivo</span>
+                          )}
+                        </td>
                         <td className="py-3 pr-4 text-slate-500 text-xs">{item.categoria ?? '—'}</td>
                         <td className="py-3 pr-4 text-slate-500 text-xs">{item.area ?? '—'}</td>
                         <td className="py-3 pr-4 text-slate-500 text-xs">{item.marca ?? '—'}</td>
@@ -168,6 +158,20 @@ export default function InventarioPage() {
                           <span className={`font-medium ${Number(item.saldo_existencias) > 0 ? 'text-green-600' : 'text-slate-400'}`}>
                             {Number(item.saldo_existencias).toFixed(0)}
                           </span>
+                          {(() => {
+                            const alerta = calcularAlertaStock(Number(item.saldo_existencias), item.stock_minimo, item.stock_maximo)
+                            if (alerta.bajoMinimo) return <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-700">Bajo mínimo</span>
+                            if (alerta.sobreMaximo) return <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700">Sobre máximo</span>
+                            return null
+                          })()}
+                          {(() => {
+                            const semaforo = calcularAlertaConteo(item.ultimo_conteo_fecha)
+                            return (
+                              <span className={`ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium ${SEMAFORO_COLOR[semaforo]}`} title={SEMAFORO_LABEL[semaforo]}>
+                                ●
+                              </span>
+                            )
+                          })()}
                         </td>
                         <td className="py-3 pr-4 text-right text-slate-600">
                           {Number(item.costo_unitario) > 0 ? `$${Number(item.costo_unitario).toFixed(2)}` : '—'}
@@ -187,55 +191,6 @@ export default function InventarioPage() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Dialog importación Excel */}
-      {dialogOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 p-6 space-y-4">
-            <h2 className="text-base font-semibold text-slate-800">Importar inventario desde Excel</h2>
-            <p className="text-xs text-slate-500">
-              Seleccioná el archivo <span className="font-mono font-medium">Control Inventario.xlsx</span>.
-              La hoja <strong>PRODUCTOS</strong> debe tener encabezados en la fila 8.
-              Los registros existentes se actualizarán por código; los nuevos se insertarán.
-            </p>
-
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".xlsx,.xls"
-              className="block w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
-            />
-
-            {importError && (
-              <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded px-3 py-2">{importError}</p>
-            )}
-
-            {importResult && (
-              <div className="bg-green-50 border border-green-200 rounded px-3 py-3 space-y-1">
-                <p className="text-green-700 text-sm font-medium">✓ Importación completada</p>
-                <p className="text-green-600 text-xs">Total procesados: <strong>{importResult.total}</strong></p>
-                <p className="text-green-600 text-xs">Actualizados: <strong>{importResult.actualizados}</strong> · Insertados: <strong>{importResult.insertados}</strong></p>
-                {importResult.errores.length > 0 && (
-                  <p className="text-amber-600 text-xs">Errores en lotes: {importResult.errores.join(', ')}</p>
-                )}
-              </div>
-            )}
-
-            <div className="flex gap-3 pt-1">
-              {!importResult ? (
-                <Button onClick={handleImportar} disabled={importando} className="flex-1 btn-primary">
-                  {importando ? 'Procesando...' : 'Procesar archivo'}
-                </Button>
-              ) : (
-                <Button onClick={() => setDialogOpen(false)} className="flex-1 btn-primary">Cerrar</Button>
-              )}
-              {!importResult && (
-                <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={importando}>Cancelar</Button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -98,6 +98,105 @@ const mockActualizarEstadoOca = jest.fn((..._args: unknown[]) => Promise.resolve
 // default 0, cada test de HU-021 la reconfigura con mockResolvedValueOnce
 // cuando necesita simular presupuesto ya consumido.
 const mockCalcularPresupuestoConsumido = jest.fn((..._args: unknown[]) => Promise.resolve(0))
+// Spec: HU-028 — mockeado (lógica real cubierta por bodega-ingreso.test.ts/
+// bodega-kardex.test.ts); las rutas de aprobar/cancelar OC y las de
+// /bodega/ingresos lo usan directamente.
+type AuthIngresoMock =
+  | { ok: true; userId: string; rol: string; nombre: string; email: string }
+  | { ok: false; status: 401 | 403 }
+type CierreIngresoMock = { ok: true } | { ok: false; error: string; lineasInvalidas?: string[] }
+type CancelacionIngresoMock = { ok: true; anulado: boolean } | { ok: false; error: string }
+
+const mockVerificarAutorizacionIngreso = jest.fn<Promise<AuthIngresoMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, userId: 'user-ing-1', rol: 'bodega', nombre: 'Bodega Test', email: 'bodega@arlift.com' })
+)
+const mockGenerarDocumentoIngresoDesdeOC = jest.fn((..._args: unknown[]) => Promise.resolve(null))
+const mockCerrarDocumentoIngreso = jest.fn<Promise<CierreIngresoMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true })
+)
+const mockResolverCancelacionIngresoPorOC = jest.fn<Promise<CancelacionIngresoMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, anulado: false })
+)
+// Spec: HU-029 CA-01 — mockeado (lógica real cubierta por bodega-ingreso.test.ts).
+type CreacionManualMock = { ok: true; documentoId: string; numero: string } | { ok: false; error: string }
+const mockCrearDocumentoIngresoManual = jest.fn<Promise<CreacionManualMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, documentoId: 'doc-manual-1', numero: 'ING-2026-0001' })
+)
+jest.mock('@/lib/bodega-ingreso', () => ({
+  verificarAutorizacionIngreso: (...args: unknown[]) => mockVerificarAutorizacionIngreso(...args),
+  generarDocumentoIngresoDesdeOC: (...args: unknown[]) => mockGenerarDocumentoIngresoDesdeOC(...args),
+  cerrarDocumentoIngreso: (...args: unknown[]) => mockCerrarDocumentoIngreso(...args),
+  resolverCancelacionIngresoPorOC: (...args: unknown[]) => mockResolverCancelacionIngresoPorOC(...args),
+  crearDocumentoIngresoManual: (...args: unknown[]) => mockCrearDocumentoIngresoManual(...args),
+}))
+
+// Spec: HU-030 — mockeado (lógica real cubierta por bodega-egreso.test.ts).
+type AuthEgresoMock =
+  | { ok: true; userId: string; rol: string; nombre: string; email: string }
+  | { ok: false; status: 401 | 403 }
+type CierreEgresoMock = { ok: true } | { ok: false; error: string; lineasExcedidas?: string[] }
+const mockVerificarAutorizacionEgreso = jest.fn<Promise<AuthEgresoMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, userId: 'user-egr-1', rol: 'bodega', nombre: 'Bodega Test', email: 'bodega@arlift.com' })
+)
+type CreacionEgresoMock = { ok: true; documentoId: string; numero: string } | { ok: false; error: string }
+const mockCrearDocumentoEgreso = jest.fn<Promise<CreacionEgresoMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, documentoId: 'egr-1', numero: 'EGR-2026-0001' })
+)
+const mockCerrarDocumentoEgreso = jest.fn<Promise<CierreEgresoMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true })
+)
+const mockListarPrestamosPendientes = jest.fn((..._args: unknown[]) => Promise.resolve<unknown[]>([]))
+jest.mock('@/lib/bodega-egreso', () => ({
+  verificarAutorizacionEgreso: (...args: unknown[]) => mockVerificarAutorizacionEgreso(...args),
+  crearDocumentoEgreso: (...args: unknown[]) => mockCrearDocumentoEgreso(...args),
+  cerrarDocumentoEgreso: (...args: unknown[]) => mockCerrarDocumentoEgreso(...args),
+  listarPrestamosPendientes: (...args: unknown[]) => mockListarPrestamosPendientes(...args),
+  // Spec: HU-042 CA-02 — por defecto cada línea hereda 'va en guía'.
+  resolverRequiereGuiaLineas: (lineas: unknown[]) => Promise.resolve(lineas.map(() => true)),
+}))
+
+// Spec: HU-042 — emitirGuia/anularGuia/verificarAutorizacionGuia mockeados (lógica real cubierta
+// por bodega-guia.test.ts); las funciones puras se conservan reales.
+type EmisionGuiaMock =
+  | { ok: true; guiaId: string; numero: number }
+  | { ok: false; status: 400 | 404 | 409 | 500; error: string; excedidas?: string[] }
+const mockVerificarAutorizacionGuia = jest.fn<Promise<AuthEgresoMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, userId: 'user-gr-1', rol: 'compras', nombre: 'Compras Test', email: 'compras@arlift.com' })
+)
+const mockEmitirGuia = jest.fn<Promise<EmisionGuiaMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, guiaId: 'g-1', numero: 1822 })
+)
+const mockAnularGuia = jest.fn<Promise<{ ok: true } | { ok: false; status: 400 | 404 | 409; error: string }>, unknown[]>(
+  (..._args: unknown[]) => Promise.resolve({ ok: true })
+)
+jest.mock('@/lib/bodega-guia', () => ({
+  ...jest.requireActual('@/lib/bodega-guia'),
+  verificarAutorizacionGuia: (...args: unknown[]) => mockVerificarAutorizacionGuia(...args),
+  emitirGuia: (...args: unknown[]) => mockEmitirGuia(...args),
+  anularGuia: (...args: unknown[]) => mockAnularGuia(...args),
+}))
+
+// Spec: HU-031 — mockeado (lógica real cubierta por bodega-ensamblaje.test.ts).
+type AuthEnsamblajeMock =
+  | { ok: true; userId: string; rol: string; nombre: string; email: string }
+  | { ok: false; status: 401 | 403 }
+type CreacionEnsamblajeMock = { ok: true; ordenId: string; numero: string } | { ok: false; error: string }
+type ConfirmacionEnsamblajeMock = { ok: true } | { ok: false; error: string; insumosExcedidos?: string[] }
+const mockVerificarAutorizacionEnsamblaje = jest.fn<Promise<AuthEnsamblajeMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, userId: 'user-fb-1', rol: 'bodega', nombre: 'Bodega Test', email: 'bodega@arlift.com' })
+)
+const mockCrearOrdenEnsamblaje = jest.fn<Promise<CreacionEnsamblajeMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, ordenId: 'fb-1', numero: 'FB-2026-0001' })
+)
+const mockConfirmarOrdenEnsamblaje = jest.fn<Promise<ConfirmacionEnsamblajeMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true })
+)
+jest.mock('@/lib/bodega-ensamblaje', () => ({
+  verificarAutorizacionEnsamblaje: (...args: unknown[]) => mockVerificarAutorizacionEnsamblaje(...args),
+  crearOrdenEnsamblaje: (...args: unknown[]) => mockCrearOrdenEnsamblaje(...args),
+  confirmarOrdenEnsamblaje: (...args: unknown[]) => mockConfirmarOrdenEnsamblaje(...args),
+}))
+
 jest.mock('@/lib/oca-estado', () => ({
   actualizarEstadoOca: (...args: unknown[]) => mockActualizarEstadoOca(...args),
   calcularPresupuestoConsumido: (...args: unknown[]) => mockCalcularPresupuestoConsumido(...args),
@@ -135,6 +234,8 @@ function mockChainVacio() {
   chain.in     = noop
   chain.not    = noop
   chain.gte    = noop
+  chain.lte    = noop
+  chain.range  = noop
   chain.limit  = jest.fn(() => Promise.resolve(resolved))
   chain.single = jest.fn(() => Promise.resolve({ data: null, error: null }))
   chain.maybeSingle = jest.fn(() => Promise.resolve({ data: null, error: null }))
@@ -214,6 +315,28 @@ describe('POST /api/compras/inventario', () => {
     )
     expect(res.status).toBe(401)
   })
+
+  // Spec: HU-027 CA-04/CA-05 — costo_unitario/saldo_existencias del body se
+  // ignoran; siempre se inserta 0, sin importar qué envíe el cliente.
+  it('ignora costo_unitario/saldo_existencias del body — siempre inserta 0', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let insertPayload: any = null
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: null, error: null })) // sin duplicado
+    chain.insert = jest.fn((payload: any) => { insertPayload = payload; return { select: () => ({ single: () => Promise.resolve({ data: { id: 'inv-1', ...payload }, error: null }) }) } })
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(makeRequest('http://localhost/api/compras/inventario', {
+      method: 'POST',
+      body: JSON.stringify({ codigo: 'AL-I9999', descripcion: 'Test', costo_unitario: 500, saldo_existencias: 99, bodega_id: 'bod-1', categoria_id: 'cat-1', stock_minimo: '5', stock_maximo: '20' }),
+    }))
+    expect(res.status).toBe(200)
+    expect(insertPayload.costo_unitario).toBe(0)
+    expect(insertPayload.saldo_existencias).toBe(0)
+    expect(insertPayload.bodega_id).toBe('bod-1')
+    expect(insertPayload.categoria_id).toBe('cat-1')
+    expect(insertPayload.stock_minimo).toBe(5)
+    expect(insertPayload.stock_maximo).toBe(20)
+  })
 })
 
 // ── 3. Inventario — detalle ───────────────────────────────────────────────────
@@ -244,6 +367,28 @@ describe('PUT /api/compras/inventario/[id]', () => {
       { params: Promise.resolve({ id: 'abc' }) }
     )
     expect(res.status).toBe(401)
+  })
+
+  // Spec: HU-027 CA-04/CA-05 — costo_unitario/saldo_existencias nunca viajan
+  // en el objeto update(...), sin importar qué envíe el cliente en el body.
+  it('nunca incluye costo_unitario/saldo_existencias en el update — persiste bodega_id/categoria_id/stock', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let updatePayload: any = null
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: null, error: null })) // sin duplicado
+    chain.update = jest.fn((payload: any) => { updatePayload = payload; return { eq: () => Promise.resolve({ data: null, error: null }) } })
+    mockFrom.mockReturnValue(chain)
+    const res = await PUT(makeRequest('http://localhost/api/compras/inventario/inv-1', {
+      method: 'PUT',
+      body: JSON.stringify({ codigo: 'AL-I0001', descripcion: 'Test', costo_unitario: 500, saldo_existencias: 99, bodega_id: 'bod-1', categoria_id: 'cat-1', stock_minimo: '5', stock_maximo: '20' }),
+    }), { params: Promise.resolve({ id: 'inv-1' }) })
+    expect(res.status).toBe(200)
+    expect(updatePayload).not.toHaveProperty('costo_unitario')
+    expect(updatePayload).not.toHaveProperty('saldo_existencias')
+    expect(updatePayload.bodega_id).toBe('bod-1')
+    expect(updatePayload.categoria_id).toBe('cat-1')
+    expect(updatePayload.stock_minimo).toBe(5)
+    expect(updatePayload.stock_maximo).toBe(20)
   })
 })
 
@@ -430,21 +575,148 @@ describe('POST /api/compras/nps', () => {
   })
 })
 
-// ── 8. Importación masiva de inventario ──────────────────────────────────────
+// ── 8. Reemplazo Total de Inventario desde Archivo Maestro (HU-041) ──────────
+// Spec: HU-041 CA-11 — reemplaza al importador viejo (xlsx, escribía
+// saldo/costo directo sin Kardex); nunca convive con él.
 
-describe('POST /api/compras/inventario/importar', () => {
-  const { POST } = require('@/app/api/compras/inventario/importar/route')
+function mockPerfil(rol: string, extra: Record<string, unknown> = {}) {
+  mockFrom.mockImplementation((table: string) =>
+    table === 'perfiles'
+      ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol, ...extra }, error: null }) }) }) }
+      : mockChainVacio()
+  )
+}
+
+describe('POST /api/compras/bodega/reemplazo-inventario/analizar — HU-041 CA-01/CA-09', () => {
+  const { POST } = require('@/app/api/compras/bodega/reemplazo-inventario/analizar/route')
 
   it('devuelve 401 sin sesión', async () => {
     mockGetUser.mockResolvedValue(SIN_SESION)
-    const fd = new FormData()
     const res = await POST(
-      makeRequest('http://localhost/api/compras/inventario/importar', {
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/analizar', {
         method: 'POST',
-        body: fd,
+        body: new FormData(),
       })
     )
     expect(res.status).toBe(401)
+  })
+
+  it.each(['bodega', 'asistente_compras', 'gerencia', 'consulta', 'solicitante'])(
+    'devuelve 403 para rol %s (CA-09 — solo admin/compras)',
+    async (rol) => {
+      mockGetUser.mockResolvedValue(CON_SESION)
+      mockPerfil(rol)
+      const res = await POST(
+        makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/analizar', {
+          method: 'POST',
+          body: new FormData(),
+        })
+      )
+      expect(res.status).toBe(403)
+    }
+  )
+
+  it.each(['admin', 'compras'])('rol %s pasa la autorización — 400 sin archivo adjunto', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockPerfil(rol)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/analizar', {
+        method: 'POST',
+        body: new FormData(),
+      })
+    )
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('POST /api/compras/bodega/reemplazo-inventario/ejecutar — HU-041 CA-02/CA-09', () => {
+  const { POST } = require('@/app/api/compras/bodega/reemplazo-inventario/ejecutar/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/ejecutar', {
+        method: 'POST',
+        body: JSON.stringify({ filas: [] }),
+      })
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol bodega', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockPerfil('bodega')
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/ejecutar', {
+        method: 'POST',
+        body: JSON.stringify({ filas: [] }),
+      })
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 400 sin filas', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockPerfil('admin', { nombre: 'Admin', email: 'a@a.com' })
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/ejecutar', {
+        method: 'POST',
+        body: JSON.stringify({ filas: [] }),
+      })
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 400 con filas pero sin bodegaId (documentos_egreso.bodega_id es NOT NULL)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockPerfil('admin', { nombre: 'Admin', email: 'a@a.com' })
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/ejecutar', {
+        method: 'POST',
+        body: JSON.stringify({ filas: [{ tipo: 'desactivacion', codigo: 'X', productoId: 'p1' }] }),
+      })
+    )
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('POST /api/compras/bodega/reemplazo-inventario/excel — HU-041 CA-08/CA-09', () => {
+  const { POST } = require('@/app/api/compras/bodega/reemplazo-inventario/excel/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/excel', {
+        method: 'POST',
+        body: JSON.stringify({ filas: [] }),
+      })
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 para rol gerencia (CA-09 — solo admin/compras)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockPerfil('gerencia')
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/excel', {
+        method: 'POST',
+        body: JSON.stringify({ filas: [] }),
+      })
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 200 con el detalle para rol admin', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockPerfil('admin')
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/reemplazo-inventario/excel', {
+        method: 'POST',
+        body: JSON.stringify({ filas: [] }),
+      })
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Disposition')).toContain('Reemplazo_Total_Inventario_')
   })
 })
 
@@ -3641,6 +3913,8 @@ function chainTablaCoord(porTabla: Record<string, any>) {
     obj.eq     = () => obj
     obj.in     = () => obj
     obj.not    = () => obj
+    obj.gte    = () => obj
+    obj.lte    = () => obj
     obj.order  = () => obj
     obj.insert = () => obj
     obj.update = () => obj
@@ -3733,6 +4007,15 @@ describe('GET/POST /api/compras/areas', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body).toHaveLength(2)
+  })
+
+  // Spec: HU-027 CA-01b — ?solo_bodega=1 es público (sin sesión), ayuda de UX
+  // del formulario de producto para filtrar Categoría por Área.
+  it('GET ?solo_bodega=1 es público y no exige sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ areas: { data: [{ id: 'area-niveles', nombre: 'Operaciones - Niveles' }], error: null } }))
+    const res = await GET(makeRequest('http://localhost/api/compras/areas?solo_bodega=1'))
+    expect(res.status).toBe(200)
   })
 
   it('POST devuelve 403 sin rol admin/compras', async () => {
@@ -9800,5 +10083,1446 @@ describe('Rutas públicas por token — ya no dependen de la política anon USIN
     expect(res.status).toBe(404)
     expect(mockAnonClient).not.toHaveBeenCalled()
     expect(mockAdminClient).toHaveBeenCalled()
+  })
+})
+
+// ── HU-026: Catálogos Base de Bodega ──────────────────────────────────────────
+
+describe('GET/POST /api/compras/bodega/bodegas', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/bodegas/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/bodegas'))
+    expect(res.status).toBe(401)
+  })
+
+  it('GET sin ?todas= no requiere rol admin/compras (cualquier autenticado)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({}))
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/bodegas'))
+    expect(res.status).toBe(200)
+  })
+
+  it('GET ?todas=1 devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'bodega' }, error: null } }))
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/bodegas?todas=1'))
+    expect(res.status).toBe(403)
+  })
+
+  it('POST devuelve 403 sin rol admin/compras (bodega no puede crear Bodegas)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'bodega' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/bodegas', {
+      method: 'POST', body: JSON.stringify({ codigo: 'BP', nombre: 'Bodega Principal' }),
+    }))
+    expect(res.status).toBe(403)
+  })
+
+  it('POST crea una Bodega con rol compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'compras' }, error: null }))
+    chain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() =>
+      Promise.resolve({ data: { id: 'bod-1', codigo: 'BP', nombre: 'Bodega Principal', referencia: null, activo: true }, error: null })) })) }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/bodegas', {
+      method: 'POST', body: JSON.stringify({ codigo: 'BP', nombre: 'Bodega Principal' }),
+    }))
+    expect(res.status).toBe(201)
+  })
+
+  it('POST devuelve 409 si código o nombre ya existen', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'admin' }, error: null }))
+    chain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() =>
+      Promise.resolve({ data: null, error: { code: '23505', message: 'duplicate key' } })) })) }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/bodegas', {
+      method: 'POST', body: JSON.stringify({ codigo: 'BP', nombre: 'Bodega Principal' }),
+    }))
+    expect(res.status).toBe(409)
+  })
+})
+
+describe('PUT /api/compras/bodega/bodegas/[id]', () => {
+  const { PUT } = require('@/app/api/compras/bodega/bodegas/[id]/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/bodegas/bod-1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 'bod-1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'asistente_compras' }, error: null } }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/bodegas/bod-1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 'bod-1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('desactiva una Bodega (activo:false) sin DELETE físico — CA-01', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      bodegas:  { data: null, error: null },
+    }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/bodegas/bod-1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 'bod-1' }) }
+    )
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('GET /api/compras/bodega/tipos-ingreso — HU-037 CA-05/CA-06', () => {
+  const { GET } = require('@/app/api/compras/bodega/tipos-ingreso/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/tipos-ingreso'))
+    expect(res.status).toBe(401)
+  })
+
+  it('sin ?todas= no requiere rol admin/compras (cualquier autenticado)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ tipos_ingreso: { data: [{ id: 't1', codigo: 'devolucion', nombre: 'Devolución', activo: true }], error: null } }))
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/tipos-ingreso'))
+    expect(res.status).toBe(200)
+  })
+
+  it('?todas=1 devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'bodega' }, error: null } }))
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/tipos-ingreso?todas=1'))
+    expect(res.status).toBe(403)
+  })
+
+  it('?todas=1 devuelve 200 con rol compras (incluye inactivos)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      tipos_ingreso: { data: [{ id: 't1', codigo: 'compra', nombre: 'Compra', activo: false }], error: null },
+    }))
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/tipos-ingreso?todas=1'))
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('PUT /api/compras/bodega/tipos-ingreso/[id] — HU-037 CA-06/RN-03', () => {
+  const { PUT } = require('@/app/api/compras/bodega/tipos-ingreso/[id]/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/tipos-ingreso/t1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 't1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'bodega' }, error: null } }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/tipos-ingreso/t1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 't1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('devuelve 400 si activo no es booleano', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'admin' }, error: null } }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/tipos-ingreso/t1', { method: 'PUT', body: JSON.stringify({ activo: 'no' }) }),
+      { params: Promise.resolve({ id: 't1' }) }
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('desactiva un tipo (activo:false) sin DELETE físico — RN-03', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'compras' }, error: null },
+      tipos_ingreso: { data: null, error: null },
+    }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/tipos-ingreso/t1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 't1' }) }
+    )
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('GET /api/compras/bodega/tipos-egreso — HU-037 CA-05/CA-06', () => {
+  const { GET } = require('@/app/api/compras/bodega/tipos-egreso/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/tipos-egreso'))
+    expect(res.status).toBe(401)
+  })
+
+  it('sin ?todas= no requiere rol admin/compras (cualquier autenticado)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ tipos_egreso: { data: [{ id: 't1', codigo: 'venta', nombre: 'Venta', activo: true }], error: null } }))
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/tipos-egreso'))
+    expect(res.status).toBe(200)
+  })
+
+  it('?todas=1 devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'bodega' }, error: null } }))
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/tipos-egreso?todas=1'))
+    expect(res.status).toBe(403)
+  })
+})
+
+describe('PUT /api/compras/bodega/tipos-egreso/[id] — HU-037 CA-06/RN-03', () => {
+  const { PUT } = require('@/app/api/compras/bodega/tipos-egreso/[id]/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/tipos-egreso/t1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 't1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'asistente_compras' }, error: null } }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/tipos-egreso/t1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 't1' }) }
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('desactiva un tipo (activo:false) sin DELETE físico — RN-03', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({
+      perfiles: { data: { rol: 'admin' }, error: null },
+      tipos_egreso: { data: null, error: null },
+    }))
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/tipos-egreso/t1', { method: 'PUT', body: JSON.stringify({ activo: true }) }),
+      { params: Promise.resolve({ id: 't1' }) }
+    )
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('GET/POST /api/compras/bodega/categorias', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/categorias/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/categorias'))
+    expect(res.status).toBe(401)
+  })
+
+  it('GET ?area_id= filtra por el cruce area_categoria_bodega — CA-06', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      const obj: any = {}
+      obj.select = () => obj
+      obj.eq = () => obj
+      obj.in = () => obj
+      obj.order = () => obj
+      if (table === 'area_categoria_bodega') {
+        obj.then = (resolve: any) => Promise.resolve({ data: [{ categoria_id: 'cat-cables' }], error: null }).then(resolve)
+      } else {
+        obj.then = (resolve: any) => Promise.resolve({ data: [{ id: 'cat-cables', nombre: 'Cables' }], error: null }).then(resolve)
+      }
+      return obj
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/categorias?area_id=area-electrico'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toEqual([{ id: 'cat-cables', nombre: 'Cables' }])
+  })
+
+  it('POST devuelve 403 sin rol admin/compras', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'bodega' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/categorias', {
+      method: 'POST', body: JSON.stringify({ nombre: 'Cables' }),
+    }))
+    expect(res.status).toBe(403)
+  })
+
+  it('POST crea la categoría y siembra el cruce inicial con area_ids', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'admin' }, error: null }))
+    chain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() =>
+      Promise.resolve({ data: { id: 'cat-cables', nombre: 'Cables', activo: true }, error: null })) })) }))
+    let cruceInsertado: any = null
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'area_categoria_bodega') {
+        return { insert: jest.fn((payload: any) => { cruceInsertado = payload; return Promise.resolve({ data: null, error: null }) }) }
+      }
+      return chain
+    })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/categorias', {
+      method: 'POST', body: JSON.stringify({ nombre: 'Cables', area_ids: ['area-electrico', 'area-niveles'] }),
+    }))
+    expect(res.status).toBe(201)
+    expect(cruceInsertado).toEqual([
+      { area_id: 'area-electrico', categoria_id: 'cat-cables' },
+      { area_id: 'area-niveles',   categoria_id: 'cat-cables' },
+    ])
+  })
+})
+
+describe('PUT /api/compras/bodega/categorias/[id] — reemplazo completo del cruce', () => {
+  const { PUT } = require('@/app/api/compras/bodega/categorias/[id]/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/categorias/cat-1', { method: 'PUT', body: JSON.stringify({ area_ids: [] }) }),
+      { params: Promise.resolve({ id: 'cat-1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('DELETE+INSERT completo del cruce — nunca un diff incremental (Decisión 2 de sdd-design.md)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let deleteEqArgs: any = null
+    let insertPayload: any = null
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'compras' }, error: null }) }) }) }
+      }
+      if (table === 'categorias') {
+        return { update: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }) }
+      }
+      if (table === 'area_categoria_bodega') {
+        return {
+          delete: jest.fn(() => ({ eq: jest.fn((_col: string, val: string) => { deleteEqArgs = val; return Promise.resolve({ data: null, error: null }) }) })),
+          insert: jest.fn((payload: any) => { insertPayload = payload; return Promise.resolve({ data: null, error: null }) }),
+        }
+      }
+      return mockChainVacio()
+    })
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/categorias/cat-cables', {
+        method: 'PUT', body: JSON.stringify({ area_ids: ['area-electrico', 'area-niveles-1', 'area-niveles-2'] }),
+      }),
+      { params: Promise.resolve({ id: 'cat-cables' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(deleteEqArgs).toBe('cat-cables')
+    expect(insertPayload).toEqual([
+      { area_id: 'area-electrico',  categoria_id: 'cat-cables' },
+      { area_id: 'area-niveles-1',  categoria_id: 'cat-cables' },
+      { area_id: 'area-niveles-2',  categoria_id: 'cat-cables' },
+    ])
+  })
+
+  it('area_ids: [] borra todo el cruce sin insertar nada', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let insertLlamado = false
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'admin' }, error: null }) }) }) }
+      }
+      if (table === 'area_categoria_bodega') {
+        return {
+          delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: null, error: null })) })),
+          insert: jest.fn(() => { insertLlamado = true; return Promise.resolve({ data: null, error: null }) }),
+        }
+      }
+      return mockChainVacio()
+    })
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/categorias/cat-cables', { method: 'PUT', body: JSON.stringify({ area_ids: [] }) }),
+      { params: Promise.resolve({ id: 'cat-cables' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(insertLlamado).toBe(false)
+  })
+})
+
+describe('GET/POST /api/compras/bodega/clientes-finales — bodega SÍ puede escribir (CA-07)', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/clientes-finales/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/clientes-finales'))
+    expect(res.status).toBe(401)
+  })
+
+  it('POST devuelve 403 para un rol sin permiso (solicitante)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'solicitante' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/clientes-finales', {
+      method: 'POST', body: JSON.stringify({ nombre: 'ANDES PETROLEUM' }),
+    }))
+    expect(res.status).toBe(403)
+  })
+
+  it('POST crea un Cliente Final con rol bodega (a diferencia de Bodegas/Categorías)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'bodega' }, error: null }))
+    chain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() =>
+      Promise.resolve({ data: { id: 'cf-1', nombre: 'ANDES PETROLEUM', ruc: null, activo: true }, error: null })) })) }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/clientes-finales', {
+      method: 'POST', body: JSON.stringify({ nombre: 'ANDES PETROLEUM' }),
+    }))
+    expect(res.status).toBe(201)
+  })
+
+  it('POST devuelve 400 si el RUC tiene formato inválido', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'bodega' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/clientes-finales', {
+      method: 'POST', body: JSON.stringify({ nombre: 'ANDES PETROLEUM', ruc: '123' }),
+    }))
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('PUT /api/compras/bodega/clientes-finales/[id]', () => {
+  const { PUT } = require('@/app/api/compras/bodega/clientes-finales/[id]/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/clientes-finales/cf-1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 'cf-1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+})
+
+describe('GET/POST /api/compras/bodega/puntos-entrega — Cliente Final opcional (CA-08)', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/puntos-entrega/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/puntos-entrega'))
+    expect(res.status).toBe(401)
+  })
+
+  it('POST devuelve 403 para un rol sin permiso (gerencia)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation(chainTablaCoord({ perfiles: { data: { rol: 'gerencia' }, error: null } }))
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/puntos-entrega', {
+      method: 'POST', body: JSON.stringify({ nombre: 'ARLIFT - BASE' }),
+    }))
+    expect(res.status).toBe(403)
+  })
+
+  it('POST crea un Lugar de Entrega sin Cliente Final (destino interno, ej. "ARLIFT - BASE")', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'bodega' }, error: null }))
+    chain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() =>
+      Promise.resolve({ data: { id: 'punto-1', nombre: 'ARLIFT - BASE', cliente_final_id: null, activo: true }, error: null })) })) }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/puntos-entrega', {
+      method: 'POST', body: JSON.stringify({ nombre: 'ARLIFT - BASE' }),
+    }))
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.cliente_final_id).toBeNull()
+  })
+})
+
+describe('PUT /api/compras/bodega/puntos-entrega/[id]', () => {
+  const { PUT } = require('@/app/api/compras/bodega/puntos-entrega/[id]/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/puntos-entrega/punto-1', { method: 'PUT', body: JSON.stringify({ activo: false }) }),
+      { params: Promise.resolve({ id: 'punto-1' }) }
+    )
+    expect(res.status).toBe(401)
+  })
+})
+
+describe('PUT /api/compras/areas/[id] — HU-026 CA-02, habilitada_para_bodega', () => {
+  const { PUT } = require('@/app/api/compras/areas/[id]/route')
+
+  it('persiste habilitada_para_bodega de forma independiente de activo', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let updatePayload: any = null
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'compras' }, error: null }) }) }) }
+      }
+      return { update: jest.fn((payload: any) => { updatePayload = payload; return { eq: () => Promise.resolve({ data: null, error: null }) } }) }
+    })
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/areas/area-niveles', { method: 'PUT', body: JSON.stringify({ habilitada_para_bodega: true }) }),
+      { params: Promise.resolve({ id: 'area-niveles' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(updatePayload).toEqual({ habilitada_para_bodega: true })
+  })
+})
+
+describe('PUT /api/compras/configuracion/empresa — HU-026 CA-10, patron_codigo_bodega', () => {
+  const { PUT } = require('@/app/api/compras/configuracion/empresa/route')
+
+  it('persiste patron_codigo_bodega como opcional/informativo', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let updatePayload: any = null
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'admin' }, error: null }) }) }) }
+      }
+      return { update: jest.fn((payload: any) => { updatePayload = payload; return { eq: () => Promise.resolve({ data: null, error: null }) } }) }
+    })
+    const res = await PUT(makeRequest('http://localhost/api/compras/configuracion/empresa', {
+      method: 'PUT',
+      body: JSON.stringify({ razon_social: 'ARLIFT ENGINEERING & SERVICES S.A.', patron_codigo_bodega: '2-4 letras mayúsculas' }),
+    }))
+    expect(res.status).toBe(200)
+    expect(updatePayload.patron_codigo_bodega).toBe('2-4 letras mayúsculas')
+  })
+})
+
+// ── HU-028: Ingreso de Productos desde OC con Kardex y Costeo Promedio Ponderado ──
+
+describe('GET/POST /api/compras/bodega/ingresos — HU-028/HU-029', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/ingresos/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionIngreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/ingresos'))
+    expect(res.status).toBe(401)
+  })
+
+  it('GET devuelve 403 con rol sin permiso', async () => {
+    mockVerificarAutorizacionIngreso.mockResolvedValueOnce({ ok: false, status: 403 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/ingresos'))
+    expect(res.status).toBe(403)
+  })
+
+  it('GET 200 con rol autorizado (CA-02/CA-03)', async () => {
+    mockFrom.mockReturnValue(mockChainVacio())
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/ingresos'))
+    expect(res.status).toBe(200)
+  })
+
+  it('POST devuelve 401 sin sesión (HU-029 CA-01)', async () => {
+    mockVerificarAutorizacionIngreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ingresos', { method: 'POST', body: JSON.stringify({}) }))
+    expect(res.status).toBe(401)
+  })
+
+  it('POST devuelve 201 al crear un Documento de Ingreso manual (HU-029 CA-01)', async () => {
+    mockCrearDocumentoIngresoManual.mockResolvedValueOnce({ ok: true, documentoId: 'doc-9', numero: 'ING-2026-0009' })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ingresos', {
+      method: 'POST',
+      body: JSON.stringify({ tipo_movimiento: 'devolucion', lineas: [{ producto_id: 'prod-1', cantidad: 2, costo_unitario: 10 }] }),
+    }))
+    expect(res.status).toBe(201)
+  })
+
+  it('POST devuelve 400 cuando crearDocumentoIngresoManual rechaza la entrada', async () => {
+    mockCrearDocumentoIngresoManual.mockResolvedValueOnce({ ok: false, error: 'Toda línea requiere un producto vinculado (CA-01)' })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ingresos', {
+      method: 'POST',
+      body: JSON.stringify({ tipo_movimiento: 'reconteo', lineas: [{ producto_id: '', cantidad: 2, costo_unitario: 10 }] }),
+    }))
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('GET/PUT /api/compras/bodega/ingresos/[id] — HU-028', () => {
+  const { GET, PUT } = require('@/app/api/compras/bodega/ingresos/[id]/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionIngreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/ingresos/doc-1'), { params: Promise.resolve({ id: 'doc-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it('PUT rechaza con 409 si el documento ya está cerrado (CA-03: solo editable mientras no cierre)', async () => {
+    mockFrom.mockImplementation((table: string) =>
+      table === 'documentos_ingreso'
+        ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'cerrado' }, error: null }) }) }) }
+        : mockChainVacio()
+    )
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/ingresos/doc-1', { method: 'PUT', body: JSON.stringify({ lineas: [] }) }),
+      { params: Promise.resolve({ id: 'doc-1' }) }
+    )
+    expect(res.status).toBe(409)
+  })
+
+  it('PUT persiste líneas y pasa de generado a en_validacion (CA-03)', async () => {
+    let estadoActualizado = ''
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'documentos_ingreso') {
+        return {
+          select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'generado' }, error: null }) }) }),
+          update: (payload: any) => { estadoActualizado = payload.estado; return { eq: () => Promise.resolve({ data: null, error: null }) } },
+        }
+      }
+      if (table === 'documentos_ingreso_items') {
+        return {
+          delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ data: null, error: null })) })),
+          insert: jest.fn(() => Promise.resolve({ data: null, error: null })),
+        }
+      }
+      return mockChainVacio()
+    })
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/ingresos/doc-1', {
+        method: 'PUT',
+        body: JSON.stringify({ lineas: [{ producto_id: 'prod-1', descripcion_oc: 'Válvula', cantidad: 5, costo_unitario: 20 }] }),
+      }),
+      { params: Promise.resolve({ id: 'doc-1' }) }
+    )
+    expect(res.status).toBe(200)
+    expect(estadoActualizado).toBe('en_validacion')
+  })
+})
+
+describe('POST /api/compras/bodega/ingresos/[id]/cerrar — HU-028 CA-04/CA-05', () => {
+  const { POST } = require('@/app/api/compras/bodega/ingresos/[id]/cerrar/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionIngreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ingresos/doc-1/cerrar', { method: 'POST' }), { params: Promise.resolve({ id: 'doc-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 400 con el detalle de líneas inválidas cuando el cierre se bloquea', async () => {
+    mockCerrarDocumentoIngreso.mockResolvedValueOnce({ ok: false, error: 'Hay líneas inválidas', lineasInvalidas: ['Línea X'] })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ingresos/doc-1/cerrar', { method: 'POST' }), { params: Promise.resolve({ id: 'doc-1' }) })
+    expect(res.status).toBe(400)
+    const data = await res.json()
+    expect(data.lineas_invalidas).toEqual(['Línea X'])
+  })
+
+  it('devuelve 200 al cerrar correctamente (CA-04)', async () => {
+    mockCerrarDocumentoIngreso.mockResolvedValueOnce({ ok: true })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ingresos/doc-1/cerrar', { method: 'POST' }), { params: Promise.resolve({ id: 'doc-1' }) })
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('GET /api/compras/bodega/kardex — HU-028 CA-08', () => {
+  const { GET } = require('@/app/api/compras/bodega/kardex/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionIngreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/kardex'))
+    expect(res.status).toBe(401)
+  })
+
+  it('200 con filtros por producto/bodega/tipo/rango de fechas', async () => {
+    mockFrom.mockReturnValue(mockChainVacio())
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/kardex?bodega_id=bod-1&tipo=compra&desde=2026-01-01&hasta=2026-12-31'))
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('POST /api/compras/ordenes/[id]/aprobar — HU-028 CA-01 wiring', () => {
+  const { POST } = require('@/app/api/compras/ordenes/[id]/aprobar/route')
+
+  it('invoca generarDocumentoIngresoDesdeOC al aprobar (no al rechazar)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'compras', nombre: 'X', email: 'x@a.com' }, error: null }) }) }) }
+      }
+      if (table === 'registro_compras') {
+        return {
+          select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'en_aprobacion_compras', valor_total: 100, proveedor: 'X', creado_por_id: null, creado_por_nombre: 'X', nota_pedido_id: null }, error: null }) }) }),
+          update: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
+        }
+      }
+      return mockChainVacio()
+    })
+    mockGenerarDocumentoIngresoDesdeOC.mockClear()
+
+    await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/aprobar', { method: 'POST', body: JSON.stringify({ accion: 'aprobar' }) }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(mockGenerarDocumentoIngresoDesdeOC).toHaveBeenCalledWith('oc-1', expect.objectContaining({ rol: 'compras' }))
+  })
+
+  it('no invoca generarDocumentoIngresoDesdeOC al rechazar', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'compras', nombre: 'X', email: 'x@a.com' }, error: null }) }) }) }
+      }
+      if (table === 'registro_compras') {
+        return {
+          select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'en_aprobacion_compras', valor_total: 100, proveedor: 'X', creado_por_id: null, creado_por_nombre: 'X', nota_pedido_id: null }, error: null }) }) }),
+          update: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
+        }
+      }
+      return mockChainVacio()
+    })
+    mockGenerarDocumentoIngresoDesdeOC.mockClear()
+
+    await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/aprobar', { method: 'POST', body: JSON.stringify({ accion: 'rechazar' }) }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(mockGenerarDocumentoIngresoDesdeOC).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/compras/ordenes/[id]/cancelar — HU-028 CA-09 wiring', () => {
+  const { POST } = require('@/app/api/compras/ordenes/[id]/cancelar/route')
+
+  it('devuelve 409 cuando el Documento de Ingreso ya está cerrado (bloqueo CA-09)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockResolverCancelacionIngresoPorOC.mockResolvedValueOnce({ ok: false, error: 'Ingreso ya cerrado, usar Reconteo' })
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'compras', nombre: 'X', email: 'x@a.com' }, error: null }) }) }) }
+      }
+      if (table === 'registro_compras') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'aprobada' }, error: null }) }) }) }
+      }
+      return mockChainVacio()
+    })
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/cancelar', { method: 'POST', body: JSON.stringify({ motivo: 'Motivo real' }) }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(res.status).toBe(409)
+  })
+
+  it('cancela normalmente cuando el ingreso no bloquea (generado/en_validación o sin documento)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockResolverCancelacionIngresoPorOC.mockResolvedValueOnce({ ok: true, anulado: true })
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') {
+        return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'compras', nombre: 'X', email: 'x@a.com' }, error: null }) }) }) }
+      }
+      if (table === 'registro_compras') {
+        return {
+          select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { id: 'oc-1', numero_oc: 'OC-2026-0001', estado_oc: 'aprobada' }, error: null }) }) }),
+          update: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
+        }
+      }
+      return mockChainVacio()
+    })
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/ordenes/oc-1/cancelar', { method: 'POST', body: JSON.stringify({ motivo: 'Motivo real' }) }),
+      { params: Promise.resolve({ id: 'oc-1' }) }
+    )
+    expect(res.status).toBe(200)
+  })
+})
+
+// ── HU-030: Egreso de Productos (Venta, Gasto, Préstamo y Reconteo) ──
+
+describe('GET/POST /api/compras/bodega/egresos — HU-030', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/egresos/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionEgreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/egresos'))
+    expect(res.status).toBe(401)
+  })
+
+  it('GET devuelve 403 para asistente_compras (CA-01: no participa)', async () => {
+    mockVerificarAutorizacionEgreso.mockResolvedValueOnce({ ok: false, status: 403 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/egresos'))
+    expect(res.status).toBe(403)
+  })
+
+  it('GET 200 con rol autorizado', async () => {
+    mockFrom.mockReturnValue(mockChainVacio())
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/egresos'))
+    expect(res.status).toBe(200)
+  })
+
+  it('POST devuelve 201 al crear un Documento de Egreso', async () => {
+    mockCrearDocumentoEgreso.mockResolvedValueOnce({ ok: true, documentoId: 'egr-9', numero: 'EGR-2026-0009' })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/egresos', {
+      method: 'POST',
+      body: JSON.stringify({ tipo: 'venta', bodega_id: 'bod-1', lineas: [{ producto_id: 'prod-1', cantidad: 5 }] }),
+    }))
+    expect(res.status).toBe(201)
+  })
+
+  it('POST devuelve 400 cuando crearDocumentoEgreso rechaza la entrada', async () => {
+    mockCrearDocumentoEgreso.mockResolvedValueOnce({ ok: false, error: 'bodega_id es requerido' })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/egresos', {
+      method: 'POST', body: JSON.stringify({ tipo: 'venta', lineas: [] }),
+    }))
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('GET/PUT /api/compras/bodega/egresos/[id] — HU-030', () => {
+  const { GET, PUT } = require('@/app/api/compras/bodega/egresos/[id]/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionEgreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1'), { params: Promise.resolve({ id: 'egr-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it('PUT rechaza con 409 si el documento ya está cerrado', async () => {
+    mockFrom.mockImplementation((table: string) =>
+      table === 'documentos_egreso'
+        ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { id: 'egr-1', numero: 'EGR-2026-0001', estado: 'cerrado' }, error: null }) }) }) }
+        : mockChainVacio()
+    )
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/egresos/egr-1', { method: 'PUT', body: JSON.stringify({ lineas: [] }) }),
+      { params: Promise.resolve({ id: 'egr-1' }) }
+    )
+    expect(res.status).toBe(409)
+  })
+})
+
+describe('POST /api/compras/bodega/egresos/[id]/cerrar — HU-030 CA-02/CA-03', () => {
+  const { POST } = require('@/app/api/compras/bodega/egresos/[id]/cerrar/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionEgreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/cerrar', { method: 'POST', body: '{}' }), { params: Promise.resolve({ id: 'egr-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 400 con lineas_excedidas cuando el saldo no alcanza', async () => {
+    mockCerrarDocumentoEgreso.mockResolvedValueOnce({ ok: false, error: 'Saldo insuficiente', lineasExcedidas: ['AL-I0001'] })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/cerrar', { method: 'POST', body: '{}' }), { params: Promise.resolve({ id: 'egr-1' }) })
+    expect(res.status).toBe(400)
+    const data = await res.json()
+    expect(data.lineas_excedidas).toEqual(['AL-I0001'])
+  })
+
+  it('devuelve 200 al cerrar correctamente', async () => {
+    mockCerrarDocumentoEgreso.mockResolvedValueOnce({ ok: true })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/cerrar', { method: 'POST', body: '{}' }), { params: Promise.resolve({ id: 'egr-1' }) })
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('GET /api/compras/bodega/egresos/prestamos-pendientes — HU-030 CA-05', () => {
+  const { GET } = require('@/app/api/compras/bodega/egresos/prestamos-pendientes/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionEgreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET()
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 200 con la lista de préstamos pendientes', async () => {
+    mockListarPrestamosPendientes.mockResolvedValueOnce([{ id: 'egr-1', numero: 'EGR-2026-0001', bodega_id: 'bod-1', cerrado_en: null }])
+    const res = await GET()
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data).toHaveLength(1)
+  })
+})
+
+// ── HU-042: Guía de Remisión desde un Documento de Egreso ──
+
+describe('Transportistas — HU-042 CA-11/CA-20', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/transportistas/route')
+  const { PUT } = require('@/app/api/compras/bodega/transportistas/[id]/route')
+
+  it('GET 401 sin sesión', async () => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/transportistas'))
+    expect(res.status).toBe(401)
+  })
+
+  it('GET 403 con rol sin permiso', async () => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: false, status: 403 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/transportistas'))
+    expect(res.status).toBe(403)
+  })
+
+  it('GET 200 con rol autorizado', async () => {
+    mockFrom.mockReturnValue(mockChainVacio())
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/transportistas'))
+    expect(res.status).toBe(200)
+  })
+
+  it('POST 400 sin nombre o sin cédula/RUC', async () => {
+    const sinNombre = await POST(makeRequest('http://localhost/api/compras/bodega/transportistas', { method: 'POST', body: JSON.stringify({ identificacion: '0912345678' }) }))
+    expect(sinNombre.status).toBe(400)
+    const sinId = await POST(makeRequest('http://localhost/api/compras/bodega/transportistas', { method: 'POST', body: JSON.stringify({ nombre: 'Juan' }) }))
+    expect(sinId.status).toBe(400)
+  })
+
+  it('POST 401 sin sesión', async () => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/transportistas', { method: 'POST', body: '{}' }))
+    expect(res.status).toBe(401)
+  })
+
+  it('PUT 403 con rol sin permiso', async () => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: false, status: 403 })
+    const res = await PUT(makeRequest('http://localhost/api/compras/bodega/transportistas/t1', { method: 'PUT', body: JSON.stringify({ activo: false }) }), { params: Promise.resolve({ id: 't1' }) })
+    expect(res.status).toBe(403)
+  })
+
+  it('PUT 400 sin cambios', async () => {
+    const res = await PUT(makeRequest('http://localhost/api/compras/bodega/transportistas/t1', { method: 'PUT', body: '{}' }), { params: Promise.resolve({ id: 't1' }) })
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('GET/POST /api/compras/bodega/egresos/[id]/guias — HU-042 CA-04/CA-05', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/egresos/[id]/guias/route')
+  const ctx = { params: Promise.resolve({ id: 'egr-1' }) }
+
+  it('GET 401 sin sesión', async () => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/guias'), ctx)
+    expect(res.status).toBe(401)
+  })
+
+  it('GET 404 si el egreso no existe', async () => {
+    mockFrom.mockImplementation(() => ({ select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }) }))
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/guias'), ctx)
+    expect(res.status).toBe(404)
+  })
+
+  it('POST 403 con rol sin permiso', async () => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: false, status: 403 })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/guias', { method: 'POST', body: '{}' }), ctx)
+    expect(res.status).toBe(403)
+  })
+
+  it('POST 201 con el número asignado', async () => {
+    mockEmitirGuia.mockResolvedValueOnce({ ok: true, guiaId: 'g-9', numero: 1823 })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/guias', { method: 'POST', body: '{"punto_llegada":"X"}' }), ctx)
+    expect(res.status).toBe(201)
+    expect((await res.json()).numero).toBe(1823)
+  })
+
+  it('POST propaga el estado de emitirGuia (409 saldo/vigencia, 400 datos)', async () => {
+    mockEmitirGuia.mockResolvedValueOnce({ ok: false, status: 409, error: 'La cantidad supera el saldo por guiar', excedidas: ['i1'] })
+    const r409 = await POST(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/guias', { method: 'POST', body: '{}' }), ctx)
+    expect(r409.status).toBe(409)
+    expect((await r409.json()).excedidas).toEqual(['i1'])
+    mockEmitirGuia.mockResolvedValueOnce({ ok: false, status: 400, error: 'El punto de llegada es requerido' })
+    const r400 = await POST(makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/guias', { method: 'POST', body: '{}' }), ctx)
+    expect(r400.status).toBe(400)
+  })
+})
+
+describe('Guías de remisión (listado/detalle/anular/PDF) — HU-042 CA-14/CA-16/CA-18/CA-20', () => {
+  const lista = require('@/app/api/compras/bodega/guias/route')
+  const detalle = require('@/app/api/compras/bodega/guias/[id]/route')
+  const anular = require('@/app/api/compras/bodega/guias/[id]/anular/route')
+  const pdf = require('@/app/api/compras/bodega/guias/[id]/pdf/route')
+  const ctx = { params: Promise.resolve({ id: 'g-1' }) }
+
+  it.each([
+    ['listado', () => lista.GET(makeRequest('http://localhost/api/compras/bodega/guias'))],
+    ['detalle', () => detalle.GET(makeRequest('http://localhost/api/compras/bodega/guias/g-1'), ctx)],
+    ['pdf', () => pdf.GET(makeRequest('http://localhost/api/compras/bodega/guias/g-1/pdf'), ctx)],
+    ['anular', () => anular.POST(makeRequest('http://localhost/api/compras/bodega/guias/g-1/anular', { method: 'POST', body: '{}' }), ctx)],
+  ])('%s: 401 sin sesión', async (_n, llamar) => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: false, status: 401 })
+    expect((await llamar()).status).toBe(401)
+  })
+
+  it.each([
+    ['listado', () => lista.GET(makeRequest('http://localhost/api/compras/bodega/guias'))],
+    ['detalle', () => detalle.GET(makeRequest('http://localhost/api/compras/bodega/guias/g-1'), ctx)],
+    ['pdf', () => pdf.GET(makeRequest('http://localhost/api/compras/bodega/guias/g-1/pdf'), ctx)],
+  ])('%s: 403 para roles sin permiso (asistente_compras/gerencia/consulta)', async (_n, llamar) => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: false, status: 403 })
+    expect((await llamar()).status).toBe(403)
+  })
+
+  it('listado: 200 para un rol autorizado', async () => {
+    mockFrom.mockReturnValue(mockChainVacio())
+    const res = await lista.GET(makeRequest('http://localhost/api/compras/bodega/guias?estado=emitida'))
+    expect(res.status).toBe(200)
+  })
+
+  it('detalle: 404 si la guía no existe', async () => {
+    mockFrom.mockImplementation(() => ({ select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }) }))
+    const res = await detalle.GET(makeRequest('http://localhost/api/compras/bodega/guias/g-1'), ctx)
+    expect(res.status).toBe(404)
+  })
+
+  it('anular: 403 para bodega (CA-16: solo compras/admin) sin llamar a anularGuia', async () => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: true, userId: 'u', rol: 'bodega', nombre: 'B', email: 'b@a.com' })
+    const res = await anular.POST(makeRequest('http://localhost/api/compras/bodega/guias/g-1/anular', { method: 'POST', body: '{"motivo":"x"}' }), ctx)
+    expect(res.status).toBe(403)
+    expect(mockAnularGuia).not.toHaveBeenCalled()
+  })
+
+  it.each(['compras', 'admin'])('anular: 200 para %s', async (rol) => {
+    mockVerificarAutorizacionGuia.mockResolvedValueOnce({ ok: true, userId: 'u', rol, nombre: 'C', email: 'c@a.com' })
+    const res = await anular.POST(makeRequest('http://localhost/api/compras/bodega/guias/g-1/anular', { method: 'POST', body: '{"motivo":"Placa incorrecta"}' }), ctx)
+    expect(res.status).toBe(200)
+    expect(mockAnularGuia).toHaveBeenCalledWith('g-1', 'Placa incorrecta', expect.objectContaining({ rol }))
+  })
+
+  it('anular: propaga 400 (sin motivo) y 409 (ya anulada)', async () => {
+    mockAnularGuia.mockResolvedValueOnce({ ok: false, status: 400, error: 'El motivo de anulación es obligatorio' })
+    expect((await anular.POST(makeRequest('http://localhost/api/compras/bodega/guias/g-1/anular', { method: 'POST', body: '{}' }), ctx)).status).toBe(400)
+    mockAnularGuia.mockResolvedValueOnce({ ok: false, status: 409, error: 'La guía ya está anulada' })
+    expect((await anular.POST(makeRequest('http://localhost/api/compras/bodega/guias/g-1/anular', { method: 'POST', body: '{"motivo":"x"}' }), ctx)).status).toBe(409)
+  })
+})
+
+describe('POST /api/compras/bodega/egresos/[id]/cerrar con emitir_guia — HU-042 CA-04c', () => {
+  const { POST } = require('@/app/api/compras/bodega/egresos/[id]/cerrar/route')
+  const ctx = { params: Promise.resolve({ id: 'egr-1' }) }
+  const req = (body: object) => makeRequest('http://localhost/api/compras/bodega/egresos/egr-1/cerrar', { method: 'POST', body: JSON.stringify(body) })
+
+  it('cierra y emite la guía en el mismo acto, devolviendo su número', async () => {
+    mockCerrarDocumentoEgreso.mockResolvedValueOnce({ ok: true })
+    mockEmitirGuia.mockClear()
+    mockEmitirGuia.mockResolvedValueOnce({ ok: true, guiaId: 'g-5', numero: 1830 })
+    const res = await POST(req({ emitir_guia: true }), ctx)
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.guia).toEqual({ id: 'g-5', numero: 1830 })
+    expect(mockEmitirGuia).toHaveBeenCalledTimes(1)
+  })
+
+  it('si el cierre falla NO intenta emitir la guía (no se consume número)', async () => {
+    mockEmitirGuia.mockClear()
+    mockCerrarDocumentoEgreso.mockResolvedValueOnce({ ok: false, error: 'Saldo insuficiente', lineasExcedidas: ['AL-I0001'] })
+    const res = await POST(req({ emitir_guia: true }), ctx)
+    expect(res.status).toBe(400)
+    expect(mockEmitirGuia).not.toHaveBeenCalled()
+  })
+
+  it('si el cierre funciona pero la guía falla: 200 con guia_error (el egreso queda cerrado)', async () => {
+    mockCerrarDocumentoEgreso.mockResolvedValueOnce({ ok: true })
+    mockEmitirGuia.mockResolvedValueOnce({ ok: false, status: 400, error: 'La placa del vehículo es requerida' })
+    const res = await POST(req({ emitir_guia: true }), ctx)
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.success).toBe(true)
+    expect(data.guia_error).toBe('La placa del vehículo es requerida')
+  })
+
+  it('sin emitir_guia no toca guías (comportamiento de HU-030 intacto)', async () => {
+    mockEmitirGuia.mockClear()
+    mockCerrarDocumentoEgreso.mockResolvedValueOnce({ ok: true })
+    const res = await POST(req({}), ctx)
+    expect(res.status).toBe(200)
+    expect(mockEmitirGuia).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/compras/bodega/egresos — borrador datos_traslado — HU-042 CA-04b', () => {
+  const { POST } = require('@/app/api/compras/bodega/egresos/route')
+
+  it('pasa datos_traslado a crearDocumentoEgreso', async () => {
+    mockCrearDocumentoEgreso.mockClear()
+    mockCrearDocumentoEgreso.mockResolvedValueOnce({ ok: true, documentoId: 'egr-7', numero: 'EGR-2026-0007' })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/egresos', {
+      method: 'POST',
+      body: JSON.stringify({ tipo: 'venta', bodega_id: 'b1', datos_traslado: { placa: 'PFQ-2422' }, lineas: [{ producto_id: 'p1', cantidad: 1 }] }),
+    }))
+    expect(res.status).toBe(201)
+    expect(mockCrearDocumentoEgreso.mock.calls[0][0]).toMatchObject({ datosTraslado: { placa: 'PFQ-2422' } })
+  })
+})
+
+describe('PUT /api/compras/configuracion/empresa — campos de guía — HU-042 CA-15/CA-22', () => {
+  const { PUT } = require('@/app/api/compras/configuracion/empresa/route')
+
+  it('400 si el rango autorizado no es un entero positivo', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u-adm' } } })
+    mockFrom.mockImplementation((tabla: string) => tabla === 'perfiles'
+      ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'admin' }, error: null }) }) }) }
+      : mockChainVacio())
+    const res = await PUT(makeRequest('http://localhost/api/compras/configuracion/empresa', {
+      method: 'PUT', body: JSON.stringify({ razon_social: 'ARLIFT', guia_numero_hasta: -5 }),
+    }))
+    expect(res.status).toBe(400)
+  })
+
+  it('400 si la vigencia no tiene formato AAAA-MM-DD', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u-adm' } } })
+    mockFrom.mockImplementation((tabla: string) => tabla === 'perfiles'
+      ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'admin' }, error: null }) }) }) }
+      : mockChainVacio())
+    const res = await PUT(makeRequest('http://localhost/api/compras/configuracion/empresa', {
+      method: 'PUT', body: JSON.stringify({ razon_social: 'ARLIFT', guia_vigencia_hasta: '21/11/2026' }),
+    }))
+    expect(res.status).toBe(400)
+  })
+})
+
+// ── HU-031: Orden de Ensamblaje (Field Build) ──
+
+describe('GET/POST /api/compras/bodega/ensamblajes — HU-031', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/ensamblajes/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionEnsamblaje.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET()
+    expect(res.status).toBe(401)
+  })
+
+  it('GET devuelve 403 para asistente_compras', async () => {
+    mockVerificarAutorizacionEnsamblaje.mockResolvedValueOnce({ ok: false, status: 403 })
+    const res = await GET()
+    expect(res.status).toBe(403)
+  })
+
+  it('GET 200 con rol autorizado', async () => {
+    mockFrom.mockReturnValue(mockChainVacio())
+    const res = await GET()
+    expect(res.status).toBe(200)
+  })
+
+  it('POST devuelve 201 al crear una Orden de Ensamblaje', async () => {
+    mockCrearOrdenEnsamblaje.mockResolvedValueOnce({ ok: true, ordenId: 'fb-9', numero: 'FB-2026-0009' })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ensamblajes', {
+      method: 'POST',
+      body: JSON.stringify({ bodega_id: 'bod-1', insumos: [{ producto_id: 'p1', cantidad: 2 }], resultados: [{ producto_id: 'p2', cantidad: 1 }] }),
+    }))
+    expect(res.status).toBe(201)
+  })
+
+  it('POST devuelve 400 cuando crearOrdenEnsamblaje rechaza la entrada', async () => {
+    mockCrearOrdenEnsamblaje.mockResolvedValueOnce({ ok: false, error: 'La orden debe tener al menos 1 insumo' })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ensamblajes', {
+      method: 'POST', body: JSON.stringify({ bodega_id: 'bod-1', insumos: [], resultados: [] }),
+    }))
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('GET/PUT /api/compras/bodega/ensamblajes/[id] — HU-031', () => {
+  const { GET, PUT } = require('@/app/api/compras/bodega/ensamblajes/[id]/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionEnsamblaje.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/ensamblajes/fb-1'), { params: Promise.resolve({ id: 'fb-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it('PUT rechaza con 409 si la orden ya está confirmada (CA-06)', async () => {
+    mockFrom.mockImplementation((table: string) =>
+      table === 'ordenes_ensamblaje'
+        ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { id: 'fb-1', numero: 'FB-2026-0001', estado: 'confirmada' }, error: null }) }) }) }
+        : mockChainVacio()
+    )
+    const res = await PUT(
+      makeRequest('http://localhost/api/compras/bodega/ensamblajes/fb-1', { method: 'PUT', body: JSON.stringify({ insumos: [], resultados: [] }) }),
+      { params: Promise.resolve({ id: 'fb-1' }) }
+    )
+    expect(res.status).toBe(409)
+  })
+})
+
+describe('POST /api/compras/bodega/ensamblajes/[id]/confirmar — HU-031 CA-02/CA-03/CA-04', () => {
+  const { POST } = require('@/app/api/compras/bodega/ensamblajes/[id]/confirmar/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockVerificarAutorizacionEnsamblaje.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ensamblajes/fb-1/confirmar', { method: 'POST' }), { params: Promise.resolve({ id: 'fb-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it('devuelve 400 con insumos_excedidos cuando el saldo no alcanza', async () => {
+    mockConfirmarOrdenEnsamblaje.mockResolvedValueOnce({ ok: false, error: 'Saldo insuficiente', insumosExcedidos: ['AL-I0001'] })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ensamblajes/fb-1/confirmar', { method: 'POST' }), { params: Promise.resolve({ id: 'fb-1' }) })
+    expect(res.status).toBe(400)
+    const data = await res.json()
+    expect(data.insumos_excedidos).toEqual(['AL-I0001'])
+  })
+
+  it('devuelve 200 al confirmar correctamente', async () => {
+    mockConfirmarOrdenEnsamblaje.mockResolvedValueOnce({ ok: true })
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/ensamblajes/fb-1/confirmar', { method: 'POST' }), { params: Promise.resolve({ id: 'fb-1' }) })
+    expect(res.status).toBe(200)
+  })
+})
+
+// ── HU-033: Alertas de Stock Mínimo y Máximo ──
+
+describe('GET /api/compras/bodega/reportes/stock-bajo-minimo/excel — HU-033 CA-03/CA-04', () => {
+  const { GET } = require('@/app/api/compras/bodega/reportes/stock-bajo-minimo/excel/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/reportes/stock-bajo-minimo/excel'))
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'coordinador', 'asistente_compras'])('devuelve 403 para rol %s', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) =>
+      table === 'perfiles'
+        ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol }, error: null }) }) }) }
+        : mockChainVacio()
+    )
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/reportes/stock-bajo-minimo/excel'))
+    expect(res.status).toBe(403)
+  })
+
+  it.each(['bodega', 'compras', 'admin', 'gerencia', 'consulta'])('devuelve 200 con el .xlsx para rol %s (CA-04)', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol }, error: null }) }) }) }
+      if (table === 'inventario') {
+        // Spec: HU-038 — fix lateral de paginación (paginarRange), la query
+        // ahora encadena .range() después de .not().
+        return {
+          select: () => ({
+            not: () => ({
+              range: (desde: number) => Promise.resolve({
+                data: desde === 0 ? [{ codigo: 'AL-I0001', descripcion: 'X', saldo_existencias: 2, stock_minimo: 10, bodega_id: 'bod-1' }] : [],
+                error: null,
+              }),
+            }),
+          }),
+        }
+      }
+      return mockChainVacio()
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/reportes/stock-bajo-minimo/excel'))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    expect(res.headers.get('Content-Disposition')).toMatch(/^attachment; filename="Bodega_Stock_Bajo_Minimo_\d{8}_\d{4}\.xlsx"$/)
+  })
+
+  it('HU-038: pagina en lotes de 1000 cuando hay más de una página de resultados', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const pagina1 = Array.from({ length: 1000 }, (_, i) => ({
+      codigo: `AL-I${i}`, descripcion: 'X', saldo_existencias: 1, stock_minimo: 10, bodega_id: null,
+    }))
+    const pagina2 = [{ codigo: 'AL-IEXTRA', descripcion: 'Y', saldo_existencias: 1, stock_minimo: 10, bodega_id: null }]
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'admin' }, error: null }) }) }) }
+      if (table === 'inventario') {
+        return {
+          select: () => ({
+            not: () => ({
+              range: (desde: number) => Promise.resolve({ data: desde === 0 ? pagina1 : pagina2, error: null }),
+            }),
+          }),
+        }
+      }
+      return mockChainVacio()
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/reportes/stock-bajo-minimo/excel'))
+    expect(res.status).toBe(200)
+    // Spec: antes del fix, el producto de la 2a página (AL-IEXTRA) se perdía
+    // en silencio (truncado a 1000 por PostgREST sin .range()) — se verifica
+    // que addRow() se invocó 1001 veces (los 1000 de la página 1 + el extra).
+    const ExcelJS = require('exceljs').default
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('cualquiera')
+    expect(ws.addRow.mock.calls.length).toBe(1001)
+  })
+})
+
+// ── HU-035: Reportes de Bodega ──
+
+function setupReportesBodegaMock(opts: { rol?: string | null } = {}) {
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'perfiles') {
+      return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: opts.rol ? { rol: opts.rol } : null, error: null }) }) }) }
+    }
+    return mockChainVacio()
+  })
+}
+
+describe.each([
+  ['GET /api/compras/bodega/reportes/kardex/excel', '@/app/api/compras/bodega/reportes/kardex/excel/route', 'http://localhost/api/compras/bodega/reportes/kardex/excel?producto_id=prod-1', 'Bodega_Reporte_Kardex_Valorizado_'],
+  ['GET /api/compras/bodega/reportes/existencias/excel', '@/app/api/compras/bodega/reportes/existencias/excel/route', 'http://localhost/api/compras/bodega/reportes/existencias/excel', 'Bodega_Reporte_Existencias_Valorizadas_'],
+  ['GET /api/compras/bodega/reportes/movimientos/excel', '@/app/api/compras/bodega/reportes/movimientos/excel/route', 'http://localhost/api/compras/bodega/reportes/movimientos/excel', 'Bodega_Reporte_Movimientos_'],
+  ['GET /api/compras/bodega/reportes/sin-rotacion/excel', '@/app/api/compras/bodega/reportes/sin-rotacion/excel/route', 'http://localhost/api/compras/bodega/reportes/sin-rotacion/excel', 'Bodega_Reporte_Sin_Rotacion_'],
+])('%s — HU-035', (_nombre, modulo, url, prefijoArchivo) => {
+  const { GET } = require(modulo)
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest(url))
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'coordinador', 'asistente_compras'])('devuelve 403 para rol %s (CA-05)', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupReportesBodegaMock({ rol })
+    const res = await GET(makeRequest(url))
+    expect(res.status).toBe(403)
+  })
+
+  it.each(['bodega', 'compras', 'admin', 'gerencia', 'consulta'])('devuelve 200 con el .xlsx para rol %s (CA-05)', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupReportesBodegaMock({ rol })
+    const res = await GET(makeRequest(url))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    expect(res.headers.get('Content-Disposition')).toMatch(new RegExp(`^attachment; filename="${prefijoArchivo}\\d{8}_\\d{4}\\.xlsx"$`))
+  })
+})
+
+describe('GET /api/compras/bodega/reportes/kardex/excel — HU-040 CA-01 producto_id opcional', () => {
+  const { GET } = require('@/app/api/compras/bodega/reportes/kardex/excel/route')
+
+  it('devuelve 200 sin producto_id (exporta el Kardex de todos los productos)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupReportesBodegaMock({ rol: 'bodega' })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/reportes/kardex/excel'))
+    expect(res.status).toBe(200)
+  })
+})
+
+// ── HU-038: Dashboard de Bodega ──
+
+describe('GET /api/compras/bodega/dashboard — HU-038 CA-05', () => {
+  const { GET } = require('@/app/api/compras/bodega/dashboard/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/dashboard'))
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'coordinador', 'asistente_compras'])('devuelve 403 para rol %s', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupReportesBodegaMock({ rol })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/dashboard'))
+    expect(res.status).toBe(403)
+  })
+
+  it.each(['bodega', 'compras', 'admin', 'gerencia', 'consulta'])('devuelve 200 con el resumen para rol %s', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'perfiles') return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol }, error: null }) }) }) }
+      if (table === 'inventario') {
+        return {
+          select: () => ({
+            order: () => ({
+              range: (desde: number) => Promise.resolve({
+                data: desde === 0 ? [{
+                  id: 'p-1', codigo: 'AL-I0001', descripcion: 'X', bodega_id: 'bod-1', categoria_id: 'cat-1',
+                  saldo_existencias: 2, costo_unitario: 5, stock_minimo: 10, stock_maximo: null, ultimo_conteo_fecha: null,
+                }] : [],
+                error: null,
+              }),
+            }),
+          }),
+        }
+      }
+      return mockChainVacio()
+    })
+    const res = await GET(makeRequest('http://localhost/api/compras/bodega/dashboard'))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.kpis).toEqual(expect.objectContaining({ total_productos: 1, productos_con_alerta_stock: 1 }))
+    expect(data.productosConAlerta).toHaveLength(1)
+  })
+})
+
+// ── HU-039: Análisis de Archivo de Migración de Inventario ──
+
+describe('POST /api/compras/bodega/analisis-migracion — HU-039 CA-01/RN-04', () => {
+  const { POST } = require('@/app/api/compras/bodega/analisis-migracion/route')
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/analisis-migracion', { method: 'POST', body: new FormData() }))
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'coordinador', 'bodega', 'asistente_compras', 'gerencia', 'consulta'])('devuelve 403 para rol %s', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) =>
+      table === 'perfiles'
+        ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol }, error: null }) }) }) }
+        : mockChainVacio()
+    )
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/analisis-migracion', { method: 'POST', body: new FormData() }))
+    expect(res.status).toBe(403)
+  })
+
+  it.each(['compras', 'admin'])('rol %s pasa la autorización — 400 sin archivo (RN-04)', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) =>
+      table === 'perfiles'
+        ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol }, error: null }) }) }) }
+        : mockChainVacio()
+    )
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/analisis-migracion', { method: 'POST', body: new FormData() }))
+    expect(res.status).toBe(400)
+  })
+
+  it('devuelve 400 si el archivo no es .xlsx', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) =>
+      table === 'perfiles'
+        ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol: 'admin' }, error: null }) }) }) }
+        : mockChainVacio()
+    )
+    const fd = new FormData()
+    fd.append('file', new File(['x'], 'archivo.csv'))
+    const res = await POST(makeRequest('http://localhost/api/compras/bodega/analisis-migracion', { method: 'POST', body: fd }))
+    expect(res.status).toBe(400)
+  })
+})
+
+// ── HU-040: Exportación Excel de Catálogos de Bodega ──
+
+describe.each([
+  ['GET /api/compras/bodega/reportes/catalogos/bodegas/excel', '@/app/api/compras/bodega/reportes/catalogos/bodegas/excel/route', 'Bodega_Catalogo_Bodegas_'],
+  ['GET /api/compras/bodega/reportes/catalogos/categorias/excel', '@/app/api/compras/bodega/reportes/catalogos/categorias/excel/route', 'Bodega_Catalogo_Categorias_'],
+  ['GET /api/compras/bodega/reportes/catalogos/clientes-finales/excel', '@/app/api/compras/bodega/reportes/catalogos/clientes-finales/excel/route', 'Bodega_Catalogo_ClientesFinales_'],
+  ['GET /api/compras/bodega/reportes/catalogos/puntos-entrega/excel', '@/app/api/compras/bodega/reportes/catalogos/puntos-entrega/excel/route', 'Bodega_Catalogo_LugarEntrega_'],
+  ['GET /api/compras/bodega/reportes/catalogos/tipos-ingreso/excel', '@/app/api/compras/bodega/reportes/catalogos/tipos-ingreso/excel/route', 'Bodega_Catalogo_TiposIngreso_'],
+  ['GET /api/compras/bodega/reportes/catalogos/tipos-egreso/excel', '@/app/api/compras/bodega/reportes/catalogos/tipos-egreso/excel/route', 'Bodega_Catalogo_TiposEgreso_'],
+  ['GET /api/compras/bodega/reportes/catalogos/proveedores/excel', '@/app/api/compras/bodega/reportes/catalogos/proveedores/excel/route', 'Bodega_Catalogo_Proveedores_'],
+])('%s — HU-040', (_nombre, modulo, prefijoArchivo) => {
+  const { GET } = require(modulo)
+  const url = `http://localhost${_nombre.split(' ')[1]}`
+
+  it('devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET(makeRequest(url))
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['solicitante', 'coordinador', 'asistente_compras'])('devuelve 403 para rol %s (CA-09)', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    setupReportesBodegaMock({ rol })
+    const res = await GET(makeRequest(url))
+    expect(res.status).toBe(403)
+  })
+
+  it.each(['bodega', 'compras', 'admin', 'gerencia', 'consulta'])('devuelve 200 con el .xlsx para rol %s (CA-09)', async (rol) => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    mockFrom.mockImplementation((table: string) =>
+      table === 'perfiles'
+        ? { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { rol }, error: null }) }) }) }
+        : mockChainVacio()
+    )
+    const res = await GET(makeRequest(url))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    expect(res.headers.get('Content-Disposition')).toMatch(new RegExp(`^attachment; filename="${prefijoArchivo}\\d{8}_\\d{4}\\.xlsx"$`))
   })
 })

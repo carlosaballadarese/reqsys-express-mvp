@@ -16,7 +16,11 @@ export async function GET(req: NextRequest) {
 
   let query = adminClient()
     .from('inventario')
-    .select('id, codigo, descripcion, area, categoria, saldo_existencias, costo_unitario, locacion, marca')
+    // Spec: HU-027 CA-01 — expone las 5 columnas nuevas (bodega_id/categoria_id/
+    // stock_minimo/stock_maximo/ultimo_conteo_fecha) junto a las ya existentes.
+    // HU-041 CA-12 — expone `activo`; el listado administrativo muestra
+    // ambos estados (a diferencia de search/search-interno, que solo activos).
+    .select('id, codigo, descripcion, area, categoria, saldo_existencias, costo_unitario, locacion, marca, bodega_id, categoria_id, stock_minimo, stock_maximo, ultimo_conteo_fecha, activo, requiere_guia, unidad')
     .order('codigo')
 
   if (q)         query = query.or(`descripcion.ilike.%${q}%,codigo.ilike.%${q}%,marca.ilike.%${q}%`)
@@ -37,8 +41,14 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const {
       codigo, descripcion, area, categoria,
-      saldo_existencias, costo_unitario,
       locacion, codigo_origen, descripcion_origen, marca, observaciones,
+      bodega_id, categoria_id, stock_minimo, stock_maximo,
+      // Spec: HU-042 CA-01/CA-21 — indicador de guía y unidad de medida.
+      requiere_guia, unidad,
+      // Spec: HU-027 CA-04/CA-05 — `costo_unitario`/`saldo_existencias` ya NO se
+      // aceptan del body; si el cliente los envía, se ignoran silenciosamente
+      // (nunca fue un error del cliente, el campo simplemente dejó de tener
+      // efecto). Siempre se insertan en 0 — solo cambian vía Kardex (HU-028).
     } = body
 
     if (!codigo || !descripcion) {
@@ -62,13 +72,19 @@ export async function POST(req: NextRequest) {
         descripcion:        descripcion.trim(),
         area:               area               || null,
         categoria:          categoria?.trim()  || null,
-        saldo_existencias:  Number(saldo_existencias)  || 0,
-        costo_unitario:     Number(costo_unitario)     || 0,
+        saldo_existencias:  0,
+        costo_unitario:     0,
         locacion:           locacion?.trim()           || null,
         codigo_origen:      codigo_origen?.trim()      || null,
         descripcion_origen: descripcion_origen?.trim() || null,
         marca:              marca?.trim()              || null,
         observaciones:      observaciones?.trim()      || null,
+        bodega_id:          bodega_id    || null,
+        categoria_id:       categoria_id || null,
+        stock_minimo:       stock_minimo != null && stock_minimo !== '' ? Number(stock_minimo) : null,
+        stock_maximo:       stock_maximo != null && stock_maximo !== '' ? Number(stock_maximo) : null,
+        requiere_guia:      requiere_guia === false ? false : true,
+        unidad:             unidad?.trim() ? unidad.trim().toUpperCase() : 'EA',
       })
       .select()
       .single()
@@ -80,7 +96,7 @@ export async function POST(req: NextRequest) {
       entidad:    'inventario',
       entidad_id: data.id,
       referencia: `${data.codigo} — ${data.descripcion}`,
-      detalle:    { area, categoria, saldo_existencias: Number(saldo_existencias) || 0 },
+      detalle:    { area, categoria, bodega_id, categoria_id },
     })
 
     return NextResponse.json({ success: true, item: data })

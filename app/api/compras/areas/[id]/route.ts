@@ -24,15 +24,19 @@ export async function PUT(
 
   try {
     const { id } = await params
-    const { nombre, activo } = await req.json()
+    const { nombre, activo, habilitada_para_bodega } = await req.json()
 
-    const update: { nombre?: string; activo?: boolean } = {}
+    const update: { nombre?: string; activo?: boolean; habilitada_para_bodega?: boolean } = {}
     if (typeof nombre === 'string') {
       const nombreLimpio = nombre.trim()
       if (!nombreLimpio) return NextResponse.json({ error: 'El nombre no puede quedar vacío' }, { status: 400 })
       update.nombre = nombreLimpio
     }
     if (typeof activo === 'boolean') update.activo = activo
+    // Spec: HU-026 CA-02 — una misma fila de `areas` sirve tanto al
+    // enrutamiento de aprobación de NP (SC-002) como a la clasificación de
+    // Bodega; este flag es independiente de `activo`.
+    if (typeof habilitada_para_bodega === 'boolean') update.habilitada_para_bodega = habilitada_para_bodega
 
     if (Object.keys(update).length === 0) {
       return NextResponse.json({ error: 'Nada para actualizar' }, { status: 400 })

@@ -21,7 +21,7 @@ const COMPRAS_ONLY = [
 const ADMIN_ONLY: string[] = []
 
 // Admin y compras
-const ADMIN_COMPRAS_ONLY = ['/compras/auditoria', '/compras/configuracion', '/compras/accesos', '/compras/empresa', '/compras/feriados', '/compras/acciones']
+const ADMIN_COMPRAS_ONLY = ['/compras/auditoria', '/compras/configuracion', '/compras/accesos', '/compras/empresa', '/compras/feriados', '/compras/acciones', '/compras/bodega/analisis-migracion', '/compras/bodega/reemplazo-inventario']
 
 // Dashboard OCs — fuente de verdad para acceso a /compras/dashboard-ocs
 const DASHBOARD_OCS_ROLES = ['compras', 'admin', 'asistente_compras', 'gerencia']
@@ -224,6 +224,14 @@ export async function proxy(req: NextRequest) {
         '/compras/accesos',
         '/compras/auditoria',
         '/compras/configuracion',
+        // Spec: HU-026 CA-01/CA-03 — Bodegas y Categorías son admin/compras-only
+        // (a diferencia de Clientes Finales/Lugar de Entrega, que bodega sí administra).
+        '/compras/bodega/bodegas',
+        '/compras/bodega/categorias',
+        // Spec: HU-037 CA-06 — Tipos de Ingreso/Egreso son admin/compras-only,
+        // mismo criterio que Bodegas/Categorías.
+        '/compras/bodega/tipos-ingreso',
+        '/compras/bodega/tipos-egreso',
       ]
       const bloqueada = bloqueadas.some(b => pathname === b || pathname.startsWith(b + '/'))
       if (bloqueada) {
@@ -237,6 +245,28 @@ export async function proxy(req: NextRequest) {
         '/compras/proveedores',
         '/compras/accesos',
         '/compras/ordenes/nueva',
+        // Spec: HU-026 — mismo criterio que /compras/proveedores arriba: son
+        // pantallas de gestión de catálogo, no reportes de solo lectura.
+        '/compras/bodega/bodegas',
+        '/compras/bodega/categorias',
+        '/compras/bodega/clientes-finales',
+        '/compras/bodega/puntos-entrega',
+        // Spec: HU-037 CA-06 — admin/compras-only, mismo criterio de arriba.
+        '/compras/bodega/tipos-ingreso',
+        '/compras/bodega/tipos-egreso',
+        // Spec: HU-028 — gerencia/consulta nunca participan del ciclo
+        // operativo de ingresos/Kardex (solo bodega/compras/admin/
+        // asistente_compras, ver CA-03).
+        '/compras/bodega/ingresos',
+        '/compras/bodega/kardex',
+        // Spec: HU-030 — mismo criterio, gerencia/consulta nunca participan
+        // del ciclo operativo de egresos.
+        '/compras/bodega/egresos',
+        // Spec: HU-031 — mismo criterio para ensamblajes.
+        '/compras/bodega/ensamblajes',
+        // Spec: HU-042 CA-20 — gerencia/consulta no emiten ni consultan guías.
+        '/compras/bodega/guias',
+        '/compras/bodega/transportistas',
       ]
       const estaBloqueada = bloqueadas.some(
         b => pathname === b || pathname.startsWith(b + '/')
@@ -276,6 +306,30 @@ export async function proxy(req: NextRequest) {
         '/compras/accesos',
         '/compras/auditoria',
         '/compras/configuracion',
+        // Spec: HU-026 — ningún CA (01/03/07/08) autoriza a asistente_compras
+        // a escribir estos 4 catálogos nuevos.
+        '/compras/bodega/bodegas',
+        '/compras/bodega/categorias',
+        '/compras/bodega/clientes-finales',
+        '/compras/bodega/puntos-entrega',
+        // Spec: HU-037 CA-06 — ningún CA autoriza a asistente_compras a
+        // escribir estos 2 catálogos nuevos, mismo criterio de arriba.
+        '/compras/bodega/tipos-ingreso',
+        '/compras/bodega/tipos-egreso',
+        // Spec: HU-030 CA-01 — a diferencia de Documentos de Ingreso,
+        // asistente_compras no participa de Egresos (sin vínculo a ninguna
+        // OC que gestione).
+        '/compras/bodega/egresos',
+        // Spec: HU-031 CA-01 — mismo criterio para ensamblajes.
+        '/compras/bodega/ensamblajes',
+        // Spec: HU-042 CA-20 — guías y transportistas siguen a Egresos (bodega/compras/admin).
+        '/compras/bodega/guias',
+        '/compras/bodega/transportistas',
+        // Spec: HU-035 CA-05 — ROLES_REPORTES_BODEGA no incluye asistente_compras.
+        '/compras/bodega/reportes',
+        // Spec: HU-038 CA-05 — mismo criterio, Dashboard de Bodega reutiliza
+        // ROLES_REPORTES_BODEGA tal cual.
+        '/compras/bodega/dashboard',
       ]
       const bloqueada = bloqueadas.some(b => pathname === b || pathname.startsWith(b + '/'))
       if (bloqueada) {

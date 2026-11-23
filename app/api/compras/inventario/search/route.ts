@@ -17,6 +17,9 @@ export async function GET(req: NextRequest) {
   const { data, error } = await adminClient()
     .from('inventario')
     .select('id, codigo, descripcion, saldo_existencias, categoria')
+    // Spec: HU-041 CA-12 — un producto desactivado (reemplazado/retirado del
+    // archivo maestro) no debe poder seleccionarse en ningún autocompletado.
+    .eq('activo', true)
     .or(`descripcion.ilike.%${q}%,codigo.ilike.%${q}%`)
     .limit(10)
 

@@ -24,7 +24,10 @@ export default function ReportesPage() {
   // Spec: SC-008-v2.md CA-08/CA-09 — mismo grupo "Reportes" de lib/nav-config.ts,
   // sin duplicar la lógica de visibilidad por rol.
   const grupo = NAV.find(g => g.label === 'Reportes')!
-  const items = itemsVisibles(grupo, perfil.rol as Rol)
+  // Spec: el grupo "Reportes" nunca tiene subgrupos anidados (a diferencia
+  // de "Bodega", ver lib/nav-config.ts) — se filtra por `href` igual para
+  // que TypeScript no se queje de la forma general de ItemNav.
+  const items = itemsVisibles(grupo, perfil.rol as Rol).filter((i): i is typeof i & { href: string } => !!i.href)
 
   const dashboards = items.filter(i => i.label.startsWith('Dashboard'))
   const excel       = items.filter(i => !i.label.startsWith('Dashboard'))
