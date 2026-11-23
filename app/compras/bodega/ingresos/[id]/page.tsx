@@ -3,13 +3,14 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/lib/toast'
-import { ProductoSearch } from '@/components/ProductoSearch'
-import { AltaProductoRapida } from '@/components/AltaProductoRapida'
+import { ProductoSearch, type InvItem } from '@/components/ProductoSearch'
+import { CrearProductoYVolver } from '@/components/CrearProductoYVolver'
+import { leerDraftProducto, limpiarDraftProducto } from '@/lib/bodega-draft-producto'
 
 type Linea = {
   id: string
@@ -47,6 +48,8 @@ const ESTADO_LABEL: Record<string, string> = {
 // generación de Kardex.
 export default function DetalleIngresoPage() {
   const { id } = useParams<{ id: string }>()
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [doc, setDoc] = useState<Documento | null>(null)
   const [cargando, setCargando] = useState(true)
   const [lineasEdit, setLineasEdit] = useState<Linea[]>([])
@@ -63,7 +66,27 @@ export default function DetalleIngresoPage() {
       .then((r) => r.json())
       .then((data) => {
         setDoc(data)
-        setLineasEdit(data?.lineas ?? [])
+        let lineas: Linea[] = data?.lineas ?? []
+        // Spec: hallazgo real de usuario (2026-11-22) — si se vuelve de
+        // crear un producto nuevo (o de cancelar esa creación), se
+        // restaura el borrador local en vez del que trae el servidor
+        // (que no tiene las ediciones aún no guardadas).
+        const volverDraft = searchParams.get('volverDraft')
+        if (volverDraft) {
+          const resultado = leerDraftProducto<{ lineas: Linea[] }>(volverDraft)
+          limpiarDraftProducto(volverDraft)
+          if (resultado) {
+            lineas = resultado.draft.lineas
+            const productoCreadoId = searchParams.get('producto_creado_id')
+            if (productoCreadoId) {
+              const codigo = searchParams.get('producto_creado_codigo') ?? ''
+              const descripcion = searchParams.get('producto_creado_descripcion') ?? ''
+              lineas = lineas.map((l, i) => (i === resultado.lineaIdx ? { ...l, producto_id: productoCreadoId, producto_codigo: codigo, producto_descripcion: descripcion } : l))
+            }
+          }
+          router.replace(`/compras/bodega/ingresos/${id}`)
+        }
+        setLineasEdit(lineas)
         setCargando(false)
       })
       .catch(() => setCargando(false))
@@ -82,6 +105,23 @@ export default function DetalleIngresoPage() {
 
   function eliminarLinea(idx: number) {
     setLineasEdit((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  // Spec: hallazgo real de usuario (2026-11-22) — al vincular un producto a
+  // una línea agregada manualmente (sin OC de origen, codigo_oc === null),
+  // el Costo Unitario se sugiere con el costo de la última entrada real de
+  // ese producto, editable. Las líneas que SÍ vienen de una OC conservan su
+  // precio negociado — nunca se les pisa el costo al resolver el producto.
+  function seleccionarProducto(idx: number, item: InvItem) {
+    const esManual = lineasEdit[idx]?.codigo_oc == null
+    actualizarLinea(idx, 'producto_id', item.id)
+    actualizarLinea(idx, 'producto_codigo', item.codigo)
+    actualizarLinea(idx, 'producto_descripcion', item.descripcion)
+    if (!esManual) return
+    fetch(`/api/compras/bodega/kardex/ultimo-costo?producto_id=${item.id}`)
+      .then((r) => r.json())
+      .then((d) => { if (d.costo_unitario != null) actualizarLinea(idx, 'costo_unitario', d.costo_unitario) })
+      .catch(() => {})
   }
 
   function agregarLinea() {
@@ -150,7 +190,6 @@ export default function DetalleIngresoPage() {
           {editable && <Button size="sm" onClick={agregarLinea}>+ Agregar línea</Button>}
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left border-b">
@@ -180,20 +219,17 @@ export default function DetalleIngresoPage() {
                             <ProductoSearch
                               value={l.producto_codigo ?? ''}
                               onChange={(val) => { actualizarLinea(idx, 'producto_codigo', val); actualizarLinea(idx, 'producto_id', null) }}
-                              onSelect={(item) => {
-                                actualizarLinea(idx, 'producto_id', item.id)
-                                actualizarLinea(idx, 'producto_codigo', item.codigo)
-                                actualizarLinea(idx, 'producto_descripcion', item.descripcion)
-                              }}
+                              onSelect={(item) => seleccionarProducto(idx, item)}
                               placeholder="— sin producto vinculado —"
                             />
                             {l.producto_descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.producto_descripcion}</p>}
                           </div>
-                          <AltaProductoRapida onCreado={(item) => {
-                            actualizarLinea(idx, 'producto_id', item.id)
-                            actualizarLinea(idx, 'producto_codigo', item.codigo)
-                            actualizarLinea(idx, 'producto_descripcion', item.descripcion)
-                          }} />
+                          <CrearProductoYVolver
+                            draftKey={`ingreso-editar-${id}`}
+                            draft={{ lineas: lineasEdit }}
+                            lineaIdx={idx}
+                            volverA={`/compras/bodega/ingresos/${id}`}
+                          />
                         </div>
                       ) : (l.producto_codigo ?? '— sin vincular —')}
                     </td>
@@ -237,7 +273,6 @@ export default function DetalleIngresoPage() {
                 ))}
               </tbody>
             </table>
-          </div>
 
           {editable && (
             <div className="flex gap-2 mt-4">

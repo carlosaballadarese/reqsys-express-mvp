@@ -3,25 +3,31 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from '@/lib/toast'
 import { ComboConAlta } from '@/components/ComboConAlta'
-import { ProductoSearch } from '@/components/ProductoSearch'
-import { AltaProductoRapida } from '@/components/AltaProductoRapida'
+import { ProductoSearch, type InvItem } from '@/components/ProductoSearch'
+import { CrearProductoYVolver } from '@/components/CrearProductoYVolver'
+import { leerDraftProducto, limpiarDraftProducto } from '@/lib/bodega-draft-producto'
 
 type Bodega = { id: string; nombre: string }
 type Linea = { producto_id: string; codigo: string; descripcion: string; cantidad: number; costo_unitario: number }
 type Prestamo = { id: string; numero: string }
 type TipoIngreso = { id: string; codigo: string; nombre: string }
+type Draft = { tipoMovimiento: 'devolucion' | 'reconteo'; bodegaId: string; egresoPrestamoId: string; lineas: Linea[] }
+
+const RUTA = '/compras/bodega/ingresos/nuevo'
+const DRAFT_KEY = 'ingreso-nuevo'
 
 // Spec: HU-029 CA-01 — creación manual de Documento de Ingreso tipo
 // Devolución/Reconteo, sin OC de origen.
 export default function NuevoIngresoManualPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [tipoMovimiento, setTipoMovimiento] = useState<'devolucion' | 'reconteo'>('devolucion')
   const [bodegaId, setBodegaId] = useState('')
   const [egresoPrestamoId, setEgresoPrestamoId] = useState('')
@@ -35,10 +41,40 @@ export default function NuevoIngresoManualPage() {
   const [guardando, setGuardando] = useState(false)
 
   useEffect(() => {
-    fetch('/api/compras/bodega/bodegas?todas=1').then((r) => r.json()).then((d) => setBodegas(Array.isArray(d) ? d : [])).catch(() => {})
+    // Fix: hallazgo real (2026-11-22) — ?todas=1 es admin/compras-only (incluye
+    // inactivas, HU-026 CA-01/CA-09); el rol 'bodega' (actor principal de esta
+    // pantalla) recibía 403 y el selector quedaba vacío. Para crear un
+    // documento solo tiene sentido elegir entre bodegas activas.
+    fetch('/api/compras/bodega/bodegas').then((r) => r.json()).then((d) => setBodegas(Array.isArray(d) ? d : [])).catch(() => {})
     // Spec: HU-030 CA-05 — Préstamos pendientes, para seleccionar cuál cierra esta Devolución.
     fetch('/api/compras/bodega/egresos/prestamos-pendientes').then((r) => r.json()).then((d) => setPrestamosPendientes(Array.isArray(d) ? d : [])).catch(() => {})
     fetch('/api/compras/bodega/tipos-ingreso').then((r) => r.json()).then((d) => setTiposIngreso(Array.isArray(d) ? d.filter((t: TipoIngreso) => t.codigo !== 'compra') : [])).catch(() => {})
+  }, [])
+
+  // Spec: hallazgo real de usuario (2026-11-22) — al volver de crear un
+  // producto nuevo (o cancelar esa creación), restaura el borrador que
+  // tenía antes de salir de esta pantalla.
+  useEffect(() => {
+    const volverDraft = searchParams.get('volverDraft')
+    if (!volverDraft) return
+    const resultado = leerDraftProducto<Draft>(volverDraft)
+    limpiarDraftProducto(volverDraft)
+    if (resultado) {
+      const { draft, lineaIdx } = resultado
+      setTipoMovimiento(draft.tipoMovimiento)
+      setBodegaId(draft.bodegaId)
+      setEgresoPrestamoId(draft.egresoPrestamoId)
+      const productoCreadoId = searchParams.get('producto_creado_id')
+      let nuevasLineas = draft.lineas
+      if (productoCreadoId) {
+        const codigo = searchParams.get('producto_creado_codigo') ?? ''
+        const descripcion = searchParams.get('producto_creado_descripcion') ?? ''
+        nuevasLineas = draft.lineas.map((l, i) => (i === lineaIdx ? { ...l, producto_id: productoCreadoId, codigo, descripcion } : l))
+      }
+      setLineas(nuevasLineas)
+    }
+    router.replace(RUTA)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function actualizarLinea(idx: number, campo: keyof Linea, valor: string | number) {
@@ -51,6 +87,19 @@ export default function NuevoIngresoManualPage() {
 
   function eliminarLinea(idx: number) {
     setLineas((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  // Spec: hallazgo real de usuario (2026-11-22) — el Costo Unitario se
+  // sugiere con el costo de la última entrada real de ese producto (nunca
+  // el promedio ponderado vigente), quedando siempre editable.
+  function seleccionarProducto(idx: number, item: InvItem) {
+    actualizarLinea(idx, 'producto_id', item.id)
+    actualizarLinea(idx, 'codigo', item.codigo)
+    actualizarLinea(idx, 'descripcion', item.descripcion)
+    fetch(`/api/compras/bodega/kardex/ultimo-costo?producto_id=${item.id}`)
+      .then((r) => r.json())
+      .then((d) => { if (d.costo_unitario != null) actualizarLinea(idx, 'costo_unitario', d.costo_unitario) })
+      .catch(() => {})
   }
 
   async function handleCrear() {
@@ -123,56 +172,51 @@ export default function NuevoIngresoManualPage() {
               <Label>Líneas</Label>
               <Button size="sm" onClick={agregarLinea}>+ Agregar línea</Button>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left border-b">
-                    <th className="p-2">Producto</th>
-                    <th className="p-2">Cantidad</th>
-                    <th className="p-2">Costo Unitario</th>
-                    <th className="p-2"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lineas.map((l, idx) => (
-                    <tr key={idx} className="border-b">
-                      <td className="p-2 min-w-[260px]">
-                        <div className="flex items-start gap-2">
-                          <div className="flex-1">
-                            <ProductoSearch
-                              value={l.codigo}
-                              onChange={(val) => { actualizarLinea(idx, 'codigo', val); actualizarLinea(idx, 'producto_id', '') }}
-                              onSelect={(item) => {
-                                actualizarLinea(idx, 'producto_id', item.id)
-                                actualizarLinea(idx, 'codigo', item.codigo)
-                                actualizarLinea(idx, 'descripcion', item.descripcion)
-                              }}
-                            />
-                            {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
-                          </div>
-                          <AltaProductoRapida onCreado={(item) => {
-                            actualizarLinea(idx, 'producto_id', item.id)
-                            actualizarLinea(idx, 'codigo', item.codigo)
-                            actualizarLinea(idx, 'descripcion', item.descripcion)
-                          }} />
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left border-b">
+                  <th className="p-2">Producto</th>
+                  <th className="p-2">Cantidad</th>
+                  <th className="p-2">Costo Unitario</th>
+                  <th className="p-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {lineas.map((l, idx) => (
+                  <tr key={idx} className="border-b">
+                    <td className="p-2 min-w-[260px]">
+                      <div className="flex items-start gap-2">
+                        <div className="flex-1">
+                          <ProductoSearch
+                            value={l.codigo}
+                            onChange={(val) => { actualizarLinea(idx, 'codigo', val); actualizarLinea(idx, 'producto_id', '') }}
+                            onSelect={(item) => seleccionarProducto(idx, item)}
+                          />
+                          {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
                         </div>
-                      </td>
-                      <td className="p-2 w-24">
-                        <Input type="number" value={l.cantidad} onChange={(e) => actualizarLinea(idx, 'cantidad', Number(e.target.value))} />
-                      </td>
-                      <td className="p-2 w-28">
-                        <Input type="number" value={l.costo_unitario} onChange={(e) => actualizarLinea(idx, 'costo_unitario', Number(e.target.value))} />
-                      </td>
-                      <td className="p-2">
-                        {lineas.length > 1 && (
-                          <button onClick={() => eliminarLinea(idx)} className="text-red-600 text-xs hover:underline">Eliminar</button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                        <CrearProductoYVolver
+                          draftKey={DRAFT_KEY}
+                          draft={{ tipoMovimiento, bodegaId, egresoPrestamoId, lineas }}
+                          lineaIdx={idx}
+                          volverA={RUTA}
+                        />
+                      </div>
+                    </td>
+                    <td className="p-2 w-24">
+                      <Input type="number" value={l.cantidad} onChange={(e) => actualizarLinea(idx, 'cantidad', Number(e.target.value))} />
+                    </td>
+                    <td className="p-2 w-28">
+                      <Input type="number" value={l.costo_unitario} onChange={(e) => actualizarLinea(idx, 'costo_unitario', Number(e.target.value))} />
+                    </td>
+                    <td className="p-2">
+                      {lineas.length > 1 && (
+                        <button onClick={() => eliminarLinea(idx)} className="text-red-600 text-xs hover:underline">Eliminar</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
 
           <Button onClick={handleCrear} disabled={guardando}>

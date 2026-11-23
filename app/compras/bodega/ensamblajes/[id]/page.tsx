@@ -3,13 +3,14 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/lib/toast'
 import { ProductoSearch } from '@/components/ProductoSearch'
-import { AltaProductoRapida } from '@/components/AltaProductoRapida'
+import { CrearProductoYVolver } from '@/components/CrearProductoYVolver'
+import { leerDraftProducto, limpiarDraftProducto } from '@/lib/bodega-draft-producto'
 
 type Linea = { id: string; producto_id: string; codigo?: string | null; descripcion?: string | null; cantidad: number }
 type Orden = { id: string; numero: string; estado: string; insumos: Linea[]; resultados: Linea[] }
@@ -19,6 +20,8 @@ const ESTADO_LABEL: Record<string, string> = { generada: 'Generada', confirmada:
 // Spec: HU-031 CA-01/CA-02/CA-03/CA-06 — detalle, edición y confirmación.
 export default function DetalleEnsamblajePage() {
   const { id } = useParams<{ id: string }>()
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [orden, setOrden] = useState<Orden | null>(null)
   const [cargando, setCargando] = useState(true)
   const [insumosEdit, setInsumosEdit] = useState<Linea[]>([])
@@ -30,7 +33,36 @@ export default function DetalleEnsamblajePage() {
     setCargando(true)
     fetch(`/api/compras/bodega/ensamblajes/${id}`)
       .then((r) => r.json())
-      .then((data) => { setOrden(data); setInsumosEdit(data?.insumos ?? []); setResultadosEdit(data?.resultados ?? []); setCargando(false) })
+      .then((data) => {
+        setOrden(data)
+        let insumos: Linea[] = data?.insumos ?? []
+        let resultados: Linea[] = data?.resultados ?? []
+        // Spec: hallazgo real de usuario (2026-11-22) — restaura el
+        // borrador local si se vuelve de crear un producto nuevo.
+        const volverDraft = searchParams.get('volverDraft')
+        if (volverDraft) {
+          const resultado = leerDraftProducto<{ insumos: Linea[]; resultados: Linea[] }>(volverDraft)
+          limpiarDraftProducto(volverDraft)
+          if (resultado) {
+            insumos = resultado.draft.insumos
+            resultados = resultado.draft.resultados
+            const productoCreadoId = searchParams.get('producto_creado_id')
+            if (productoCreadoId) {
+              const [tabla, idxStr] = String(resultado.lineaIdx).split(':')
+              const idx = Number(idxStr)
+              const codigo = searchParams.get('producto_creado_codigo') ?? ''
+              const descripcion = searchParams.get('producto_creado_descripcion') ?? ''
+              const aplicar = (lineas: Linea[]) => lineas.map((l, i) => (i === idx ? { ...l, producto_id: productoCreadoId, codigo, descripcion } : l))
+              if (tabla === 'insumos') insumos = aplicar(insumos)
+              else if (tabla === 'resultados') resultados = aplicar(resultados)
+            }
+          }
+          router.replace(`/compras/bodega/ensamblajes/${id}`)
+        }
+        setInsumosEdit(insumos)
+        setResultadosEdit(resultados)
+        setCargando(false)
+      })
       .catch(() => setCargando(false))
   }
   useEffect(() => { if (id) cargar() }, [id])
@@ -92,7 +124,12 @@ export default function DetalleEnsamblajePage() {
                         />
                         {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
                       </div>
-                      <AltaProductoRapida onCreado={(item) => setInsumosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, producto_id: item.id, codigo: item.codigo, descripcion: item.descripcion } : x))} />
+                      <CrearProductoYVolver
+                        draftKey={`ensamblaje-editar-${id}`}
+                        draft={{ insumos: insumosEdit, resultados: resultadosEdit }}
+                        lineaIdx={`insumos:${idx}`}
+                        volverA={`/compras/bodega/ensamblajes/${id}`}
+                      />
                     </div>
                   ) : (<><span className="font-mono text-xs text-slate-400 mr-1">{l.codigo ?? l.producto_id}</span>{l.descripcion}</>)}</td>
                   <td className="p-2 w-24">{editable ? (
@@ -123,7 +160,12 @@ export default function DetalleEnsamblajePage() {
                         />
                         {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
                       </div>
-                      <AltaProductoRapida onCreado={(item) => setResultadosEdit((prev) => prev.map((x, i) => i === idx ? { ...x, producto_id: item.id, codigo: item.codigo, descripcion: item.descripcion } : x))} />
+                      <CrearProductoYVolver
+                        draftKey={`ensamblaje-editar-${id}`}
+                        draft={{ insumos: insumosEdit, resultados: resultadosEdit }}
+                        lineaIdx={`resultados:${idx}`}
+                        volverA={`/compras/bodega/ensamblajes/${id}`}
+                      />
                     </div>
                   ) : (<><span className="font-mono text-xs text-slate-400 mr-1">{l.codigo ?? l.producto_id}</span>{l.descripcion}</>)}</td>
                   <td className="p-2 w-24">{editable ? (

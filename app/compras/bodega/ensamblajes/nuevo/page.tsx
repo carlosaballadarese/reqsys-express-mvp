@@ -3,7 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,14 +11,20 @@ import { Label } from '@/components/ui/label'
 import { toast } from '@/lib/toast'
 import { ComboConAlta } from '@/components/ComboConAlta'
 import { ProductoSearch } from '@/components/ProductoSearch'
-import { AltaProductoRapida } from '@/components/AltaProductoRapida'
+import { CrearProductoYVolver } from '@/components/CrearProductoYVolver'
+import { leerDraftProducto, limpiarDraftProducto } from '@/lib/bodega-draft-producto'
 
 type Bodega = { id: string; nombre: string }
 type Linea = { producto_id: string; codigo: string; descripcion: string; cantidad: number }
+type Draft = { bodegaId: string; insumos: Linea[]; resultados: Linea[] }
+
+const RUTA = '/compras/bodega/ensamblajes/nuevo'
+const DRAFT_KEY = 'ensamblaje-nuevo'
 
 // Spec: HU-031 CA-01 — creación de Orden de Ensamblaje (insumos + resultados en la misma orden).
 export default function NuevoEnsamblajePage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [bodegaId, setBodegaId] = useState('')
   const [bodegas, setBodegas] = useState<Bodega[]>([])
   const [insumos, setInsumos] = useState<Linea[]>([{ producto_id: '', codigo: '', descripcion: '', cantidad: 0 }])
@@ -26,7 +32,39 @@ export default function NuevoEnsamblajePage() {
   const [guardando, setGuardando] = useState(false)
 
   useEffect(() => {
-    fetch('/api/compras/bodega/bodegas?todas=1').then((r) => r.json()).then((d) => setBodegas(Array.isArray(d) ? d : [])).catch(() => {})
+    // Fix: hallazgo real (2026-11-22) — ?todas=1 es admin/compras-only; el
+    // rol 'bodega' recibía 403 y el selector quedaba vacío (ver mismo fix en
+    // ingresos/nuevo).
+    fetch('/api/compras/bodega/bodegas').then((r) => r.json()).then((d) => setBodegas(Array.isArray(d) ? d : [])).catch(() => {})
+  }, [])
+
+  // Spec: hallazgo real de usuario (2026-11-22) — restaura el borrador al
+  // volver de crear un producto nuevo; `lineaIdx` codifica también a qué
+  // tabla pertenece la línea ('insumos:N' o 'resultados:N').
+  useEffect(() => {
+    const volverDraft = searchParams.get('volverDraft')
+    if (!volverDraft) return
+    const resultado = leerDraftProducto<Draft>(volverDraft)
+    limpiarDraftProducto(volverDraft)
+    if (resultado) {
+      const { draft, lineaIdx } = resultado
+      setBodegaId(draft.bodegaId)
+      const [tabla, idxStr] = String(lineaIdx).split(':')
+      const idx = Number(idxStr)
+      const productoCreadoId = searchParams.get('producto_creado_id')
+      let { insumos: nuevosInsumos, resultados: nuevosResultados } = draft
+      if (productoCreadoId) {
+        const codigo = searchParams.get('producto_creado_codigo') ?? ''
+        const descripcion = searchParams.get('producto_creado_descripcion') ?? ''
+        const aplicar = (lineas: Linea[]) => lineas.map((l, i) => (i === idx ? { ...l, producto_id: productoCreadoId, codigo, descripcion } : l))
+        if (tabla === 'insumos') nuevosInsumos = aplicar(draft.insumos)
+        else if (tabla === 'resultados') nuevosResultados = aplicar(draft.resultados)
+      }
+      setInsumos(nuevosInsumos)
+      setResultados(nuevosResultados)
+    }
+    router.replace(RUTA)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function actualizar(lista: Linea[], setLista: (l: Linea[]) => void, idx: number, campo: keyof Linea, valor: string | number) {
@@ -52,7 +90,7 @@ export default function NuevoEnsamblajePage() {
     } finally { setGuardando(false) }
   }
 
-  function TablaLineas({ titulo, lineas, setLineas }: { titulo: string; lineas: Linea[]; setLineas: (l: Linea[]) => void }) {
+  function TablaLineas({ titulo, tabla, lineas, setLineas }: { titulo: string; tabla: 'insumos' | 'resultados'; lineas: Linea[]; setLineas: (l: Linea[]) => void }) {
     return (
       <div>
         <div className="flex items-center justify-between mb-2">
@@ -78,11 +116,12 @@ export default function NuevoEnsamblajePage() {
                       />
                       {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
                     </div>
-                    <AltaProductoRapida onCreado={(item) => {
-                      actualizar(lineas, setLineas, idx, 'producto_id', item.id)
-                      actualizar(lineas, setLineas, idx, 'codigo', item.codigo)
-                      actualizar(lineas, setLineas, idx, 'descripcion', item.descripcion)
-                    }} />
+                    <CrearProductoYVolver
+                      draftKey={DRAFT_KEY}
+                      draft={{ bodegaId, insumos, resultados }}
+                      lineaIdx={`${tabla}:${idx}`}
+                      volverA={RUTA}
+                    />
                   </div>
                 </td>
                 <td className="p-2 w-24"><Input type="number" value={l.cantidad} onChange={(e) => actualizar(lineas, setLineas, idx, 'cantidad', Number(e.target.value))} /></td>
@@ -115,8 +154,8 @@ export default function NuevoEnsamblajePage() {
             />
           </div>
 
-          <TablaLineas titulo="Insumos consumidos" lineas={insumos} setLineas={setInsumos} />
-          <TablaLineas titulo="Producto(s) resultante(s)" lineas={resultados} setLineas={setResultados} />
+          <TablaLineas titulo="Insumos consumidos" tabla="insumos" lineas={insumos} setLineas={setInsumos} />
+          <TablaLineas titulo="Producto(s) resultante(s)" tabla="resultados" lineas={resultados} setLineas={setResultados} />
 
           <p className="text-xs text-gray-500">El costo del resultado se calcula al confirmar, como la suma de los costos vigentes de los insumos — no se ingresa aquí.</p>
 

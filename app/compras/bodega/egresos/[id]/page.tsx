@@ -4,13 +4,14 @@ export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/lib/toast'
 import { ProductoSearch } from '@/components/ProductoSearch'
-import { AltaProductoRapida } from '@/components/AltaProductoRapida'
+import { CrearProductoYVolver } from '@/components/CrearProductoYVolver'
+import { leerDraftProducto, limpiarDraftProducto } from '@/lib/bodega-draft-producto'
 import { DatosTrasladoForm, type DatosTrasladoValor } from '@/components/DatosTrasladoForm'
 
 type Linea = {
@@ -52,6 +53,8 @@ const numGuia = (n: number) => String(n).padStart(7, '0')
 // guías del egreso (emisión posterior para viajes adicionales).
 export default function DetalleEgresoPage() {
   const { id } = useParams<{ id: string }>()
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [doc, setDoc] = useState<Documento | null>(null)
   const [cargando, setCargando] = useState(true)
   const [lineasEdit, setLineasEdit] = useState<Linea[]>([])
@@ -75,7 +78,27 @@ export default function DetalleEgresoPage() {
     fetch(`/api/compras/bodega/egresos/${id}`)
       .then((r) => r.json())
       .then((data) => {
-        setDoc(data); setLineasEdit(data?.lineas ?? []); setTraslado(data?.datos_traslado ?? {}); setCargando(false)
+        setDoc(data)
+        let lineas: Linea[] = data?.lineas ?? []
+        // Spec: hallazgo real de usuario (2026-11-22) — restaura el
+        // borrador local si se vuelve de crear un producto nuevo.
+        const volverDraft = searchParams.get('volverDraft')
+        if (volverDraft) {
+          const resultado = leerDraftProducto<{ lineas: Linea[] }>(volverDraft)
+          limpiarDraftProducto(volverDraft)
+          if (resultado) {
+            lineas = resultado.draft.lineas
+            const productoCreadoId = searchParams.get('producto_creado_id')
+            if (productoCreadoId) {
+              const codigo = searchParams.get('producto_creado_codigo') ?? ''
+              const descripcion = searchParams.get('producto_creado_descripcion') ?? ''
+              lineas = lineas.map((l, i) => (i === resultado.lineaIdx ? { ...l, producto_id: productoCreadoId, codigo, descripcion } : l))
+            }
+          }
+          router.replace(`/compras/bodega/egresos/${id}`)
+        }
+        setLineasEdit(lineas)
+        setTraslado(data?.datos_traslado ?? {}); setCargando(false)
       })
       .catch(() => setCargando(false))
     fetch(`/api/compras/bodega/egresos/${id}/guias`)
@@ -206,7 +229,6 @@ export default function DetalleEgresoPage() {
           {editable && <Button size="sm" onClick={agregarLinea}>+ Agregar línea</Button>}
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left border-b">
@@ -236,11 +258,12 @@ export default function DetalleEgresoPage() {
                             />
                             {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
                           </div>
-                          <AltaProductoRapida onCreado={(item) => {
-                            actualizarLinea(idx, 'producto_id', item.id)
-                            actualizarLinea(idx, 'codigo', item.codigo)
-                            actualizarLinea(idx, 'descripcion', item.descripcion)
-                          }} />
+                          <CrearProductoYVolver
+                            draftKey={`egreso-editar-${id}`}
+                            draft={{ lineas: lineasEdit }}
+                            lineaIdx={idx}
+                            volverA={`/compras/bodega/egresos/${id}`}
+                          />
                         </div>
                       ) : (
                         <>
@@ -275,7 +298,6 @@ export default function DetalleEgresoPage() {
                 ))}
               </tbody>
             </table>
-          </div>
 
           {editable && (
             <div className="space-y-3 mt-4">

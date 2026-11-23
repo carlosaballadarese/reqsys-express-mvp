@@ -57,8 +57,8 @@ export async function obtenerResumenDashboardBodega(
     const { bajoMinimo, sobreMaximo } = calcularAlertaStock(p.saldo_existencias, p.stock_minimo, p.stock_maximo)
     // Spec: HU-038 RN-05 — "alerta de conteo" cuenta solo el semáforo 'rojo'
     // (>1 año sin conteo real); se excluye 'sin_conteo' (productos recién
-    // creados, ej. vía AltaProductoRapida de HU-037, no es una alerta real
-    // todavía) y 'amarillo' (advertencia temprana, no urgente).
+    // creados, no es una alerta real todavía) y 'amarillo' (advertencia
+    // temprana, no urgente).
     const conteoVencido = calcularAlertaConteo(p.ultimo_conteo_fecha) === 'rojo'
 
     if (bajoMinimo || sobreMaximo) productosConAlertaStock++

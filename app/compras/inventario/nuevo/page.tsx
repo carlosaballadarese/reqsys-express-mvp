@@ -3,7 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,17 @@ import { ComboConAlta } from '@/components/ComboConAlta'
 
 export default function NuevoItemPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  // Spec: hallazgo real de usuario (2026-11-22) — si se llegó desde "+ Crear
+  // producto nuevo" de un formulario de Bodega (Ingreso/Egreso/Ensamblaje),
+  // al guardar (o cancelar) se vuelve automáticamente a ese formulario sin
+  // perder lo que ya tenía ingresado (el borrador vive en sessionStorage,
+  // identificado por volverDraft — ver lib/bodega-draft-producto.ts).
+  const volver = searchParams.get('volver')
+  const volverDraft = searchParams.get('volverDraft')
+  const urlCancelar = volver && volverDraft
+    ? `${volver}?${new URLSearchParams({ volverDraft }).toString()}`
+    : '/compras/inventario'
 
   const [guardando, setGuardando] = useState(false)
   const [error, setError]         = useState('')
@@ -86,7 +97,17 @@ export default function NuevoItemPage() {
       })
       const data = await res.json()
       if (data.success) {
-        router.push('/compras/inventario')
+        if (volver && volverDraft) {
+          const params = new URLSearchParams({
+            volverDraft,
+            producto_creado_id: data.item.id,
+            producto_creado_codigo: data.item.codigo,
+            producto_creado_descripcion: data.item.descripcion,
+          })
+          router.push(`${volver}?${params.toString()}`)
+        } else {
+          router.push('/compras/inventario')
+        }
       } else {
         setError(data.error || 'Error al guardar')
       }
@@ -98,7 +119,7 @@ export default function NuevoItemPage() {
     <div className="min-h-screen bg-slate-50">
       <div className="page-header px-6 py-5">
         <div className="max-w-2xl mx-auto">
-          <Link href="/compras/inventario" className="text-blue-300 text-xs hover:text-white">← Inventario</Link>
+          <Link href={urlCancelar} className="text-blue-300 text-xs hover:text-white">← {volver ? 'Volver' : 'Inventario'}</Link>
           <h1 className="text-xl font-bold mt-1">Nuevo Ítem de Inventario</h1>
         </div>
       </div>
@@ -109,6 +130,11 @@ export default function NuevoItemPage() {
             <CardTitle className="text-base text-slate-700">Datos del Ítem</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {volver && (
+              <p className="text-xs bg-blue-50 border border-blue-200 text-blue-700 rounded px-3 py-2">
+                Estás creando este producto para completar un documento en curso. Al guardar (o cancelar) volverás automáticamente, sin perder lo que ya habías ingresado ahí.
+              </p>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
@@ -224,7 +250,7 @@ export default function NuevoItemPage() {
               <Button onClick={handleGuardar} disabled={guardando} className="flex-1 btn-primary">
                 {guardando ? 'Guardando...' : 'Registrar Ítem'}
               </Button>
-              <Link href="/compras/inventario">
+              <Link href={urlCancelar}>
                 <Button variant="outline">Cancelar</Button>
               </Link>
             </div>
