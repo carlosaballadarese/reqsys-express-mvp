@@ -55,7 +55,11 @@ export default function KardexPage() {
   const [filtros, setFiltros] = useState({ producto_id: '', producto_codigo: '', bodega_id: '', tipo: '', desde: '', hasta: '' })
 
   useEffect(() => {
-    fetch('/api/compras/bodega/bodegas?todas=1')
+    // Fix: hallazgo real (2026-11-22) — ?todas=1 es admin/compras-only; el
+    // rol 'bodega' (puede visitar esta pantalla, ver proxy.ts) recibía 403
+    // y el filtro de Bodega quedaba vacío (mismo patrón ya corregido en
+    // los formularios de "Nuevo" Ingreso/Egreso/Ensamblaje).
+    fetch('/api/compras/bodega/bodegas')
       .then((r) => r.json())
       .then((data) => setBodegas(Array.isArray(data) ? data : []))
       .catch(() => {})

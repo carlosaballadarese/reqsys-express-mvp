@@ -22,7 +22,10 @@ export default function ReportesBodegaPage() {
   const [meses, setMeses] = useState(6)
 
   useEffect(() => {
-    fetch('/api/compras/bodega/bodegas?todas=1').then((r) => r.json()).then((d) => setBodegas(Array.isArray(d) ? d : [])).catch(() => {})
+    // Fix: hallazgo real (2026-11-22) — ?todas=1 es admin/compras-only;
+    // ROLES_REPORTES_BODEGA también incluye bodega/gerencia/consulta, que
+    // recibían 403 y el filtro de Bodega quedaba vacío.
+    fetch('/api/compras/bodega/bodegas').then((r) => r.json()).then((d) => setBodegas(Array.isArray(d) ? d : [])).catch(() => {})
   }, [])
 
   function descargar(url: string) {

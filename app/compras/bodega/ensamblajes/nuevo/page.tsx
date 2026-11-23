@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -20,6 +20,87 @@ type Draft = { bodegaId: string; insumos: Linea[]; resultados: Linea[] }
 
 const RUTA = '/compras/bodega/ensamblajes/nuevo'
 const DRAFT_KEY = 'ensamblaje-nuevo'
+
+// Fix: hallazgo real (2026-11-22) — esta función tomaba `lista` como
+// parámetro y llamaba a `setLista(lista.map(...))` con un valor plano, no
+// con la forma funcional (prev => ...). El onSelect de ProductoSearch llama
+// a esta función 3 veces seguidas para la misma línea (producto_id, codigo,
+// descripcion); como las 3 llamadas comparten el mismo `lista` obsoleto
+// (capturado una sola vez en el cierre del evento), solo el ÚLTIMO campo
+// escrito sobrevivía — producto_id y codigo quedaban revertidos a su valor
+// original vacío. Resultado real: nunca era posible vincular un producto
+// seleccionándolo del buscador en esta pantalla. Con la forma funcional,
+// cada llamada se encadena sobre el estado más reciente, sin importar
+// cuántas veces se invoque seguida dentro del mismo handler.
+function actualizar(setLista: Dispatch<SetStateAction<Linea[]>>, idx: number, campo: keyof Linea, valor: string | number) {
+  setLista((prev) => prev.map((l, i) => (i === idx ? { ...l, [campo]: valor } : l)))
+}
+
+// Fix: hallazgo real (2026-11-22) — esta tabla vivía declarada DENTRO del
+// cuerpo de NuevoEnsamblajePage ("function TablaLineas() {...}" en el
+// render). Eso le da una identidad de componente NUEVA en cada re-render
+// del padre (cada tecleo en el buscador de producto dispara un setState,
+// que re-renderiza el padre, que vuelve a declarar la función) — React la
+// trata como un tipo de componente distinto y desmonta/remonta todo el
+// subárbol en cada tecla, perdiendo el valor recién tipeado. Síntoma real:
+// era imposible escribir en el buscador de Producto o en Cantidad dentro de
+// esta pantalla. Hoisteada a nivel de módulo, con todo lo que necesita
+// recibido por props, para que conserve su identidad entre renders.
+function TablaLineas({
+  titulo, tabla, lineas, setLineas, bodegaId, insumos, resultados,
+}: {
+  titulo: string
+  tabla: 'insumos' | 'resultados'
+  lineas: Linea[]
+  setLineas: Dispatch<SetStateAction<Linea[]>>
+  bodegaId: string
+  insumos: Linea[]
+  resultados: Linea[]
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <Label>{titulo}</Label>
+        <Button size="sm" onClick={() => setLineas((prev) => [...prev, { producto_id: '', codigo: '', descripcion: '', cantidad: 0 }])}>+ Agregar línea</Button>
+      </div>
+      <table className="w-full text-sm">
+        <thead><tr className="text-left border-b"><th className="p-2">Producto</th><th className="p-2">Cantidad</th><th className="p-2"></th></tr></thead>
+        <tbody>
+          {lineas.map((l, idx) => (
+            <tr key={idx} className="border-b">
+              <td className="p-2 min-w-[260px]">
+                <div className="flex items-start gap-2">
+                  <div className="flex-1">
+                    <ProductoSearch
+                      value={l.codigo}
+                      onChange={(val) => { actualizar(setLineas, idx, 'codigo', val); actualizar(setLineas, idx, 'producto_id', '') }}
+                      onSelect={(item) => {
+                        actualizar(setLineas, idx, 'producto_id', item.id)
+                        actualizar(setLineas, idx, 'codigo', item.codigo)
+                        actualizar(setLineas, idx, 'descripcion', item.descripcion)
+                      }}
+                    />
+                    {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
+                  </div>
+                  <CrearProductoYVolver
+                    draftKey={DRAFT_KEY}
+                    draft={{ bodegaId, insumos, resultados }}
+                    lineaIdx={`${tabla}:${idx}`}
+                    volverA={RUTA}
+                  />
+                </div>
+              </td>
+              <td className="p-2 w-24"><Input type="number" value={l.cantidad} onChange={(e) => actualizar(setLineas, idx, 'cantidad', Number(e.target.value))} /></td>
+              <td className="p-2">
+                {lineas.length > 1 && <button onClick={() => setLineas((prev) => prev.filter((_, i) => i !== idx))} className="text-red-600 text-xs hover:underline">Eliminar</button>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
 
 // Spec: HU-031 CA-01 — creación de Orden de Ensamblaje (insumos + resultados en la misma orden).
 export default function NuevoEnsamblajePage() {
@@ -67,10 +148,6 @@ export default function NuevoEnsamblajePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  function actualizar(lista: Linea[], setLista: (l: Linea[]) => void, idx: number, campo: keyof Linea, valor: string | number) {
-    setLista(lista.map((l, i) => (i === idx ? { ...l, [campo]: valor } : l)))
-  }
-
   async function handleCrear() {
     if (!bodegaId) { toast.error('Selecciona la Bodega'); return }
     if (insumos.some((l) => !l.producto_id) || resultados.some((l) => !l.producto_id)) {
@@ -88,52 +165,6 @@ export default function NuevoEnsamblajePage() {
       toast.success(`Orden de Ensamblaje ${data.numero} creada`)
       router.push(`/compras/bodega/ensamblajes/${data.orden_id}`)
     } finally { setGuardando(false) }
-  }
-
-  function TablaLineas({ titulo, tabla, lineas, setLineas }: { titulo: string; tabla: 'insumos' | 'resultados'; lineas: Linea[]; setLineas: (l: Linea[]) => void }) {
-    return (
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <Label>{titulo}</Label>
-          <Button size="sm" onClick={() => setLineas([...lineas, { producto_id: '', codigo: '', descripcion: '', cantidad: 0 }])}>+ Agregar línea</Button>
-        </div>
-        <table className="w-full text-sm">
-          <thead><tr className="text-left border-b"><th className="p-2">Producto</th><th className="p-2">Cantidad</th><th className="p-2"></th></tr></thead>
-          <tbody>
-            {lineas.map((l, idx) => (
-              <tr key={idx} className="border-b">
-                <td className="p-2 min-w-[260px]">
-                  <div className="flex items-start gap-2">
-                    <div className="flex-1">
-                      <ProductoSearch
-                        value={l.codigo}
-                        onChange={(val) => { actualizar(lineas, setLineas, idx, 'codigo', val); actualizar(lineas, setLineas, idx, 'producto_id', '') }}
-                        onSelect={(item) => {
-                          actualizar(lineas, setLineas, idx, 'producto_id', item.id)
-                          actualizar(lineas, setLineas, idx, 'codigo', item.codigo)
-                          actualizar(lineas, setLineas, idx, 'descripcion', item.descripcion)
-                        }}
-                      />
-                      {l.descripcion && <p className="text-xs text-slate-500 mt-0.5">{l.descripcion}</p>}
-                    </div>
-                    <CrearProductoYVolver
-                      draftKey={DRAFT_KEY}
-                      draft={{ bodegaId, insumos, resultados }}
-                      lineaIdx={`${tabla}:${idx}`}
-                      volverA={RUTA}
-                    />
-                  </div>
-                </td>
-                <td className="p-2 w-24"><Input type="number" value={l.cantidad} onChange={(e) => actualizar(lineas, setLineas, idx, 'cantidad', Number(e.target.value))} /></td>
-                <td className="p-2">
-                  {lineas.length > 1 && <button onClick={() => setLineas(lineas.filter((_, i) => i !== idx))} className="text-red-600 text-xs hover:underline">Eliminar</button>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    )
   }
 
   return (
@@ -154,8 +185,8 @@ export default function NuevoEnsamblajePage() {
             />
           </div>
 
-          <TablaLineas titulo="Insumos consumidos" tabla="insumos" lineas={insumos} setLineas={setInsumos} />
-          <TablaLineas titulo="Producto(s) resultante(s)" tabla="resultados" lineas={resultados} setLineas={setResultados} />
+          <TablaLineas titulo="Insumos consumidos" tabla="insumos" lineas={insumos} setLineas={setInsumos} bodegaId={bodegaId} insumos={insumos} resultados={resultados} />
+          <TablaLineas titulo="Producto(s) resultante(s)" tabla="resultados" lineas={resultados} setLineas={setResultados} bodegaId={bodegaId} insumos={insumos} resultados={resultados} />
 
           <p className="text-xs text-gray-500">El costo del resultado se calcula al confirmar, como la suma de los costos vigentes de los insumos — no se ingresa aquí.</p>
 
