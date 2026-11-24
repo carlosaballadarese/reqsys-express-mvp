@@ -336,6 +336,15 @@ export default function ConfiguracionPage() {
           <PanelSecuenciaGuia />
         </div>
       </div>
+
+      {/* Spec: HU-044 CA-01/CA-02 — /api/compras/secuencia-oca ya existía desde HU-018
+          (espejo exacto de NP/OC), pero nunca estuvo conectado a ninguna pantalla. */}
+      <div>
+        <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">OCA</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <PanelSecuenciaPorAño titulo="Numeración de OCA" endpoint="/api/compras/secuencia-oca" prefijo="OCA" />
+        </div>
+      </div>
     </div>
   )
 }
