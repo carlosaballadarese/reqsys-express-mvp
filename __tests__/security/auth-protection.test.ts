@@ -9827,6 +9827,11 @@ describe.each([
   ['NP',  '@/app/api/compras/secuencia/route'],
   ['OC',  '@/app/api/compras/secuencia-oc/route'],
   ['OCA', '@/app/api/compras/secuencia-oca/route'],
+  // Spec: HU-043 CA-02/CA-03/CA-04/CA-06/CA-08 — mismo contrato exacto que
+  // NP/OC/OCA (upsert ciego por año), heredan los mismos 4 casos sin tests nuevos.
+  ['Ingreso de Bodega',    '@/app/api/compras/bodega/secuencia-ingreso/route'],
+  ['Egreso de Bodega',     '@/app/api/compras/bodega/secuencia-egreso/route'],
+  ['Ensamblaje de Bodega', '@/app/api/compras/bodega/secuencia-ensamblaje/route'],
 ])('GET/POST /api/compras/secuencia* (%s)', (_label, modulePath) => {
   const { GET, POST } = require(modulePath)
 
@@ -9883,6 +9888,126 @@ describe.each([
       })
     )
     expect(res.status).toBe(200)
+  })
+})
+
+// ── HU-043 CA-05/CA-07/CA-08/CA-11: GET/POST /api/compras/bodega/secuencia-guia ──
+// Shape distinto a NP/OC/Ingreso/Egreso/Ensamblaje: sin año (fila fija id=1),
+// y el POST bloquea con 400 si numero_inicial <= ultimo_numero actual (RN-04).
+
+describe('GET/POST /api/compras/bodega/secuencia-guia', () => {
+  const { GET, POST } = require('@/app/api/compras/bodega/secuencia-guia/route')
+
+  it('GET devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await GET()
+    expect(res.status).toBe(401)
+  })
+
+  it('GET devuelve 200 con el ultimo_numero actual para cualquier rol autenticado', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { ultimo_numero: 1821 }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await GET()
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toEqual({ ultimo_numero: 1821 })
+  })
+
+  it('POST devuelve 401 sin sesión', async () => {
+    mockGetUser.mockResolvedValue(SIN_SESION)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/secuencia-guia', {
+        method: 'POST',
+        body: JSON.stringify({ numero_inicial: 1900 }),
+      })
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('POST devuelve 403 para rol no autorizado (bodega) — evita resetear la numeración de Guías', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'bodega' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/secuencia-guia', {
+        method: 'POST',
+        body: JSON.stringify({ numero_inicial: 1900 }),
+      })
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('POST devuelve 400 si falta numero_inicial', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => Promise.resolve({ data: { rol: 'admin' }, error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/secuencia-guia', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      })
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('POST devuelve 400 (CA-11) si numero_inicial es EXACTAMENTE igual al ultimo_numero actual', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest
+      .fn()
+      .mockResolvedValueOnce({ data: { rol: 'admin' }, error: null })
+      .mockResolvedValueOnce({ data: { ultimo_numero: 1821 }, error: null })
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/secuencia-guia', {
+        method: 'POST',
+        body: JSON.stringify({ numero_inicial: 1821 }),
+      })
+    )
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toMatch(/mayor al actual \(1821\)/)
+  })
+
+  it('POST devuelve 400 (CA-11) si numero_inicial es MENOR al ultimo_numero actual', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest
+      .fn()
+      .mockResolvedValueOnce({ data: { rol: 'compras' }, error: null })
+      .mockResolvedValueOnce({ data: { ultimo_numero: 1821 }, error: null })
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/secuencia-guia', {
+        method: 'POST',
+        body: JSON.stringify({ numero_inicial: 1800 }),
+      })
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('POST devuelve 200 (caso límite: ultimo_numero + 1 es el mínimo aceptado)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.single = jest
+      .fn()
+      .mockResolvedValueOnce({ data: { rol: 'admin' }, error: null })
+      .mockResolvedValueOnce({ data: { ultimo_numero: 1821 }, error: null })
+    chain.update = jest.fn(() => chain)
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/bodega/secuencia-guia', {
+        method: 'POST',
+        body: JSON.stringify({ numero_inicial: 1822 }),
+      })
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toEqual({ success: true, proximo: 1822 })
   })
 })
 
