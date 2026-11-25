@@ -49,15 +49,30 @@ describe('parsearProductos (CA-02)', () => {
     const ws = wsFake({
       // índice 0 = columna A (sin uso) — mismo corrimiento que ExcelJS.Row.values real.
       8: [null, 'Codigo', 'Descripcion', 'Area', 'Categoria', 'Saldo', 'Costo'], // residuo de encabezado
-      9: [null, 'AL-I0001', 'Producto 1', 'Mecánico', 'Cables', 10, 5],
+      // índice 11 = columna L (12): "Inventario piloto nov-2026" — Spec: HU-045 CA-03.
+      9: [null, 'AL-I0001', 'Producto 1', 'Mecánico', 'Cables', 10, 5, null, null, null, null, 'INVENTARIADO · Consumible'],
       10: [null, null, 'Fila vacía sin código'],
-      11: [null, 'AL-I0002', 'Producto 2', null, null, 0, 0],
+      11: [null, 'AL-I0002', 'Producto 2', null, null, 0, 0, null, null, null, null, 'NO INVENTARIADO · Sin área'],
     }, 11)
 
     const productos = parsearProductos(ws)
     expect(productos).toEqual([
-      { codigo: 'AL-I0001', descripcion: 'Producto 1', areaTexto: 'Mecánico', categoriaTexto: 'Cables', saldoExcel: 10, costoExcel: 5 },
-      { codigo: 'AL-I0002', descripcion: 'Producto 2', areaTexto: null, categoriaTexto: null, saldoExcel: 0, costoExcel: 0 },
+      { codigo: 'AL-I0001', descripcion: 'Producto 1', areaTexto: 'Mecánico', categoriaTexto: 'Cables', saldoExcel: 10, costoExcel: 5, inventariado: true },
+      { codigo: 'AL-I0002', descripcion: 'Producto 2', areaTexto: null, categoriaTexto: null, saldoExcel: 0, costoExcel: 0, inventariado: false },
+    ])
+  })
+
+  // Spec: HU-045 CA-03 — un archivo candidato sin esa columna (ej. uno sin
+  // conciliar todavía) nunca debe hacer fallar el parseo; inventariado=false
+  // es el valor seguro por defecto, nunca "asumido contado".
+  it('columna "Inventario piloto" ausente del archivo => inventariado siempre false', () => {
+    const ws = wsFake({
+      9: [null, 'AL-I0003', 'Producto 3', 'Eléctrico', 'Cables', 7, 3],
+    }, 9)
+
+    const productos = parsearProductos(ws)
+    expect(productos).toEqual([
+      { codigo: 'AL-I0003', descripcion: 'Producto 3', areaTexto: 'Eléctrico', categoriaTexto: 'Cables', saldoExcel: 7, costoExcel: 3, inventariado: false },
     ])
   })
 })
@@ -131,7 +146,7 @@ describe('replayCronologico (CA-04/CA-05)', () => {
 
 describe('compararContraInventarioReal (CA-06)', () => {
   function producto(codigo: string): FilaProductoExcel {
-    return { codigo, descripcion: 'X', areaTexto: null, categoriaTexto: null, saldoExcel: 0, costoExcel: 0 }
+    return { codigo, descripcion: 'X', areaTexto: null, categoriaTexto: null, saldoExcel: 0, costoExcel: 0, inventariado: false }
   }
 
   it('reporta divergencia cuando el código ya existe en inventario con otro saldo/costo', async () => {

@@ -28,6 +28,7 @@ function fila(overrides: Partial<FilaProductoExcel>): FilaProductoExcel {
     categoriaTexto: 'Cables',
     saldoExcel: 10,
     costoExcel: 5,
+    inventariado: false,
     ...overrides,
   }
 }
@@ -100,6 +101,22 @@ describe('clasificarReemplazo — HU-041 CA-01/CA-03 a CA-07', () => {
       [producto({ saldo_existencias: 10, costo_unitario: 5 })]
     )
     expect(filas[0]).toMatchObject({ tipo: 'ajuste', delta: -6 })
+  })
+
+  // Spec: HU-045 CA-06/RN-03 — un saldo objetivo negativo nunca genera un
+  // delta más negativo que -saldoActual (nunca pediría más de lo disponible).
+  it('HU-045 CA-06: saldo objetivo negativo del archivo se limita a 0 (nunca excede el saldo disponible)', () => {
+    const { filas } = clasificarReemplazo(
+      [fila({ saldoExcel: -13, costoExcel: 5 })],
+      [producto({ saldo_existencias: 135, costo_unitario: 5 })]
+    )
+    expect(filas[0]).toMatchObject({ tipo: 'ajuste', delta: -135, saldoActual: 135 })
+  })
+
+  it('HU-045 CA-06: no muta el fila.saldoExcel original del archivo (se preserva para auditoría)', () => {
+    const filaOriginal = fila({ saldoExcel: -13, costoExcel: 5 })
+    clasificarReemplazo([filaOriginal], [producto({ saldo_existencias: 135, costo_unitario: 5 })])
+    expect(filaOriginal.saldoExcel).toBe(-13)
   })
 
   it('CA-07: saldo y costo idénticos => sin_cambio (nunca ajuste)', () => {
@@ -178,5 +195,68 @@ describe('ejecutarReemplazo — HU-041 CA-02 a CA-04, RN-06 (alcance acotado sin
     )
     expect(resultado.altas).toBe(0)
     expect(resultado.errores).toEqual([expect.stringContaining('FALLA')])
+  })
+
+  // Spec: HU-045 CA-04 — fechaConteo solo se aplica a productos marcados
+  // como físicamente contados por el archivo (datos.inventariado).
+  it('HU-045 CA-04: alta con fechaConteo + inventariado=true fija ultimo_conteo_fecha en el insert', async () => {
+    const insertSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      inventario: { data: { id: 'nuevo-1' }, error: null, onInsert: insertSpy },
+    }))
+    await ejecutarReemplazo(
+      [{ tipo: 'alta', codigo: 'NUEVO', datos: fila({ codigo: 'NUEVO', saldoExcel: 0, costoExcel: 0, inventariado: true }) }],
+      ACTOR,
+      'bodega-1',
+      '2026-11-22'
+    )
+    expect(insertSpy).toHaveBeenCalledWith(expect.objectContaining({ ultimo_conteo_fecha: '2026-11-22' }))
+  })
+
+  it('HU-045 CA-04: alta con fechaConteo pero inventariado=false NO fija ultimo_conteo_fecha', async () => {
+    const insertSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      inventario: { data: { id: 'nuevo-1' }, error: null, onInsert: insertSpy },
+    }))
+    await ejecutarReemplazo(
+      [{ tipo: 'alta', codigo: 'NUEVO', datos: fila({ codigo: 'NUEVO', saldoExcel: 0, costoExcel: 0, inventariado: false }) }],
+      ACTOR,
+      'bodega-1',
+      '2026-11-22'
+    )
+    expect(insertSpy.mock.calls[0][0].ultimo_conteo_fecha).toBeUndefined()
+  })
+
+  it('HU-045 CA-04: sin fechaConteo, aunque inventariado=true, NO fija ultimo_conteo_fecha (retrocompatibilidad)', async () => {
+    const insertSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      inventario: { data: { id: 'nuevo-1' }, error: null, onInsert: insertSpy },
+    }))
+    await ejecutarReemplazo(
+      [{ tipo: 'alta', codigo: 'NUEVO', datos: fila({ codigo: 'NUEVO', saldoExcel: 0, costoExcel: 0, inventariado: true }) }],
+      ACTOR,
+      'bodega-1'
+    )
+    expect(insertSpy.mock.calls[0][0].ultimo_conteo_fecha).toBeUndefined()
+  })
+
+  it('HU-045 CA-04: sin_cambio con fechaConteo + inventariado=true fija ultimo_conteo_fecha en el update', async () => {
+    const updateSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      inventario: { data: null, error: null, onUpdate: updateSpy },
+    }))
+    await ejecutarReemplazo(
+      [{
+        tipo: 'sin_cambio',
+        codigo: 'IGUAL',
+        productoId: 'prod-1',
+        datos: fila({ codigo: 'IGUAL', inventariado: true }),
+        reactiva: false,
+      }],
+      ACTOR,
+      'bodega-1',
+      '2026-11-22'
+    )
+    expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ ultimo_conteo_fecha: '2026-11-22' }))
   })
 })

@@ -11,7 +11,10 @@ import { calcularPromedioPonderado } from '@/lib/bodega-kardex'
 const FILA_INICIAL_PRODUCTOS = 8
 const FILA_INICIAL_KARDEX = 9
 
-const COL_PRODUCTOS = { codigo: 2, descripcion: 3, area: 4, categoria: 5, saldo: 6, costo: 7 }
+// Spec: HU-045 CA-03 — columna 12 ("Inventario piloto nov-2026"), presente en
+// los archivos reales de migración de Inventario y Consumibles (no en todos
+// los archivos candidatos — ver `inventariado` abajo).
+const COL_PRODUCTOS = { codigo: 2, descripcion: 3, area: 4, categoria: 5, saldo: 6, costo: 7, inventarioPiloto: 12 }
 const COL_KARDEX = { fecha: 2, direccion: 3, tipo: 4, codigo: 5, cantidad: 12, costoUnitario: 13 }
 
 // Spec: HU-039 CA-03 — mismo diccionario TIPO_MAP de scripts/hu036-extraer-excel.py.
@@ -35,6 +38,11 @@ export type FilaProductoExcel = {
   categoriaTexto: string | null
   saldoExcel: number
   costoExcel: number
+  // Spec: HU-045 CA-03 — true solo si la columna "Inventario piloto" arranca
+  // con "INVENTARIADO" (nunca "NO INVENTARIADO"); columna ausente o vacía en
+  // el archivo => false. Campo requerido (no opcional) a propósito, ver
+  // Decisión de diseño 1 de sdd-design.md.
+  inventariado: boolean
 }
 
 export type FilaMovimientoExcel = {
@@ -94,6 +102,11 @@ export function parsearProductos(ws: ExcelJS.Worksheet): FilaProductoExcel[] {
     // nunca por posición (mismo criterio que el script Python real).
     if (['codigo', 'código'].includes(codigoRaw.toLowerCase())) continue
 
+    // Spec: HU-045 CA-03 — "NO INVENTARIADO..." nunca arranca con la palabra
+    // "INVENTARIADO" (arranca con "NO"), así que basta con startsWith.
+    const pilotoTexto = celdaTexto(row, COL_PRODUCTOS.inventarioPiloto)
+    const inventariado = pilotoTexto?.toUpperCase().startsWith('INVENTARIADO') ?? false
+
     productos.push({
       codigo: codigoRaw,
       descripcion: celdaTexto(row, COL_PRODUCTOS.descripcion),
@@ -101,6 +114,7 @@ export function parsearProductos(ws: ExcelJS.Worksheet): FilaProductoExcel[] {
       categoriaTexto: celdaTexto(row, COL_PRODUCTOS.categoria),
       saldoExcel: celdaNumero(row, COL_PRODUCTOS.saldo) ?? 0,
       costoExcel: celdaNumero(row, COL_PRODUCTOS.costo) ?? 0,
+      inventariado,
     })
   }
   return productos

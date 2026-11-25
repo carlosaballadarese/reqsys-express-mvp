@@ -66,7 +66,14 @@ export function clasificarReemplazo(
 
     const saldoActual = Number(existente.saldo_existencias)
     const costoActual = Number(existente.costo_unitario)
-    const saldoObjetivo = Number(fila.saldoExcel)
+    // Spec: HU-045 CA-06/RN-03 — un saldo objetivo negativo (archivo "fuera
+    // del piloto", pendiente de revisión real) generaría una Salida mayor al
+    // saldo disponible, bloqueando el cierre de TODO el lote de ajustes de
+    // Egreso (HU-030 valida saldo suficiente de todas las líneas antes de
+    // escribir cualquiera). Se limita a 0 — mismo piso que ya aplica de forma
+    // natural a las altas (guard `saldoExcel > 0` en ejecutarReemplazo). El
+    // valor crudo del archivo (fila.saldoExcel) nunca se muta.
+    const saldoObjetivo = Math.max(0, Number(fila.saldoExcel))
     const costoObjetivo = Number(fila.costoExcel)
     const reactiva = !existente.activo
 
@@ -128,7 +135,13 @@ export async function ejecutarReemplazo(
   // de múltiples bodegas sin ninguna bodega única natural para el
   // encabezado, así que se exige una "bodega de referencia" elegida por
   // quien ejecuta (aplicada a ambos documentos masivos, por consistencia).
-  bodegaId: string
+  bodegaId: string,
+  // Spec: HU-045 CA-04/RN-02 — fecha a fijar en `ultimo_conteo_fecha` SOLO
+  // para productos que el archivo marca como físicamente contados
+  // (`datos.inventariado === true`). Nunca hardcodeada dentro del motor: la
+  // decide quien ejecuta la carga (ver `sdd-design.md`, Decisión 2) — una
+  // futura recarga del archivo maestro puede no traer esa clasificación.
+  fechaConteo?: string
 ): Promise<ResultadoEjecucion> {
   const resultado: ResultadoEjecucion = {
     altas: 0,
@@ -155,6 +168,7 @@ export async function ejecutarReemplazo(
           saldo_existencias: 0,
           costo_unitario: 0,
           activo: true,
+          ...(fechaConteo && fila.datos.inventariado ? { ultimo_conteo_fecha: fechaConteo } : {}),
         })
         .select('id')
         .single()
@@ -195,6 +209,7 @@ export async function ejecutarReemplazo(
         area: fila.datos.areaTexto,
         categoria: fila.datos.categoriaTexto,
         ...(fila.reactiva ? { activo: true } : {}),
+        ...(fechaConteo && fila.datos.inventariado ? { ultimo_conteo_fecha: fechaConteo } : {}),
       })
       .eq('id', fila.productoId)
 

@@ -31,6 +31,9 @@ export default function ReemplazoInventarioPage() {
   const [error, setError] = useState('')
   const [bodegas, setBodegas] = useState<Bodega[]>([])
   const [bodegaId, setBodegaId] = useState('')
+  // Spec: HU-045 CA-05 — opcional; solo tiene efecto sobre productos que el
+  // archivo marca como contados físicamente (columna "Inventario piloto").
+  const [fechaConteo, setFechaConteo] = useState('')
 
   useEffect(() => {
     fetch('/api/compras/bodega/bodegas?todas=1').then(r => r.json()).then(d => setBodegas(Array.isArray(d) ? d : [])).catch(() => {})
@@ -58,7 +61,7 @@ export default function ReemplazoInventarioPage() {
       const res = await fetch('/api/compras/bodega/reemplazo-inventario/ejecutar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filas: clasificacion.filas, bodegaId }),
+        body: JSON.stringify({ filas: clasificacion.filas, bodegaId, fechaConteo: fechaConteo || undefined }),
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error ?? 'Error al ejecutar el reemplazo'); return }
@@ -86,7 +89,7 @@ export default function ReemplazoInventarioPage() {
   }
 
   function reiniciar() {
-    setArchivo(null); setClasificacion(null); setResultado(null); setError('')
+    setArchivo(null); setClasificacion(null); setResultado(null); setError(''); setFechaConteo('')
   }
 
   return (
@@ -159,6 +162,23 @@ export default function ReemplazoInventarioPage() {
                 <option value="">— selecciona una bodega —</option>
                 {bodegas.map((b) => <option key={b.id} value={b.id}>{b.nombre}</option>)}
               </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-slate-600 block mb-1">
+                Fecha de conteo físico (opcional — solo si el archivo trae una columna de
+                clasificación tipo &quot;Inventario piloto&quot;)
+              </label>
+              <input
+                type="date"
+                value={fechaConteo}
+                onChange={(e) => setFechaConteo(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm w-full"
+              />
+              <p className="text-xs text-slate-400 mt-1">
+                Se aplica solo a los productos que el archivo marca como contados físicamente —
+                el resto queda sin cambio en su fecha de último conteo.
+              </p>
             </div>
             <div className="flex gap-3">
               <Button onClick={ejecutar} disabled={cargando || !bodegaId} className="btn-primary">

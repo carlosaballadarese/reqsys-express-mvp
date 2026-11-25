@@ -491,6 +491,42 @@ describe('GET /api/compras/inventario/next-codigo', () => {
     const res = await GET(makeRequest('http://localhost/api/compras/inventario/next-codigo'))
     expect(res.status).toBe(401)
   })
+
+  // Spec: HU-045 CA-01 — sin `?prefijo=`, retrocompatible: sigue filtrando y
+  // devolviendo códigos AL-I (comportamiento histórico).
+  it('HU-045 CA-01: sin prefijo, usa AL-I por default (retrocompatibilidad)', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.limit = jest.fn(() => Promise.resolve({ data: [{ codigo: 'AL-I0042' }], error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/compras/inventario/next-codigo'))
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(chain.like).toHaveBeenCalledWith('codigo', 'AL-I%')
+    expect(body.codigo).toBe('AL-I0043')
+  })
+
+  it('HU-045 CA-01: con ?prefijo=AL-C, filtra y devuelve el siguiente código con ese prefijo', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.limit = jest.fn(() => Promise.resolve({ data: [{ codigo: 'AL-C0305' }, { codigo: 'AL-C0120' }], error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/compras/inventario/next-codigo?prefijo=AL-C'))
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(chain.like).toHaveBeenCalledWith('codigo', 'AL-C%')
+    expect(body.codigo).toBe('AL-C0306')
+  })
+
+  it('HU-045 CA-01: sin ningún código previo con ese prefijo, arranca en 0001', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    const chain = mockChainVacio()
+    chain.limit = jest.fn(() => Promise.resolve({ data: [], error: null }))
+    mockFrom.mockReturnValue(chain)
+    const res = await GET(makeRequest('http://localhost/api/compras/inventario/next-codigo?prefijo=AL-C'))
+    const body = await res.json()
+    expect(body.codigo).toBe('AL-C0001')
+  })
 })
 
 // ── 6. Proveedores ────────────────────────────────────────────────────────────

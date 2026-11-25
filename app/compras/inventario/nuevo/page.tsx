@@ -32,8 +32,10 @@ export default function NuevoItemPage() {
   // filtrar Categoría); nunca se persiste en el producto.
   const [areasBodega, setAreasBodega] = useState<{ id: string; nombre: string }[]>([])
   const [areaFiltro, setAreaFiltro]   = useState('')
-  const [bodegas, setBodegas]         = useState<{ id: string; nombre: string }[]>([])
+  const [bodegas, setBodegas]         = useState<{ id: string; nombre: string; codigo?: string }[]>([])
   const [categorias, setCategorias]   = useState<{ id: string; nombre: string }[]>([])
+  // Spec: HU-045 CA-02 — no pisar un código que el usuario ya editó a mano.
+  const [codigoTocado, setCodigoTocado] = useState(false)
   const [form, setForm] = useState({
     codigo:             '',
     descripcion:        '',
@@ -52,17 +54,27 @@ export default function NuevoItemPage() {
     requiere_guia:      'true',
   })
 
-  // Sugerir próximo código AL-I automáticamente y cargar catálogos
+  // Cargar catálogos (el código sugerido se resuelve en el efecto de abajo,
+  // una vez se conoce la Bodega elegida — Spec: HU-045 CA-02)
   useEffect(() => {
-    fetch('/api/compras/inventario/next-codigo')
-      .then(r => r.json())
-      .then(data => { if (data.codigo) setForm(f => ({ ...f, codigo: data.codigo })) })
-      .catch(() => {})
-
     fetch('/api/compras/areas').then(r => r.json()).then(setAreas).catch(console.error)
     fetch('/api/compras/areas?solo_bodega=1').then(r => r.json()).then(setAreasBodega).catch(console.error)
     fetch('/api/compras/bodega/bodegas').then(r => r.json()).then(setBodegas).catch(console.error)
   }, [])
+
+  // Spec: HU-045 CA-02 — sugiere el próximo código usando el prefijo real de
+  // la Bodega elegida (su campo "Código", ej. AL-I/AL-C); sin Bodega elegida
+  // todavía, mantiene el default histórico AL-I. Nunca pisa un código que el
+  // usuario ya haya editado a mano (codigoTocado).
+  useEffect(() => {
+    if (codigoTocado) return
+    const bodegaElegida = bodegas.find(b => b.id === form.bodega_id)
+    const prefijo = bodegaElegida?.codigo || 'AL-I'
+    fetch(`/api/compras/inventario/next-codigo?prefijo=${encodeURIComponent(prefijo)}`)
+      .then(r => r.json())
+      .then(data => { if (data.codigo) setForm(f => ({ ...f, codigo: data.codigo })) })
+      .catch(() => {})
+  }, [form.bodega_id, bodegas, codigoTocado])
 
   // Spec: HU-027 CA-01b — el selector de Categoría se acota según el Área
   // elegida en el filtro de UX; sin filtro, lista todas las categorías activas.
@@ -73,7 +85,10 @@ export default function NuevoItemPage() {
     fetch(url).then(r => r.json()).then(setCategorias).catch(console.error)
   }, [areaFiltro])
 
-  function setField(key: string, val: string) { setForm(f => ({ ...f, [key]: val })) }
+  function setField(key: string, val: string) {
+    if (key === 'codigo') setCodigoTocado(true)
+    setForm(f => ({ ...f, [key]: val }))
+  }
 
   async function handleGuardar() {
     if (!form.codigo.trim() || !form.descripcion.trim()) {

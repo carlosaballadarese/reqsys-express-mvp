@@ -21,6 +21,11 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const filas = body.filas as FilaClasificada[] | undefined
     const bodegaId = body.bodegaId as string | undefined
+    // Spec: HU-045 CA-04/CA-05 — fecha opcional, solo tiene efecto sobre
+    // productos marcados como contados físicamente por el archivo.
+    const fechaConteo = typeof body.fechaConteo === 'string' && body.fechaConteo.trim()
+      ? body.fechaConteo.trim()
+      : undefined
     if (!Array.isArray(filas) || filas.length === 0) {
       return NextResponse.json({ error: 'No se recibieron filas para ejecutar' }, { status: 400 })
     }
@@ -35,7 +40,7 @@ export async function POST(req: NextRequest) {
       nombre: perfil.nombre,
       email: perfil.email,
       rol: perfil.rol,
-    }, bodegaId)
+    }, bodegaId, fechaConteo)
 
     await registrarAuditoria({
       accion: 'ejecutar_reemplazo_total_inventario',
