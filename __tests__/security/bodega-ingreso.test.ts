@@ -243,6 +243,43 @@ describe('cerrarDocumentoIngreso — CA-04/CA-05/CA-06', () => {
     expect(resultado.ok).toBe(true)
   })
 
+  it('HU-046: ajuste_masivo admite costo_unitario=0 (archivo maestro sin dato capturado) — reconteo/compra lo rechazan igual que siempre', async () => {
+    const kardexInsertSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: {
+        data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'generado', bodega_id: 'bod-1', tipo_movimiento: 'ajuste_masivo' },
+        error: null,
+      },
+      documentos_ingreso_items: {
+        data: [{ id: 'l1', producto_id: 'prod-1', descripcion_oc: 'Alta sin costo capturado', cantidad: 12, costo_unitario: 0 }],
+        error: null,
+      },
+      kardex_movimientos: { data: [], error: null, onInsert: kardexInsertSpy },
+      inventario: { data: { saldo_existencias: 0, costo_unitario: 0 }, error: null },
+    }))
+    const resultado = await cerrarDocumentoIngreso('doc-1', ACTOR)
+    expect(resultado.ok).toBe(true)
+    expect(kardexInsertSpy).toHaveBeenCalledWith(expect.objectContaining({ costo_promedio_resultante: 0 }))
+  })
+
+  it('HU-046: un Reconteo real (no ajuste_masivo) con costo_unitario=0 sigue rechazándose (RN-BOD-08 sin excepción)', async () => {
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: {
+        data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'generado', bodega_id: 'bod-1', tipo_movimiento: 'reconteo' },
+        error: null,
+      },
+      documentos_ingreso_items: {
+        data: [{ id: 'l1', producto_id: 'prod-1', descripcion_oc: 'Reconteo a costo 0', cantidad: 10, costo_unitario: 0 }],
+        error: null,
+      },
+      kardex_movimientos: { data: [], error: null },
+      inventario: { data: { saldo_existencias: 0, costo_unitario: 0 }, error: null },
+    }))
+    const resultado = await cerrarDocumentoIngreso('doc-1', ACTOR)
+    expect(resultado.ok).toBe(false)
+    expect(resultado.error).toMatch(/costo unitario válido/)
+  })
+
   it('cierra un Reconteo correctamente: el movimiento de Kardex usa tipo=reconteo, no compra (HU-029 CA-02)', async () => {
     const kardexInsertSpy = jest.fn()
     mockFrom.mockImplementation(chainTabla({

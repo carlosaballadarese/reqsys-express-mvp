@@ -388,12 +388,22 @@ export async function cerrarDocumentoIngreso(
   // únicamente para este tipo. Cantidad negativa sigue inválida siempre.
   const esAjusteMasivo = documento.tipo_movimiento === 'ajuste_masivo'
   const cantidadInvalida = (cantidad: number) => (esAjusteMasivo ? cantidad < 0 : cantidad <= 0)
+  // Spec: HU-046 — hallazgo real de ejecución (no detectado por los tests
+  // unitarios de HU-041/045, que mockean cerrarDocumentoIngreso de forma
+  // aislada): un archivo maestro real puede traer una alta o un ajuste con
+  // costo=0 (dato no capturado — mismo criterio ya aceptado en HU-036 para
+  // el histórico), y esa línea viaja en el ÚNICO Documento de Ingreso
+  // combinado de la ejecución (CA-06 de HU-041) — sin esta excepción,
+  // bloquearía el cierre de TODO el lote, no solo de la línea en costo 0.
+  // Un Ingreso real operativo (compra/devolucion/reconteo) sigue exigiendo
+  // costo > 0 siempre: ahí no hay "archivo maestro" que justifique un 0.
+  const costoInvalido = (costo: number) => (esAjusteMasivo ? costo < 0 : costo <= 0)
 
   // Spec: CA-05/RN-BOD-08, HU-032 CA-02b — bloqueo de cierre con datos
   // inválidos; para una línea de importación, el costo efectivo (FOB×Factor)
   // es el que debe ser válido, no el costo_unitario original de la OC.
   const lineasInvalidas = todasLasLineas
-    .filter((l) => !l.producto_id || cantidadInvalida(Number(l.cantidad)) || resolverCostoUnitarioEfectivo(l) <= 0)
+    .filter((l) => !l.producto_id || cantidadInvalida(Number(l.cantidad)) || costoInvalido(resolverCostoUnitarioEfectivo(l)))
     .map((l) => l.descripcion_oc)
 
   if (lineasInvalidas.length > 0) {
