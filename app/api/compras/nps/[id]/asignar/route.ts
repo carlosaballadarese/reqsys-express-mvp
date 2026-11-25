@@ -48,8 +48,13 @@ export async function POST(
   if (!ESTADOS_NP_ABIERTA_A_OC.includes(np.estado as typeof ESTADOS_NP_ABIERTA_A_OC[number]))
     return NextResponse.json({ error: 'La NP no está en un Estado que permita gestionar su comprador' }, { status: 400 })
 
-  if (np.convertida)
-    return NextResponse.json({ error: 'La NP ya fue convertida a OC' }, { status: 400 })
+  // Fix (2026-11-24): se quita el guard "if (np.convertida) return 400" que existía aquí.
+  // `convertida` solo marca que la NP YA generó al menos 1 OC alguna vez (ver convertir/[id]
+  // y ordenes/consolidar) — nunca se resetea a false, y desde HU-013/014/016 una NP puede
+  // tener varias OCs parciales a lo largo del tiempo mientras siga teniendo líneas pendientes
+  // (ESTADOS_NP_ABIERTA_A_OC ya es el guard correcto de "¿sigue abierta?"). Bug real detectado
+  // en producción: NP-2026-0537 (2 OCs parciales ya generadas, 3 líneas aún pendientes) no
+  // podía reasignarse de un comprador a otro, bloqueando el trabajo pendiente sin motivo.
 
   // Spec: HU-010 CA-01, CA-09 — asignar requiere que no haya comprador; reasignar/
   // tomar_control requieren que sí lo haya.

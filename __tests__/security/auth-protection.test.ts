@@ -1049,6 +1049,34 @@ describe('POST /api/compras/nps/[id]/asignar', () => {
     expect(res.status).toBe(200)
   })
 
+  // Spec: fix real (2026-11-24) — NP-2026-0537: comprador fuera de la empresa, la NP
+  // ya tenía 2 OCs parciales generadas (convertida=true) y 3 líneas aún pendientes
+  // (HU-013/014/016). El guard viejo "if (np.convertida) return 400" bloqueaba
+  // reasignar aunque ESTADOS_NP_ABIERTA_A_OC (oc_directa) ya confirma que sigue abierta.
+  it('reasignar (200) una NP con convertida=true y OCs parciales ya generadas', async () => {
+    mockGetUser.mockResolvedValue(CON_SESION)
+    let singleCalls = 0
+    const chain = mockChainVacio()
+    chain.single = jest.fn(() => {
+      singleCalls++
+      if (singleCalls === 1) return Promise.resolve({ data: { rol: 'admin', nombre: 'Claudia Sánchez', email: 'compras@arlift.com.ec' }, error: null })
+      if (singleCalls === 2) return Promise.resolve({
+        data: { id: 'np-537', numero: 'NP-2026-0537', estado: 'oc_directa', convertida: true, area: 'Operaciones - Servicio Eléctrico', asignado_a: 'gina-id', prioridad: 'excepcional' }, error: null,
+      })
+      return Promise.resolve({ data: { id: 'lizbeth-id', nombre: 'Lizbeth Córdova', email: 'lizbeth.cordova@arlift.com.ec' }, error: null })
+    })
+    chain.update = jest.fn(() => chain)
+    mockFrom.mockReturnValue(chain)
+    const res = await POST(
+      makeRequest('http://localhost/api/compras/nps/np-537/asignar', {
+        method: 'POST',
+        body: JSON.stringify({ accion: 'reasignar', asistente_id: 'lizbeth-id' }),
+      }),
+      { params: Promise.resolve({ id: 'np-537' }) }
+    )
+    expect(res.status).toBe(200)
+  })
+
   // Spec: HU-010 CA-09 — tomar_control sobre NP en en_gestion ya NO debe dar 400
   it('tomar_control (200) una NP en en_gestion — SLA y Estado quedan intactos (RN-04)', async () => {
     mockGetUser.mockResolvedValue(CON_SESION)
