@@ -18,12 +18,27 @@ jest.mock('@/lib/auditoria', () => ({
   registrarAuditoria: jest.fn(),
 }))
 
+// Spec: HU-046 — crearDocumentoEgresoMasivo/cerrarDocumentoEgreso son
+// cross-module (bodega-egreso.ts), mockeables limpiamente. El lado de
+// Ingreso (crearDocumentoIngresoMasivo/cerrarDocumentoIngreso) es same-module
+// con generarCorreccionCostoCeroSiAplica — no mockeable sin romper el propio
+// objeto bajo prueba, así que corre real contra el mock de Supabase
+// (chainTabla) en los tests de la ruta feliz, mismo criterio ya usado en
+// bodega-reemplazo-inventario.test.ts para no reimplementar el motor.
+const mockCrearDocumentoEgresoMasivo = jest.fn()
+const mockCerrarDocumentoEgreso = jest.fn()
+jest.mock('@/lib/bodega-egreso', () => ({
+  crearDocumentoEgresoMasivo: (...args: unknown[]) => mockCrearDocumentoEgresoMasivo(...args),
+  cerrarDocumentoEgreso: (...args: unknown[]) => mockCerrarDocumentoEgreso(...args),
+}))
+
 import {
   generarDocumentoIngresoDesdeOC,
   cerrarDocumentoIngreso,
   resolverCancelacionIngresoPorOC,
   verificarAutorizacionIngreso,
   crearDocumentoIngresoManual,
+  generarCorreccionCostoCeroSiAplica,
 } from '@/lib/bodega-ingreso'
 
 const ACTOR = { id: 'user-1', nombre: 'Bodega Test', email: 'bodega@arlift.com', rol: 'bodega' }
@@ -317,6 +332,136 @@ describe('cerrarDocumentoIngreso — CA-04/CA-05/CA-06', () => {
     const resultado = await cerrarDocumentoIngreso('doc-6', ACTOR)
     expect(resultado.ok).toBe(true)
     expect(inventarioUpdateSpy).toHaveBeenCalledWith(expect.not.objectContaining({ ultimo_conteo_fecha: expect.anything() }))
+  })
+
+  // Spec: HU-046 CA-02/CA-08 — un Ingreso normal (costo ya positivo) nunca
+  // dispara la corrección; confirma que el código nuevo no afecta el flujo
+  // de siempre (no-regresión explícita, más allá de que los tests de arriba
+  // ya pasaban sin cambios).
+  it('HU-046 CA-08: con costo_unitario ya positivo, NO se invoca ninguna corrección (no-regresión)', async () => {
+    mockCrearDocumentoEgresoMasivo.mockClear()
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: { data: { id: 'doc-7', numero: 'ING-2026-0007', estado: 'generado', bodega_id: 'bod-1', tipo_movimiento: 'compra' }, error: null },
+      documentos_ingreso_items: {
+        data: [{ id: 'l1', producto_id: 'prod-1', descripcion_oc: 'Compra normal', cantidad: 5, costo_unitario: 20 }],
+        error: null,
+      },
+      kardex_movimientos: { data: [], error: null },
+      inventario: { data: { saldo_existencias: 10, costo_unitario: 8 }, error: null },
+    }))
+    const resultado = await cerrarDocumentoIngreso('doc-7', ACTOR)
+    expect(resultado.ok).toBe(true)
+    expect(mockCrearDocumentoEgresoMasivo).not.toHaveBeenCalled()
+  })
+})
+
+describe('generarCorreccionCostoCeroSiAplica — HU-046 CA-02/RN-01', () => {
+  beforeEach(() => {
+    mockCrearDocumentoEgresoMasivo.mockReset()
+    mockCerrarDocumentoEgreso.mockReset()
+  })
+
+  it('RN-01: no corrige si saldoActual = 0 (nada que sacar)', async () => {
+    const resultado = await generarCorreccionCostoCeroSiAplica({
+      productoId: 'prod-1', saldoActual: 0, costoActual: 0, costoReal: 5,
+      bodegaId: 'bod-1', actor: ACTOR, referenciaDisparador: 'Ingreso ING-2026-0001',
+    })
+    expect(resultado).toEqual({ corregido: false })
+    expect(mockCrearDocumentoEgresoMasivo).not.toHaveBeenCalled()
+  })
+
+  it('RN-01: no corrige si costoActual ya es positivo (no es un vacío de datos)', async () => {
+    const resultado = await generarCorreccionCostoCeroSiAplica({
+      productoId: 'prod-1', saldoActual: 10, costoActual: 3, costoReal: 5,
+      bodegaId: 'bod-1', actor: ACTOR, referenciaDisparador: 'Ingreso ING-2026-0001',
+    })
+    expect(resultado).toEqual({ corregido: false })
+    expect(mockCrearDocumentoEgresoMasivo).not.toHaveBeenCalled()
+  })
+
+  it('RN-01: no corrige si el costo de la línea real tampoco es positivo', async () => {
+    const resultado = await generarCorreccionCostoCeroSiAplica({
+      productoId: 'prod-1', saldoActual: 10, costoActual: 0, costoReal: 0,
+      bodegaId: 'bod-1', actor: ACTOR, referenciaDisparador: 'Ingreso ING-2026-0001',
+    })
+    expect(resultado).toEqual({ corregido: false })
+    expect(mockCrearDocumentoEgresoMasivo).not.toHaveBeenCalled()
+  })
+
+  it('sin bodega en el disparador ni en el producto: omite la corrección y audita (best-effort)', async () => {
+    const { registrarAuditoria } = require('@/lib/auditoria')
+    mockFrom.mockImplementation(chainTabla({
+      inventario: { data: { bodega_id: null }, error: null },
+    }))
+    const resultado = await generarCorreccionCostoCeroSiAplica({
+      productoId: 'prod-1', saldoActual: 10, costoActual: 0, costoReal: 5,
+      bodegaId: null, actor: ACTOR, referenciaDisparador: 'Ingreso ING-2026-0001',
+    })
+    expect(resultado).toEqual({ corregido: false, motivo: 'sin_bodega' })
+    expect(mockCrearDocumentoEgresoMasivo).not.toHaveBeenCalled()
+    expect(registrarAuditoria).toHaveBeenCalledWith(
+      expect.objectContaining({ accion: 'correccion_costo_cero_omitida_sin_bodega', entidad_id: 'prod-1' })
+    )
+  })
+
+  it('resuelve la bodega del propio producto cuando el disparador no trae ninguna', async () => {
+    mockCrearDocumentoEgresoMasivo.mockResolvedValue({ ok: true, documentoId: 'egr-1', numero: 'EGR-2026-0050' })
+    mockCerrarDocumentoEgreso.mockResolvedValue({ ok: false, error: 'detener aquí para aislar esta aserción' })
+    mockFrom.mockImplementation(chainTabla({
+      inventario: { data: { bodega_id: 'bod-del-producto' }, error: null },
+    }))
+    await generarCorreccionCostoCeroSiAplica({
+      productoId: 'prod-1', saldoActual: 10, costoActual: 0, costoReal: 5,
+      bodegaId: null, actor: ACTOR, referenciaDisparador: 'Ingreso ING-2026-0001',
+    })
+    expect(mockCrearDocumentoEgresoMasivo).toHaveBeenCalledWith(
+      [{ producto_id: 'prod-1', cantidad: 10, costo_objetivo: 0 }],
+      'bod-del-producto', ACTOR, 'reconteo', expect.stringContaining('Ajuste automático de costo cero')
+    )
+  })
+
+  // Spec: HU-046 CA-02 (ruta feliz completa) — el lado Egreso va mockeado
+  // (cross-module); el lado Ingreso corre real (same-module, no mockeable
+  // sin romper el propio módulo bajo prueba) contra el mock de Supabase, con
+  // el inventario ya representando el estado post-Egreso (saldo/costo en 0)
+  // — asunción de test doble explícita, el comportamiento real de
+  // cerrarDocumentoEgreso() ya está cubierto en bodega-egreso.test.ts.
+  it('ruta feliz: genera y cierra el par real (Egreso mockeado OK + Ingreso real a costo correcto)', async () => {
+    const kardexInsertSpy = jest.fn()
+    const docIngresoInsertSpy = jest.fn()
+    mockCrearDocumentoEgresoMasivo.mockResolvedValue({ ok: true, documentoId: 'egr-1', numero: 'EGR-2026-0050' })
+    mockCerrarDocumentoEgreso.mockResolvedValue({ ok: true })
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: {
+        data: { id: 'ing-correccion-1', numero: 'ING-2026-0099', estado: 'generado', bodega_id: 'bod-1', tipo_movimiento: 'reconteo' },
+        error: null,
+        onInsert: docIngresoInsertSpy,
+      },
+      documentos_ingreso_items: {
+        data: [{ id: 'item-1', producto_id: 'prod-1', descripcion_oc: 'Ajuste automático de costo cero', cantidad: 10, costo_unitario: 5 }],
+        error: null,
+      },
+      kardex_movimientos: { data: [], error: null, onInsert: kardexInsertSpy },
+      // Asunción de test doble: ya "post-Egreso" (saldo/costo en 0).
+      inventario: { data: { saldo_existencias: 0, costo_unitario: 0 }, error: null },
+    }))
+
+    const resultado = await generarCorreccionCostoCeroSiAplica({
+      productoId: 'prod-1', saldoActual: 10, costoActual: 0, costoReal: 5,
+      bodegaId: 'bod-1', actor: ACTOR, referenciaDisparador: 'Ingreso ING-2026-0001',
+    })
+
+    expect(mockCrearDocumentoEgresoMasivo).toHaveBeenCalledWith(
+      [{ producto_id: 'prod-1', cantidad: 10, costo_objetivo: 0 }],
+      'bod-1', ACTOR, 'reconteo', expect.stringContaining('Ingreso ING-2026-0001')
+    )
+    expect(docIngresoInsertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ tipo_movimiento: 'reconteo', observaciones: expect.stringContaining('Ingreso ING-2026-0001') })
+    )
+    expect(kardexInsertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ producto_id: 'prod-1', direccion: 'entrada', cantidad: 10, costo_unitario: 5, costo_promedio_resultante: 5 })
+    )
+    expect(resultado).toEqual({ corregido: true, ingresoNumero: 'ING-2026-0099', egresoNumero: 'EGR-2026-0050' })
   })
 })
 

@@ -125,15 +125,20 @@ export async function crearDocumentoEgreso(
 
 type LineaEgresoMasiva = { producto_id: string; cantidad: number; costo_objetivo: number }
 
-// Spec: HU-041 CA-06 — 1 solo Documento de Egreso tipo ajuste_masivo con
-// TODAS las líneas de delta negativo (o solo-costo) de una ejecución de
-// Reemplazo Total, en vez de 1 documento por producto. costo_objetivo
-// (columna nueva, solo tiene efecto para este tipo) viaja con cada línea
-// para que cerrarDocumentoEgreso() pueda reestatar el costo al cerrar.
+// Spec: HU-041 CA-06 — 1 solo Documento de Egreso con TODAS las líneas de
+// delta negativo (o solo-costo) de una ejecución de Reemplazo Total, en vez
+// de 1 documento por producto. costo_objetivo (columna nueva, solo tiene
+// efecto para tipo ajuste_masivo) viaja con cada línea para que
+// cerrarDocumentoEgreso() pueda reestatar el costo al cerrar.
+// Spec: HU-046 — `tipo` y `observaciones` generalizados (antes
+// 'ajuste_masivo' hardcodeado); default preserva el comportamiento exacto de
+// HU-041, ningún call site existente necesita cambiar.
 export async function crearDocumentoEgresoMasivo(
   lineas: LineaEgresoMasiva[],
   bodegaId: string | null,
-  actor: ActorEgreso
+  actor: ActorEgreso,
+  tipo: 'ajuste_masivo' | 'reconteo' = 'ajuste_masivo',
+  observaciones?: string
 ): Promise<ResultadoCreacion> {
   if (lineas.length === 0) return { ok: false, error: 'Sin líneas para el ajuste masivo' }
 
@@ -146,11 +151,12 @@ export async function crearDocumentoEgresoMasivo(
     .insert({
       numero,
       bodega_id: bodegaId,
-      tipo: 'ajuste_masivo',
+      tipo,
       estado: 'generado',
       cliente_final_id: null,
       punto_entrega_id: null,
       creado_por_id: actor.id,
+      observaciones: observaciones ?? null,
     })
     .select('id, numero')
     .single()
@@ -174,7 +180,7 @@ export async function crearDocumentoEgresoMasivo(
   }
 
   await registrarAuditoria({
-    accion: 'crear_documento_egreso_ajuste_masivo',
+    accion: tipo === 'reconteo' ? 'crear_documento_egreso_correccion_costo_cero' : 'crear_documento_egreso_ajuste_masivo',
     entidad: 'documento_egreso',
     entidad_id: documento.id,
     referencia: documento.numero,

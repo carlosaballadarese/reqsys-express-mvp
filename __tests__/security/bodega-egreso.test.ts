@@ -23,6 +23,7 @@ import {
   crearDocumentoEgreso,
   cerrarDocumentoEgreso,
   listarPrestamosPendientes,
+  crearDocumentoEgresoMasivo,
 } from '@/lib/bodega-egreso'
 
 const ACTOR = { id: 'user-1', nombre: 'Bodega Test', email: 'bodega@arlift.com', rol: 'bodega' }
@@ -139,6 +140,35 @@ describe('crearDocumentoEgreso — CA-01', () => {
     )
     expect(resultado).toEqual({ ok: true, documentoId: 'doc-2', numero: 'EGR-2026-0002' })
     expect(insertSpy).toHaveBeenCalledWith(expect.objectContaining({ cliente_final_id: 'cliente-1', punto_entrega_id: 'punto-1' }))
+  })
+})
+
+describe('crearDocumentoEgresoMasivo — HU-041 CA-06 / HU-046 generalización', () => {
+  it('sin tipo explícito, sigue generando ajuste_masivo (retrocompat con los call sites de HU-041)', async () => {
+    const insertSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      documentos_egreso: { data: { id: 'egr-1', numero: 'EGR-2026-0010' }, error: null, onInsert: insertSpy },
+    }))
+    const resultado = await crearDocumentoEgresoMasivo(
+      [{ producto_id: 'prod-1', cantidad: 5, costo_objetivo: 3 }], 'bod-1', ACTOR
+    )
+    expect(resultado).toEqual({ ok: true, documentoId: 'egr-1', numero: 'EGR-2026-0010' })
+    expect(insertSpy).toHaveBeenCalledWith(expect.objectContaining({ tipo: 'ajuste_masivo', observaciones: null }))
+  })
+
+  it('HU-046: con tipo=reconteo y observaciones, los persiste tal cual', async () => {
+    const insertSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      documentos_egreso: { data: { id: 'egr-2', numero: 'EGR-2026-0011' }, error: null, onInsert: insertSpy },
+    }))
+    const resultado = await crearDocumentoEgresoMasivo(
+      [{ producto_id: 'prod-1', cantidad: 10, costo_objetivo: 0 }], 'bod-1', ACTOR, 'reconteo', 'Ajuste automático de costo cero — generado junto con Ingreso ING-2026-0001'
+    )
+    expect(resultado).toEqual({ ok: true, documentoId: 'egr-2', numero: 'EGR-2026-0011' })
+    expect(insertSpy).toHaveBeenCalledWith(expect.objectContaining({
+      tipo: 'reconteo',
+      observaciones: 'Ajuste automático de costo cero — generado junto con Ingreso ING-2026-0001',
+    }))
   })
 })
 

@@ -2,6 +2,9 @@ import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { calcularPromedioPonderado, resolverCostoUnitarioEfectivo } from '@/lib/bodega-kardex'
+// Spec: HU-046 — import en una sola dirección (bodega-egreso.ts no importa
+// nada de este archivo, confirmado en sdd-design.md Decisión 1).
+import { crearDocumentoEgresoMasivo, cerrarDocumentoEgreso } from '@/lib/bodega-egreso'
 
 // Spec: HU-028 CA-03 — bodega/asistente_compras/compras/admin tienen el mismo
 // permiso de lectura y escritura sobre Documentos de Ingreso (decisión de
@@ -211,14 +214,19 @@ type ResultadoCreacionMasiva =
   | { ok: true; documentoId: string; numero: string }
   | { ok: false; error: string }
 
-// Spec: HU-041 CA-06 — 1 solo Documento de Ingreso tipo ajuste_masivo con
-// TODAS las líneas de delta positivo (o solo-costo) de una ejecución de
-// Reemplazo Total, en vez de 1 documento por producto. Reutiliza
-// cerrarDocumentoIngreso() tal cual (ya procesa N líneas secuencialmente).
+// Spec: HU-041 CA-06 — 1 solo Documento de Ingreso con TODAS las líneas de
+// delta positivo (o solo-costo) de una ejecución de Reemplazo Total, en vez
+// de 1 documento por producto. Reutiliza cerrarDocumentoIngreso() tal cual
+// (ya procesa N líneas secuencialmente).
+// Spec: HU-046 — `tipo` y `observaciones` generalizados (antes
+// 'ajuste_masivo' hardcodeado); default preserva el comportamiento exacto de
+// HU-041, ningún call site existente necesita cambiar.
 export async function crearDocumentoIngresoMasivo(
   lineas: LineaMasiva[],
   bodegaId: string | null,
-  actor: ActorIngreso
+  actor: ActorIngreso,
+  tipo: 'ajuste_masivo' | 'reconteo' = 'ajuste_masivo',
+  observaciones?: string
 ): Promise<ResultadoCreacionMasiva> {
   if (lineas.length === 0) return { ok: false, error: 'Sin líneas para el ajuste masivo' }
 
@@ -232,9 +240,10 @@ export async function crearDocumentoIngresoMasivo(
       numero,
       bodega_id: bodegaId,
       estado: 'generado',
-      tipo_movimiento: 'ajuste_masivo',
+      tipo_movimiento: tipo,
       registro_compras_id: null,
       creado_por_id: actor.id,
+      observaciones: observaciones ?? null,
     })
     .select('id, numero')
     .single()
@@ -244,12 +253,16 @@ export async function crearDocumentoIngresoMasivo(
     return { ok: false, error: 'Error al crear el documento' }
   }
 
+  const descripcionLinea = tipo === 'reconteo'
+    ? 'Ajuste automático de costo cero'
+    : 'Ajuste masivo — Reemplazo Total de Inventario'
+
   const { error: errLineas } = await adminClient().from('documentos_ingreso_items').insert(
     lineas.map((l) => ({
       documento_ingreso_id: documento.id,
       producto_id: l.producto_id,
       codigo_oc: null,
-      descripcion_oc: 'Ajuste masivo — Reemplazo Total de Inventario',
+      descripcion_oc: descripcionLinea,
       cantidad: Number(l.cantidad),
       costo_unitario: Number(l.costo_unitario),
     }))
@@ -260,7 +273,7 @@ export async function crearDocumentoIngresoMasivo(
   }
 
   await registrarAuditoria({
-    accion: 'crear_documento_ingreso_ajuste_masivo',
+    accion: tipo === 'reconteo' ? 'crear_documento_ingreso_correccion_costo_cero' : 'crear_documento_ingreso_ajuste_masivo',
     entidad: 'documento_ingreso',
     entidad_id: documento.id,
     referencia: documento.numero,
@@ -268,6 +281,74 @@ export async function crearDocumentoIngresoMasivo(
   })
 
   return { ok: true, documentoId: documento.id, numero: documento.numero }
+}
+
+export type ResultadoCorreccionCostoCero =
+  | { corregido: true; ingresoNumero: string; egresoNumero: string }
+  | { corregido: false; motivo?: string }
+
+// Spec: HU-046 CA-02/CA-03/CA-05/RN-01 — orquestador compartido entre
+// cerrarDocumentoIngreso() (abajo) y confirmarOrdenEnsamblaje()
+// (lib/bodega-ensamblaje.ts). Co-localizada aquí (no en lib/bodega-kardex.ts)
+// para evitar un import circular — necesita llamar de vuelta a
+// crearDocumentoIngresoMasivo/cerrarDocumentoIngreso, ambas de este mismo
+// archivo (ver sdd-design.md, Decisión 1). Importa de bodega-egreso.ts en una
+// sola dirección (confirmado sin dependencia inversa).
+export async function generarCorreccionCostoCeroSiAplica(params: {
+  productoId: string
+  saldoActual: number
+  costoActual: number
+  costoReal: number
+  bodegaId: string | null
+  actor: ActorIngreso
+  referenciaDisparador: string
+}): Promise<ResultadoCorreccionCostoCero> {
+  const { productoId, saldoActual, costoActual, costoReal, actor, referenciaDisparador } = params
+
+  // Spec: RN-01 — condición exacta de disparo.
+  if (!(saldoActual > 0 && costoActual === 0 && costoReal > 0)) return { corregido: false }
+
+  // Spec: hallazgo real de Fase 4 — documentos_egreso.bodega_id es NOT NULL
+  // (HU-030 CA-01), pero documentos_ingreso.bodega_id es nullable; el
+  // disparador puede no traer bodega (producto aún sin asignar — deuda
+  // pendiente de HU-027/041). Se intenta resolver con la bodega del propio
+  // producto; si tampoco existe, se omite la corrección (best-effort, nunca
+  // bloquea la línea real) y queda registrada en Auditoría para seguimiento.
+  let bodegaId = params.bodegaId
+  if (!bodegaId) {
+    const { data: producto } = await adminClient().from('inventario').select('bodega_id').eq('id', productoId).single()
+    bodegaId = producto?.bodega_id ?? null
+  }
+  if (!bodegaId) {
+    await registrarAuditoria({
+      accion: 'correccion_costo_cero_omitida_sin_bodega',
+      entidad: 'inventario',
+      entidad_id: productoId,
+      referencia: referenciaDisparador,
+      detalle: { saldoActual, costoReal, actor_rol: actor.rol },
+    })
+    return { corregido: false, motivo: 'sin_bodega' }
+  }
+
+  const observaciones = `Ajuste automático de costo cero — generado junto con ${referenciaDisparador}`
+
+  const egreso = await crearDocumentoEgresoMasivo(
+    [{ producto_id: productoId, cantidad: saldoActual, costo_objetivo: 0 }],
+    bodegaId, actor, 'reconteo', observaciones
+  )
+  if (!egreso.ok) return { corregido: false, motivo: egreso.error }
+  const cierreEgreso = await cerrarDocumentoEgreso(egreso.documentoId, actor)
+  if (!cierreEgreso.ok) return { corregido: false, motivo: cierreEgreso.error }
+
+  const ingreso = await crearDocumentoIngresoMasivo(
+    [{ producto_id: productoId, cantidad: saldoActual, costo_unitario: costoReal }],
+    bodegaId, actor, 'reconteo', observaciones
+  )
+  if (!ingreso.ok) return { corregido: false, motivo: ingreso.error }
+  const cierreIngreso = await cerrarDocumentoIngreso(ingreso.documentoId, actor)
+  if (!cierreIngreso.ok) return { corregido: false, motivo: cierreIngreso.error }
+
+  return { corregido: true, ingresoNumero: ingreso.numero, egresoNumero: egreso.numero }
 }
 
 type ResultadoCierre =
@@ -340,12 +421,38 @@ export async function cerrarDocumentoIngreso(
       .eq('id', linea.producto_id)
       .single()
 
-    const saldoAnterior = Number(producto?.saldo_existencias ?? 0)
-    const costoPromedioAnterior = Number(producto?.costo_unitario ?? 0)
+    let saldoAnterior = Number(producto?.saldo_existencias ?? 0)
+    let costoPromedioAnterior = Number(producto?.costo_unitario ?? 0)
     const cantidad = Number(linea.cantidad)
     // Spec: HU-032 CA-02 — costo landed (FOB×Factor) sobreescribe el
     // costo_unitario pactado en la OC para líneas marcadas como importación.
     const costoUnitario = resolverCostoUnitarioEfectivo(linea)
+
+    // Spec: HU-046 CA-02 — antes de promediar, corrige si el producto está
+    // "atascado" en costo cero (ver generarCorreccionCostoCeroSiAplica más
+    // arriba); nunca aplica a ajuste_masivo (RN-04/CA-07, ese tipo ya fija el
+    // costo directo del archivo sin promediar). Tras la corrección, se
+    // relee el producto — el par de corrección ya cambió su saldo/costo.
+    if (!esAjusteMasivo) {
+      const correccion = await generarCorreccionCostoCeroSiAplica({
+        productoId: linea.producto_id,
+        saldoActual: saldoAnterior,
+        costoActual: costoPromedioAnterior,
+        costoReal: costoUnitario,
+        bodegaId: documento.bodega_id,
+        actor,
+        referenciaDisparador: `Ingreso ${documento.numero}`,
+      })
+      if (correccion.corregido) {
+        const { data: productoCorregido } = await adminClient()
+          .from('inventario')
+          .select('saldo_existencias, costo_unitario')
+          .eq('id', linea.producto_id)
+          .single()
+        saldoAnterior = Number(productoCorregido?.saldo_existencias ?? 0)
+        costoPromedioAnterior = Number(productoCorregido?.costo_unitario ?? 0)
+      }
+    }
 
     // Spec: HU-041 RN-04 — un ajuste_masivo reestata el costo con el dato
     // directo del archivo maestro, nunca mezclado/promediado con el historial

@@ -2,6 +2,9 @@ import { adminClient } from '@/lib/supabase/clients'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { registrarAuditoria } from '@/lib/auditoria'
 import { calcularPromedioPonderado, validarSaldoSuficiente } from '@/lib/bodega-kardex'
+// Spec: HU-046 — import en una sola dirección (bodega-ingreso.ts no importa
+// nada de este archivo, confirmado en sdd-design.md Decisión 1).
+import { generarCorreccionCostoCeroSiAplica } from '@/lib/bodega-ingreso'
 
 // Spec: HU-031 CA-01 — mismos roles que Egresos (HU-030): un Ensamblaje
 // consume/produce inventario sin ningún vínculo a OC.
@@ -188,13 +191,42 @@ export async function confirmarOrdenEnsamblaje(
 
   // Spec: CA-03/CA-04 — ingresos de resultado (Entrada, SÍ recalcula promedio
   // ponderado contra el saldo/costo previo del producto resultante).
+  // Spec: HU-046 CA-09 — lectura FRESCA por línea (no el mapa productoPorId
+  // armado antes del loop) — necesaria para que la corrección de costo cero
+  // de esta misma línea (si aplica) y cualquier línea previa de resultado del
+  // mismo producto en esta Orden queden reflejadas antes de promediar.
   for (const linea of todosLosResultados) {
     if (resultadosYaProcesados.has(linea.producto_id)) continue
 
-    const producto = productoPorId.get(linea.producto_id)
-    const saldoAnterior = Number(producto?.saldo_existencias ?? 0)
-    const costoPromedioAnterior = Number(producto?.costo_unitario ?? 0)
+    const { data: productoFresco } = await adminClient()
+      .from('inventario')
+      .select('saldo_existencias, costo_unitario')
+      .eq('id', linea.producto_id)
+      .single()
+    let saldoAnterior = Number(productoFresco?.saldo_existencias ?? 0)
+    let costoPromedioAnterior = Number(productoFresco?.costo_unitario ?? 0)
     const cantidad = Number(linea.cantidad)
+
+    // Spec: HU-046 CA-03 — misma corrección que en Ingreso, aplicada al
+    // producto RESULTANTE del Field Build.
+    const correccion = await generarCorreccionCostoCeroSiAplica({
+      productoId: linea.producto_id,
+      saldoActual: saldoAnterior,
+      costoActual: costoPromedioAnterior,
+      costoReal: costoPorUnidadResultado,
+      bodegaId: orden.bodega_id,
+      actor,
+      referenciaDisparador: `Ensamblaje ${orden.numero}`,
+    })
+    if (correccion.corregido) {
+      const { data: productoCorregido } = await adminClient()
+        .from('inventario')
+        .select('saldo_existencias, costo_unitario')
+        .eq('id', linea.producto_id)
+        .single()
+      saldoAnterior = Number(productoCorregido?.saldo_existencias ?? 0)
+      costoPromedioAnterior = Number(productoCorregido?.costo_unitario ?? 0)
+    }
 
     const nuevoPromedio = calcularPromedioPonderado(saldoAnterior, costoPromedioAnterior, cantidad, costoPorUnidadResultado)
     const nuevoSaldo = saldoAnterior + cantidad
