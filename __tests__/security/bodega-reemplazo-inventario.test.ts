@@ -19,6 +19,7 @@ jest.mock('@/lib/auditoria', () => ({
 
 import { clasificarReemplazo, ejecutarReemplazo, type ProductoActual } from '@/lib/bodega-reemplazo-inventario'
 import type { FilaProductoExcel } from '@/lib/bodega-analisis-migracion'
+import * as BodegaIngresoReal from '@/lib/bodega-ingreso'
 
 function fila(overrides: Partial<FilaProductoExcel>): FilaProductoExcel {
   return {
@@ -238,6 +239,43 @@ describe('ejecutarReemplazo — HU-041 CA-02 a CA-04, RN-06 (alcance acotado sin
       'bodega-1'
     )
     expect(insertSpy.mock.calls[0][0].ultimo_conteo_fecha).toBeUndefined()
+  })
+
+  // Spec: HU-045 CA-04 — hallazgo real de ejecución HTTP contra dev:local,
+  // nunca atrapado por los tests anteriores: cerrarDocumentoIngreso() YA
+  // tiene su propia regla previa (HU-041 RN-07 — cualquier ajuste_masivo
+  // sella ultimo_conteo_fecha=HOY) que corre DESPUÉS del insert de este
+  // archivo, pisando fechaConteo. fechaConteo debe tener precedencia.
+  it('HU-045 CA-04: fechaConteo tiene precedencia sobre el sello "hoy" que cerrarDocumentoIngreso ya aplica (RN-07 de HU-041)', async () => {
+    const estadoProducto: { ultimo_conteo_fecha: string | null } = { ultimo_conteo_fecha: null }
+    mockFrom.mockImplementation(chainTabla({
+      inventario: {
+        data: { id: 'nuevo-1' },
+        error: null,
+        onInsert: (payload: any) => { estadoProducto.ultimo_conteo_fecha = payload.ultimo_conteo_fecha ?? null },
+        onUpdate: (payload: any) => { if ('ultimo_conteo_fecha' in payload) estadoProducto.ultimo_conteo_fecha = payload.ultimo_conteo_fecha },
+      },
+    }))
+
+    jest.spyOn(BodegaIngresoReal, 'crearDocumentoIngresoMasivo')
+      .mockResolvedValue({ ok: true, documentoId: 'doc-1', numero: 'ING-2026-0001' } as any)
+    jest.spyOn(BodegaIngresoReal, 'cerrarDocumentoIngreso').mockImplementation(async () => {
+      // Simula el sello "hoy" que la función real ya aplica (HU-041 RN-07),
+      // ocurriendo después del insert de ejecutarReemplazo.
+      estadoProducto.ultimo_conteo_fecha = '2026-11-25'
+      return { ok: true } as any
+    })
+
+    await ejecutarReemplazo(
+      [{ tipo: 'alta', codigo: 'NUEVO', datos: fila({ codigo: 'NUEVO', saldoExcel: 5, costoExcel: 10, inventariado: true }) }],
+      ACTOR,
+      'bodega-1',
+      '2026-11-22'
+    )
+
+    expect(estadoProducto.ultimo_conteo_fecha).toBe('2026-11-22')
+
+    jest.restoreAllMocks()
   })
 
   it('HU-045 CA-04: sin_cambio con fechaConteo + inventariado=true fija ultimo_conteo_fecha en el update', async () => {

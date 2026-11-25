@@ -155,6 +155,18 @@ export async function ejecutarReemplazo(
   const lineasIngresoAlta: LineaPendienteIngreso[] = []
   const lineasIngreso: LineaPendienteIngreso[] = []
   const lineasEgreso: LineaPendienteEgreso[] = []
+  // Spec: HU-045 CA-04 — hallazgo real de ejecución (no detectado por los
+  // tests unitarios, que mockean cerrarDocumentoIngreso/Egreso de forma
+  // aislada): cerrarDocumentoIngreso()/cerrarDocumentoEgreso() YA tienen su
+  // propia regla, previa a esta HU (HU-041 RN-07) — "cualquier ajuste_masivo
+  // sella ultimo_conteo_fecha = HOY", sin mirar `inventariado`, y esa escritura
+  // ocurre DESPUÉS del insert/update de este loop, pisando el `fechaConteo`
+  // recién fijado. Se resuelve con una pasada final explícita, después del
+  // cierre, que re-aplica `fechaConteo` solo a los productos con
+  // `datos.inventariado === true` — tiene precedencia por ser evidencia más
+  // específica que el sello genérico de "hoy", sin alterar RN-07 para el
+  // resto (un ajuste sin columna de piloto sigue sellando HOY como siempre).
+  const idsInventariadosConFecha: string[] = []
 
   for (const fila of filas) {
     if (fila.tipo === 'alta') {
@@ -178,6 +190,7 @@ export async function ejecutarReemplazo(
         continue
       }
       resultado.altas++
+      if (fechaConteo && fila.datos.inventariado) idsInventariadosConFecha.push(data.id)
 
       // Spec: CA-03 — saldo inicial solo si el archivo trae saldo > 0;
       // si trae 0, no hay nada que mover (producto nuevo, saldo 0 real).
@@ -218,6 +231,7 @@ export async function ejecutarReemplazo(
       continue
     }
     if (fila.reactiva) resultado.reactivaciones++
+    if (fechaConteo && fila.datos.inventariado) idsInventariadosConFecha.push(fila.productoId)
 
     if (fila.tipo === 'ajuste') {
       if (fila.delta > 0) {
@@ -262,6 +276,18 @@ export async function ejecutarReemplazo(
       if (!cierre.ok) resultado.errores.push(`Cierre de ${doc.numero}: ${cierre.error}`)
       else resultado.ajustesEgreso = lineasEgreso.length
     }
+  }
+
+  // Spec: HU-045 CA-04 — pasada final, DESPUÉS de los 2 cierres (ver
+  // comentario junto a idsInventariadosConFecha más arriba): re-aplica
+  // fechaConteo con precedencia sobre el sello genérico de HOY que
+  // cerrarDocumentoIngreso/Egreso ya hacen para cualquier ajuste_masivo.
+  if (idsInventariadosConFecha.length > 0) {
+    const { error: errFecha } = await adminClient()
+      .from('inventario')
+      .update({ ultimo_conteo_fecha: fechaConteo })
+      .in('id', idsInventariadosConFecha)
+    if (errFecha) resultado.errores.push(`Fecha de conteo: ${errFecha.message}`)
   }
 
   return resultado
