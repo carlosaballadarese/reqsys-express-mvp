@@ -14,6 +14,9 @@ import { leerDraftProducto, limpiarDraftProducto } from '@/lib/bodega-draft-prod
 
 type Linea = {
   id: string
+  // Spec: HU-047 CA-01 — enlace real a la línea de OC de origen; se
+  // preserva tal cual al editar (round-trip GET→PUT), nunca se edita a mano.
+  item_oc_id?: string | null
   producto_id: string | null
   producto_codigo?: string | null
   producto_descripcion?: string | null

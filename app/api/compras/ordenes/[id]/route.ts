@@ -6,6 +6,7 @@ import { autoCompletarNP, calcularCoberturaNP } from '@/lib/np-cobertura'
 import { actualizarEstadoNP } from '@/lib/np-estado'
 import { agruparItemsPorNP, validarYVerificarPorNP, npsAfectadasPorEdicion, type ItemConNP } from '@/lib/np-multi-oc'
 import { resolverNpOrigenPorItem, adjuntarNpOrigen } from '@/lib/oc-np-origen'
+import { calcularCoberturaRecepcionOC } from '@/lib/bodega-recepcion-oc'
 
 
 export async function GET(
@@ -66,7 +67,13 @@ export async function GET(
   const mapaOrigen   = await resolverNpOrigenPorItem(items ?? [])
   const itemsOrigen  = adjuntarNpOrigen(items ?? [], mapaOrigen)
 
-  return NextResponse.json({ oc, items: itemsOrigen, ...(nps_origen ? { nps_origen } : {}) })
+  // Spec: HU-047 CA-04 — cobertura de recepción por línea, siempre presente
+  // (nunca condicionada, a diferencia de nps_origen que solo aplica a OCs
+  // consolidadas) — una OC con 0 ítems elegibles (ej. 100% SERVICIOS) devuelve
+  // por_item=[] y oc_recibida_100=true (vacuamente, nada pendiente de recibir).
+  const cobertura_recepcion = await calcularCoberturaRecepcionOC(id)
+
+  return NextResponse.json({ oc, items: itemsOrigen, cobertura_recepcion, ...(nps_origen ? { nps_origen } : {}) })
 }
 
 export async function PUT(

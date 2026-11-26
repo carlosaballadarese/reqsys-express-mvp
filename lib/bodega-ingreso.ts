@@ -5,6 +5,9 @@ import { calcularPromedioPonderado, resolverCostoUnitarioEfectivo } from '@/lib/
 // Spec: HU-046 — import en una sola dirección (bodega-egreso.ts no importa
 // nada de este archivo, confirmado en sdd-design.md Decisión 1).
 import { crearDocumentoEgresoMasivo, cerrarDocumentoEgreso } from '@/lib/bodega-egreso'
+// Spec: HU-047 — bodega-recepcion-oc.ts solo importa adminClient, sin
+// dependencia inversa — import estático seguro, sin riesgo de ciclo.
+import { calcularCoberturaRecepcionOC } from '@/lib/bodega-recepcion-oc'
 
 // Spec: HU-028 CA-03 — bodega/asistente_compras/compras/admin tienen el mismo
 // permiso de lectura y escritura sobre Documentos de Ingreso (decisión de
@@ -34,6 +37,7 @@ export async function verificarAutorizacionIngreso(): Promise<AuthIngreso> {
 type ActorIngreso = { id: string; nombre: string; email: string; rol: string }
 
 type ItemOcParaIngreso = {
+  id: string
   codigo: string | null
   descripcion: string
   cantidad: number
@@ -52,7 +56,7 @@ export async function generarDocumentoIngresoDesdeOC(
 ): Promise<{ documentoId: string; numero: string } | null> {
   const { data: itemsOc } = await adminClient()
     .from('items_oc')
-    .select('codigo, descripcion, cantidad, precio_unitario, tipo')
+    .select('id, codigo, descripcion, cantidad, precio_unitario, tipo')
     .eq('registro_compras_id', registroComprasId)
 
   const elegibles = ((itemsOc ?? []) as ItemOcParaIngreso[]).filter(
@@ -106,6 +110,9 @@ export async function generarDocumentoIngresoDesdeOC(
     const producto = item.codigo ? productosPorCodigo.get(item.codigo) : undefined
     return {
       documento_ingreso_id: documento.id,
+      // Spec: HU-047 CA-01/RN-01 — enlace real a la línea de OC de origen,
+      // además del snapshot de texto ya existente (nunca lo reemplaza).
+      item_oc_id: item.id,
       producto_id: producto?.id ?? null,
       codigo_oc: item.codigo,
       descripcion_oc: item.descripcion,
@@ -125,6 +132,113 @@ export async function generarDocumentoIngresoDesdeOC(
   })
 
   return { documentoId: documento.id, numero: documento.numero }
+}
+
+// Spec: el cliente solo elige QUÉ línea de OC y CUÁNTA cantidad recibió en
+// este envío — producto_id/codigo/descripcion/costo se resuelven aquí del
+// lado servidor (mismo criterio que generarDocumentoIngresoDesdeOC, nunca
+// se confía en el cliente para esos datos).
+type LineaRecepcionAdicional = { item_oc_id: string; cantidad: number }
+type ResultadoRecepcionAdicional =
+  | { ok: true; documentoId: string; numero: string }
+  | { ok: false; error: string }
+
+// Spec: HU-047 CA-01/CA-02/RN-03 — genera un Documento de Ingreso ADICIONAL
+// para una OC que ya tuvo al menos una recepción (típicamente la automática
+// de generarDocumentoIngresoDesdeOC). A diferencia de
+// crearDocumentoIngresoManual (HU-029, siempre registro_compras_id=null,
+// producto_id siempre obligatorio), aquí SÍ se persiste registro_compras_id
+// y SÍ se admite producto_id=null (mismo criterio "sin producto vinculado"
+// de CA-01b de HU-028, para no perder trazabilidad de un ítem de OC real
+// sin match de inventario).
+export async function generarRecepcionAdicionalOC(
+  registroComprasId: string,
+  lineas: LineaRecepcionAdicional[],
+  actor: ActorIngreso
+): Promise<ResultadoRecepcionAdicional> {
+  if (lineas.length === 0) return { ok: false, error: 'El documento debe tener al menos 1 línea' }
+
+  const itemOcIds = [...new Set(lineas.map((l) => l.item_oc_id))]
+  const { data: itemsOc } = await adminClient()
+    .from('items_oc')
+    .select('id, registro_compras_id, codigo, descripcion, precio_unitario')
+    .in('id', itemOcIds)
+
+  const itemsOcDeEstaOC = (itemsOc ?? []).filter((it) => it.registro_compras_id === registroComprasId)
+  if (itemsOcDeEstaOC.length !== itemOcIds.length) {
+    return { ok: false, error: 'Alguna línea no pertenece a esta Orden de Compra' }
+  }
+
+  // Spec: RN-03 — bloqueado si NINGUNA línea elegida tiene saldo pendiente
+  // real. La sobre-recepción (CA-05/RN-04) no se bloquea aquí — el backend
+  // nunca rechaza por exceder el saldo, solo por no tener NADA pendiente.
+  const cobertura = await calcularCoberturaRecepcionOC(registroComprasId)
+  const saldoPorItem = new Map(cobertura.por_item.map((it) => [it.item_oc_id, it.saldo]))
+  const algunaConSaldo = itemOcIds.some((id) => (saldoPorItem.get(id) ?? 0) > 0)
+  if (!algunaConSaldo) {
+    return { ok: false, error: 'No queda saldo pendiente de recibir en ninguna de las líneas elegidas' }
+  }
+
+  const itemOcPorId = new Map(itemsOcDeEstaOC.map((it) => [it.id, it]))
+
+  // Spec: HU-028 — mismo match por código contra inventario que
+  // generarDocumentoIngresoDesdeOC; sin match, producto_id=null (CA-01b).
+  const codigos = [...new Set(itemsOcDeEstaOC.map((it) => it.codigo).filter((c): c is string => !!c))]
+  const productosPorCodigo = new Map<string, string>()
+  if (codigos.length > 0) {
+    const { data: productos } = await adminClient().from('inventario').select('id, codigo').in('codigo', codigos)
+    for (const p of productos ?? []) productosPorCodigo.set(p.codigo, p.id)
+  }
+
+  const año = new Date().getFullYear()
+  const { data: numeroData } = await adminClient().rpc('siguiente_numero_ingreso', { p_year: año })
+  const numero = `ING-${año}-${String(numeroData).padStart(4, '0')}`
+
+  const { data: documento, error: errDoc } = await adminClient()
+    .from('documentos_ingreso')
+    .insert({
+      numero,
+      bodega_id: null,
+      estado: 'generado',
+      registro_compras_id: registroComprasId,
+      creado_por_id: actor.id,
+    })
+    .select('id, numero')
+    .single()
+
+  if (errDoc || !documento) {
+    console.error('Error al generar recepción adicional de OC:', errDoc)
+    return { ok: false, error: 'Error al crear el documento' }
+  }
+
+  const { error: errLineas } = await adminClient().from('documentos_ingreso_items').insert(
+    lineas.map((l) => {
+      const itemOc = itemOcPorId.get(l.item_oc_id)!
+      return {
+        documento_ingreso_id: documento.id,
+        item_oc_id: l.item_oc_id,
+        producto_id: itemOc.codigo ? (productosPorCodigo.get(itemOc.codigo) ?? null) : null,
+        codigo_oc: itemOc.codigo,
+        descripcion_oc: itemOc.descripcion,
+        cantidad: Number(l.cantidad),
+        costo_unitario: Number(itemOc.precio_unitario),
+      }
+    })
+  )
+  if (errLineas) {
+    console.error('Error al insertar líneas de recepción adicional:', errLineas)
+    return { ok: false, error: 'Error al guardar las líneas' }
+  }
+
+  await registrarAuditoria({
+    accion: 'generar_recepcion_adicional_oc',
+    entidad: 'documento_ingreso',
+    entidad_id: documento.id,
+    referencia: documento.numero,
+    detalle: { registro_compras_id: registroComprasId, lineas: lineas.length, actor_rol: actor.rol },
+  })
+
+  return { ok: true, documentoId: documento.id, numero: documento.numero }
 }
 
 type LineaManual = { producto_id: string; cantidad: number; costo_unitario: number }
@@ -523,42 +637,50 @@ export async function cerrarDocumentoIngreso(
 
 // Spec: HU-028 CA-09 — al cancelar la OC de origen, cascada (sin Kardex aún)
 // o bloqueo (Kardex ya generado) según el estado del Documento de Ingreso.
+// Spec: HU-047 CA-08/RN-05 — generalizada de 1 (.maybeSingle()) a TODOS los
+// Documentos de Ingreso de la OC (recepciones múltiples). Mismo contrato de
+// retorno exacto que antes — confirmado en Fase 1 SDD que el único
+// consumidor (cancelar/route.ts) solo lee {ok, error}/{ok, anulado}
+// genéricos, así que no requiere ningún cambio.
 export async function resolverCancelacionIngresoPorOC(
   registroComprasId: string,
   motivo: string
 ): Promise<{ ok: true; anulado: boolean } | { ok: false; error: string }> {
-  const { data: documento } = await adminClient()
+  const { data: documentos } = await adminClient()
     .from('documentos_ingreso')
     .select('id, numero, estado')
     .eq('registro_compras_id', registroComprasId)
-    .maybeSingle()
 
-  if (!documento) return { ok: true, anulado: false }
+  if (!documentos || documentos.length === 0) return { ok: true, anulado: false }
 
-  if (documento.estado === 'cerrado') {
+  const cerrado = documentos.find((d) => d.estado === 'cerrado')
+  if (cerrado) {
     return {
       ok: false,
       error:
-        `No se puede cancelar: la OC ya generó el Documento de Ingreso ${documento.numero}, ` +
+        `No se puede cancelar: la OC ya generó el Documento de Ingreso ${cerrado.numero}, ` +
         `cerrado con movimientos de Kardex reales. Cualquier corrección debe hacerse con un ` +
         `movimiento de Reconteo, nunca cancelando retroactivamente la OC.`,
     }
   }
 
-  if (documento.estado === 'anulado') return { ok: true, anulado: false }
+  const porAnular = documentos.filter((d) => d.estado !== 'anulado')
+  if (porAnular.length === 0) return { ok: true, anulado: false }
 
-  await adminClient()
-    .from('documentos_ingreso')
-    .update({ estado: 'anulado', motivo_anulacion: `OC cancelada: ${motivo}` })
-    .eq('id', documento.id)
+  for (const documento of porAnular) {
+    await adminClient()
+      .from('documentos_ingreso')
+      .update({ estado: 'anulado', motivo_anulacion: `OC cancelada: ${motivo}` })
+      .eq('id', documento.id)
 
-  await registrarAuditoria({
-    accion: 'anular_documento_ingreso',
-    entidad: 'documento_ingreso',
-    entidad_id: documento.id,
-    referencia: documento.numero,
-    detalle: { motivo: `Cascada por cancelación de OC: ${motivo}` },
-  })
+    await registrarAuditoria({
+      accion: 'anular_documento_ingreso',
+      entidad: 'documento_ingreso',
+      entidad_id: documento.id,
+      referencia: documento.numero,
+      detalle: { motivo: `Cascada por cancelación de OC: ${motivo}` },
+    })
+  }
 
   return { ok: true, anulado: true }
 }

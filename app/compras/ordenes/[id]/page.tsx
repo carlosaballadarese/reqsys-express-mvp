@@ -68,6 +68,22 @@ type ItemExcedido = {
   exceso:       number
 }
 
+// Spec: HU-047 CA-03/CA-04 — mismo shape de lib/bodega-recepcion-oc.ts
+type ItemCoberturaOC = {
+  item_oc_id: string
+  linea: number
+  descripcion: string
+  cantidad_comprada: number
+  cantidad_recibida: number
+  saldo: number
+  porcentaje: number
+  sobre_recepcion: boolean
+}
+type CoberturaRecepcionResult = {
+  por_item: ItemCoberturaOC[]
+  oc_recibida_100: boolean
+}
+
 type ItemOC = {
   id?: string
   linea: number
@@ -356,6 +372,13 @@ export default function DetalleOCPage() {
   const [msgAprobacion, setMsgAprobacion]   = useState('')
   const [errAprobacion, setErrAprobacion]   = useState('')
 
+  // Spec: HU-047 CA-04 — Trazabilidad de Recepción
+  const [coberturaRecepcion, setCoberturaRecepcion] = useState<CoberturaRecepcionResult | null>(null)
+  const [modalRecepcion, setModalRecepcion] = useState(false)
+  const [cantidadesRecepcion, setCantidadesRecepcion] = useState<Record<string, string>>({})
+  const [generandoRecepcion, setGenerandoRecepcion] = useState(false)
+  const [errRecepcion, setErrRecepcion] = useState('')
+
   function cargar() {
     setCargando(true)
     fetch(`/api/compras/ordenes/${id}`)
@@ -366,6 +389,7 @@ export default function DetalleOCPage() {
         // (GET /api/compras/ordenes/[id]), no anidado dentro de él.
         setOc({ ...data.oc, nps_origen: data.nps_origen })
         setItems(data.items)
+        setCoberturaRecepcion(data.cobertura_recepcion ?? null)
         setNuevoEstado(data.oc.estado_oc)
         setCargando(false)
       })
@@ -617,6 +641,35 @@ export default function DetalleOCPage() {
       }
     } catch { setErrCancelar('Error de conexión') }
     finally { setCancelando(false) }
+  }
+
+  // Spec: HU-047 CA-02 — genera un Documento de Ingreso adicional con las
+  // líneas/cantidades que Bodega marcó como recibidas en este envío. No
+  // bloquea por exceder el saldo visible (RN-04/CA-05) — solo el backend
+  // decide si bloquear (RN-03: nada pendiente en ninguna línea elegida).
+  async function handleGenerarRecepcion() {
+    const lineas = Object.entries(cantidadesRecepcion)
+      .map(([item_oc_id, cant]) => ({ item_oc_id, cantidad: Number(cant) }))
+      .filter((l) => l.cantidad > 0)
+    if (lineas.length === 0) { setErrRecepcion('Ingresa al menos una cantidad mayor a 0'); return }
+
+    setGenerandoRecepcion(true); setErrRecepcion('')
+    try {
+      const res = await fetch(`/api/compras/ordenes/${id}/recepciones`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lineas }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setModalRecepcion(false)
+        setCantidadesRecepcion({})
+        cargar()
+      } else {
+        setErrRecepcion(data.error || 'Error al generar la recepción')
+      }
+    } catch { setErrRecepcion('Error de conexión') }
+    finally { setGenerandoRecepcion(false) }
   }
 
   async function handleCambiarEstado() {
@@ -1072,7 +1125,111 @@ export default function DetalleOCPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Spec: HU-047 CA-04 — Trazabilidad de Recepción */}
+            {coberturaRecepcion && coberturaRecepcion.por_item.length > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base text-slate-700 flex items-center gap-2">
+                      Trazabilidad de Recepción
+                      {coberturaRecepcion.oc_recibida_100 && (
+                        <span className="text-xs font-normal bg-green-100 text-green-700 px-2 py-0.5 rounded">100% recibida</span>
+                      )}
+                    </CardTitle>
+                    {!coberturaRecepcion.oc_recibida_100 && ['bodega', 'asistente_compras', 'compras', 'admin'].includes(rol) && (
+                      <Button size="sm" variant="outline" onClick={() => setModalRecepcion(true)}>
+                        + Generar recepción adicional
+                      </Button>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-xs text-slate-500 uppercase">
+                          <th className="text-left py-2 pr-3">Línea</th>
+                          <th className="text-left py-2 pr-3">Descripción</th>
+                          <th className="text-center py-2 pr-3">Comprado</th>
+                          <th className="text-center py-2 pr-3">Recibido</th>
+                          <th className="text-center py-2 pr-3">Saldo</th>
+                          <th className="text-center py-2">%</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {coberturaRecepcion.por_item.map((it) => (
+                          <tr key={it.item_oc_id} className="border-b last:border-0">
+                            <td className="py-2 pr-3 text-slate-500">{it.linea}</td>
+                            <td className="py-2 pr-3">{it.descripcion}</td>
+                            <td className="py-2 pr-3 text-center">{it.cantidad_comprada}</td>
+                            <td className="py-2 pr-3 text-center">
+                              {it.cantidad_recibida}
+                              {it.sobre_recepcion && (
+                                <span className="ml-1 text-xs text-amber-600" title="Recibido excede lo comprado">⚠ excedido</span>
+                              )}
+                            </td>
+                            <td className="py-2 pr-3 text-center">{it.saldo}</td>
+                            <td className="py-2 text-center">
+                              <div className="flex items-center gap-2">
+                                <div className="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full ${it.saldo <= 0 ? 'bg-green-500' : it.porcentaje > 0 ? 'bg-amber-500' : 'bg-red-400'}`}
+                                    style={{ width: `${it.porcentaje}%` }}
+                                  />
+                                </div>
+                                <span className="text-xs text-slate-500">{it.porcentaje.toFixed(0)}%</span>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </>
+        )}
+
+        {/* Spec: HU-047 CA-02 — modal Generar recepción adicional */}
+        {modalRecepcion && coberturaRecepcion && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+            <Card className="max-w-lg w-full">
+              <CardHeader>
+                <CardTitle className="text-base">Generar recepción adicional</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-slate-500">
+                  Ingresa la cantidad que llegó en este envío para cada línea con saldo pendiente.
+                </p>
+                {coberturaRecepcion.por_item.filter((it) => it.saldo > 0).map((it) => (
+                  <div key={it.item_oc_id} className="flex items-center justify-between gap-3">
+                    <div className="text-sm">
+                      <div className="font-medium">{it.descripcion}</div>
+                      <div className="text-xs text-slate-500">Saldo pendiente: {it.saldo} de {it.cantidad_comprada}</div>
+                    </div>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="w-28"
+                      placeholder="0"
+                      value={cantidadesRecepcion[it.item_oc_id] ?? ''}
+                      onChange={(e) => setCantidadesRecepcion((prev) => ({ ...prev, [it.item_oc_id]: e.target.value }))}
+                    />
+                  </div>
+                ))}
+                {errRecepcion && <p className="text-xs text-red-600">{errRecepcion}</p>}
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" size="sm" onClick={() => { setModalRecepcion(false); setErrRecepcion('') }}>Cancelar</Button>
+                  <Button size="sm" onClick={handleGenerarRecepcion} disabled={generandoRecepcion}>
+                    {generandoRecepcion ? 'Generando...' : 'Generar recepción'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         )}
 
         {/* Formulario de edición */}

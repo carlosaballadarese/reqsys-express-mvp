@@ -101,7 +101,7 @@ describe('generarDocumentoIngresoDesdeOC — CA-01/CA-01b', () => {
   it('genera línea con producto_id resuelto cuando el código matchea inventario real', async () => {
     const insertSpy = jest.fn()
     mockFrom.mockImplementation(chainTabla({
-      items_oc: { data: [{ codigo: 'AL-I0001', descripcion: 'Válvula', cantidad: 5, precio_unitario: 20, tipo: 'BIENES' }], error: null },
+      items_oc: { data: [{ id: 'item-oc-1', codigo: 'AL-I0001', descripcion: 'Válvula', cantidad: 5, precio_unitario: 20, tipo: 'BIENES' }], error: null },
       inventario: { data: [{ id: 'prod-1', codigo: 'AL-I0001', bodega_id: 'bod-1' }], error: null },
       documentos_ingreso: {
         insertResult: { select: () => ({ single: () => Promise.resolve({ data: { id: 'doc-1', numero: 'ING-2026-0001' }, error: null }) }) },
@@ -112,14 +112,15 @@ describe('generarDocumentoIngresoDesdeOC — CA-01/CA-01b', () => {
     const resultado = await generarDocumentoIngresoDesdeOC('oc-1', ACTOR)
     expect(resultado).toEqual({ documentoId: 'doc-1', numero: 'ING-2026-0001' })
     expect(insertSpy).toHaveBeenCalledWith([
-      expect.objectContaining({ producto_id: 'prod-1', codigo_oc: 'AL-I0001', cantidad: 5, costo_unitario: 20 }),
+      // Spec: HU-047 CA-01 — item_oc_id real, además del snapshot de texto ya existente.
+      expect.objectContaining({ item_oc_id: 'item-oc-1', producto_id: 'prod-1', codigo_oc: 'AL-I0001', cantidad: 5, costo_unitario: 20 }),
     ])
   })
 
   it('genera línea con producto_id NULL cuando el código no matchea ningún producto real (CA-01b)', async () => {
     const insertSpy = jest.fn()
     mockFrom.mockImplementation(chainTabla({
-      items_oc: { data: [{ codigo: 'NO-EXISTE', descripcion: 'Ítem sin catálogo', cantidad: 2, precio_unitario: 10, tipo: 'BIENES' }], error: null },
+      items_oc: { data: [{ id: 'item-oc-2', codigo: 'NO-EXISTE', descripcion: 'Ítem sin catálogo', cantidad: 2, precio_unitario: 10, tipo: 'BIENES' }], error: null },
       inventario: { data: [], error: null },
       documentos_ingreso: {
         insertResult: { select: () => ({ single: () => Promise.resolve({ data: { id: 'doc-2', numero: 'ING-2026-0002' }, error: null }) }) },
@@ -129,7 +130,7 @@ describe('generarDocumentoIngresoDesdeOC — CA-01/CA-01b', () => {
 
     await generarDocumentoIngresoDesdeOC('oc-1', ACTOR)
     expect(insertSpy).toHaveBeenCalledWith([
-      expect.objectContaining({ producto_id: null, codigo_oc: 'NO-EXISTE' }),
+      expect.objectContaining({ item_oc_id: 'item-oc-2', producto_id: null, codigo_oc: 'NO-EXISTE' }),
     ])
   })
 })
@@ -277,7 +278,7 @@ describe('cerrarDocumentoIngreso — CA-04/CA-05/CA-06', () => {
     }))
     const resultado = await cerrarDocumentoIngreso('doc-1', ACTOR)
     expect(resultado.ok).toBe(false)
-    expect(resultado.error).toMatch(/costo unitario válido/)
+    if (!resultado.ok) expect(resultado.error).toMatch(/costo unitario válido/)
   })
 
   it('cierra un Reconteo correctamente: el movimiento de Kardex usa tipo=reconteo, no compra (HU-029 CA-02)', async () => {
@@ -558,7 +559,7 @@ describe('resolverCancelacionIngresoPorOC — CA-09', () => {
 
   it('documento ya cerrado: bloquea la cancelación de la OC', async () => {
     mockFrom.mockImplementation(chainTabla({
-      documentos_ingreso: { data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'cerrado' }, error: null },
+      documentos_ingreso: { data: [{ id: 'doc-1', numero: 'ING-2026-0001', estado: 'cerrado' }], error: null },
     }))
     const resultado = await resolverCancelacionIngresoPorOC('oc-1', 'motivo real')
     expect(resultado.ok).toBe(false)
@@ -568,7 +569,7 @@ describe('resolverCancelacionIngresoPorOC — CA-09', () => {
     const updateSpy = jest.fn()
     mockFrom.mockImplementation(chainTabla({
       documentos_ingreso: {
-        data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'en_validacion' },
+        data: [{ id: 'doc-1', numero: 'ING-2026-0001', estado: 'en_validacion' }],
         error: null,
         onUpdate: updateSpy,
       },
@@ -580,9 +581,47 @@ describe('resolverCancelacionIngresoPorOC — CA-09', () => {
 
   it('documento ya anulado: idempotente, no reintenta', async () => {
     mockFrom.mockImplementation(chainTabla({
-      documentos_ingreso: { data: { id: 'doc-1', numero: 'ING-2026-0001', estado: 'anulado' }, error: null },
+      documentos_ingreso: { data: [{ id: 'doc-1', numero: 'ING-2026-0001', estado: 'anulado' }], error: null },
     }))
     const resultado = await resolverCancelacionIngresoPorOC('oc-1', 'motivo real')
     expect(resultado).toEqual({ ok: true, anulado: false })
+  })
+
+  // Spec: HU-047 CA-08 — caso nuevo: N documentos, uno ya cerrado → bloqueo
+  // (aunque los otros 2 estén generado/anulado, basta 1 cerrado para bloquear).
+  it('HU-047: N documentos de la misma OC, uno ya cerrado → bloquea igual que con 1 solo', async () => {
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: {
+        data: [
+          { id: 'doc-1', numero: 'ING-2026-0001', estado: 'anulado' },
+          { id: 'doc-2', numero: 'ING-2026-0002', estado: 'cerrado' },
+          { id: 'doc-3', numero: 'ING-2026-0003', estado: 'generado' },
+        ],
+        error: null,
+      },
+    }))
+    const resultado = await resolverCancelacionIngresoPorOC('oc-1', 'motivo real')
+    expect(resultado.ok).toBe(false)
+    if (!resultado.ok) expect(resultado.error).toContain('ING-2026-0002')
+  })
+
+  // Spec: HU-047 CA-08 — caso nuevo: N documentos, ninguno cerrado → anula TODOS
+  // los que no estén ya anulados (no solo el primero).
+  it('HU-047: N documentos sin ninguno cerrado → anula cada uno en cascada', async () => {
+    const updateSpy = jest.fn()
+    mockFrom.mockImplementation(chainTabla({
+      documentos_ingreso: {
+        data: [
+          { id: 'doc-1', numero: 'ING-2026-0001', estado: 'generado' },
+          { id: 'doc-2', numero: 'ING-2026-0002', estado: 'en_validacion' },
+          { id: 'doc-3', numero: 'ING-2026-0003', estado: 'anulado' },
+        ],
+        error: null,
+        onUpdate: updateSpy,
+      },
+    }))
+    const resultado = await resolverCancelacionIngresoPorOC('oc-1', 'motivo real')
+    expect(resultado).toEqual({ ok: true, anulado: true })
+    expect(updateSpy).toHaveBeenCalledTimes(2)
   })
 })

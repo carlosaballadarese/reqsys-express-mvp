@@ -122,12 +122,18 @@ type CreacionManualMock = { ok: true; documentoId: string; numero: string } | { 
 const mockCrearDocumentoIngresoManual = jest.fn<Promise<CreacionManualMock>, unknown[]>((..._args: unknown[]) =>
   Promise.resolve({ ok: true, documentoId: 'doc-manual-1', numero: 'ING-2026-0001' })
 )
+// Spec: HU-047 — mockeado (lógica real cubierta por bodega-recepcion-oc.test.ts).
+type RecepcionAdicionalMock = { ok: true; documentoId: string; numero: string } | { ok: false; error: string }
+const mockGenerarRecepcionAdicionalOC = jest.fn<Promise<RecepcionAdicionalMock>, unknown[]>((..._args: unknown[]) =>
+  Promise.resolve({ ok: true, documentoId: 'doc-recep-1', numero: 'ING-2026-0050' })
+)
 jest.mock('@/lib/bodega-ingreso', () => ({
   verificarAutorizacionIngreso: (...args: unknown[]) => mockVerificarAutorizacionIngreso(...args),
   generarDocumentoIngresoDesdeOC: (...args: unknown[]) => mockGenerarDocumentoIngresoDesdeOC(...args),
   cerrarDocumentoIngreso: (...args: unknown[]) => mockCerrarDocumentoIngreso(...args),
   resolverCancelacionIngresoPorOC: (...args: unknown[]) => mockResolverCancelacionIngresoPorOC(...args),
   crearDocumentoIngresoManual: (...args: unknown[]) => mockCrearDocumentoIngresoManual(...args),
+  generarRecepcionAdicionalOC: (...args: unknown[]) => mockGenerarRecepcionAdicionalOC(...args),
 }))
 
 // Spec: HU-030 — mockeado (lógica real cubierta por bodega-egreso.test.ts).
@@ -4927,6 +4933,9 @@ describe('GET /api/compras/ordenes/[id] — HU-016 nps_origen', () => {
       // sobre el mismo fixture que ya usa la resolución de nps_origen (HU-016, a nivel de OC).
       if (table === 'items_np')         return chainFor([{ id: 'item-a1', nota_pedido_id: 'np-a', linea: 3 }, { id: 'item-b1', nota_pedido_id: 'np-b', linea: 5 }])
       if (table === 'notas_pedido')     return chainFor([{ id: 'np-a', numero: 'NP-2026-0100' }, { id: 'np-b', numero: 'NP-2026-0101' }])
+      // Spec: HU-047 — calcularCoberturaRecepcionOC() consulta esta tabla; sin
+      // documentos de Ingreso reales en este fixture, devuelve vacío.
+      if (table === 'documentos_ingreso_items') return chainFor([])
       throw new Error(`tabla no mockeada: ${table}`)
     })
     const res = await GET(makeRequest('http://localhost/api/compras/ordenes/oc-multi'), { params: Promise.resolve({ id: 'oc-multi' }) })
@@ -4948,6 +4957,7 @@ describe('GET /api/compras/ordenes/[id] — HU-016 nps_origen', () => {
       if (table === 'items_oc')         return chainFor([{ item_np_id: 'item-x' }])
       if (table === 'items_np')         return chainFor([{ id: 'item-x', nota_pedido_id: 'np-single', linea: 7 }])
       if (table === 'notas_pedido')     return chainFor([{ id: 'np-single', numero: 'NP-2026-0200' }])
+      if (table === 'documentos_ingreso_items') return chainFor([])
       throw new Error(`tabla no mockeada: ${table}`)
     })
     const res = await GET(makeRequest('http://localhost/api/compras/ordenes/oc-single'), { params: Promise.resolve({ id: 'oc-single' }) })
@@ -4961,6 +4971,7 @@ describe('GET /api/compras/ordenes/[id] — HU-016 nps_origen', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'registro_compras') return chainFor([], { id: 'oc-manual', numero_oc: 'OC-2026-0302', nota_pedido_id: null })
       if (table === 'items_oc')         return chainFor([{ item_np_id: null }])
+      if (table === 'documentos_ingreso_items') return chainFor([])
       throw new Error(`tabla no mockeada: ${table}`)
     })
     const res = await GET(makeRequest('http://localhost/api/compras/ordenes/oc-manual'), { params: Promise.resolve({ id: 'oc-manual' }) })
@@ -10832,6 +10843,42 @@ describe('GET/POST /api/compras/bodega/ingresos — HU-028/HU-029', () => {
       method: 'POST',
       body: JSON.stringify({ tipo_movimiento: 'reconteo', lineas: [{ producto_id: '', cantidad: 2, costo_unitario: 10 }] }),
     }))
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('POST /api/compras/ordenes/[id]/recepciones — HU-047 CA-02', () => {
+  const { POST } = require('@/app/api/compras/ordenes/[id]/recepciones/route')
+
+  it('401 sin sesión', async () => {
+    mockVerificarAutorizacionIngreso.mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await POST(makeRequest('http://localhost/api/compras/ordenes/oc-1/recepciones', { method: 'POST', body: JSON.stringify({ lineas: [] }) }), { params: Promise.resolve({ id: 'oc-1' }) })
+    expect(res.status).toBe(401)
+  })
+
+  it('403 con rol sin permiso', async () => {
+    mockVerificarAutorizacionIngreso.mockResolvedValueOnce({ ok: false, status: 403 })
+    const res = await POST(makeRequest('http://localhost/api/compras/ordenes/oc-1/recepciones', { method: 'POST', body: JSON.stringify({ lineas: [] }) }), { params: Promise.resolve({ id: 'oc-1' }) })
+    expect(res.status).toBe(403)
+  })
+
+  it('201 al generar la recepción adicional con rol autorizado', async () => {
+    mockGenerarRecepcionAdicionalOC.mockResolvedValueOnce({ ok: true, documentoId: 'doc-50', numero: 'ING-2026-0050' })
+    const res = await POST(makeRequest('http://localhost/api/compras/ordenes/oc-1/recepciones', {
+      method: 'POST',
+      body: JSON.stringify({ lineas: [{ item_oc_id: 'i1', cantidad: 3 }] }),
+    }), { params: Promise.resolve({ id: 'oc-1' }) })
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body).toEqual({ documento_id: 'doc-50', numero: 'ING-2026-0050' })
+  })
+
+  it('400 cuando generarRecepcionAdicionalOC rechaza (RN-03: sin saldo pendiente)', async () => {
+    mockGenerarRecepcionAdicionalOC.mockResolvedValueOnce({ ok: false, error: 'No queda saldo pendiente de recibir en ninguna de las líneas elegidas' })
+    const res = await POST(makeRequest('http://localhost/api/compras/ordenes/oc-1/recepciones', {
+      method: 'POST',
+      body: JSON.stringify({ lineas: [{ item_oc_id: 'i1', cantidad: 3 }] }),
+    }), { params: Promise.resolve({ id: 'oc-1' }) })
     expect(res.status).toBe(400)
   })
 })

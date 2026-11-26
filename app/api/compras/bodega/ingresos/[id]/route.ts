@@ -28,7 +28,7 @@ export async function GET(
 
   const { data: lineas } = await adminClient()
     .from('documentos_ingreso_items')
-    .select('id, producto_id, codigo_oc, descripcion_oc, cantidad, costo_unitario, justificacion, es_importacion, costo_fob, factor_nacionalizacion')
+    .select('id, item_oc_id, producto_id, codigo_oc, descripcion_oc, cantidad, costo_unitario, justificacion, es_importacion, costo_fob, factor_nacionalizacion')
     .eq('documento_ingreso_id', id)
 
   // Enriquecer con código/descripción del producto ya vinculado — evita que
@@ -64,6 +64,9 @@ export async function GET(
 
 type LineaEdit = {
   id?: string
+  // Spec: HU-047 CA-01 — preservado tal cual al reemplazar las líneas
+  // (round-trip GET→PUT); el PUT nunca lo calcula ni lo valida, solo lo guarda.
+  item_oc_id?: string | null
   producto_id: string | null
   codigo_oc?: string | null
   descripcion_oc: string
@@ -114,6 +117,7 @@ export async function PUT(
     const { error: errInsert } = await adminClient().from('documentos_ingreso_items').insert(
       lineas.map((l) => ({
         documento_ingreso_id: id,
+        item_oc_id: l.item_oc_id ?? null,
         producto_id: l.producto_id || null,
         codigo_oc: l.codigo_oc ?? null,
         descripcion_oc: l.descripcion_oc,
