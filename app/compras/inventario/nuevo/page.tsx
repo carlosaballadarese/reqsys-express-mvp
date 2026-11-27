@@ -27,7 +27,6 @@ export default function NuevoItemPage() {
 
   const [guardando, setGuardando] = useState(false)
   const [error, setError]         = useState('')
-  const [areas, setAreas]         = useState<{ id: string; nombre: string }[]>([])
   // Spec: HU-027 CA-01b — áreas habilitadas para Bodega (ayuda de UX para
   // filtrar Categoría); nunca se persiste en el producto.
   const [areasBodega, setAreasBodega] = useState<{ id: string; nombre: string }[]>([])
@@ -57,10 +56,24 @@ export default function NuevoItemPage() {
   // Cargar catálogos (el código sugerido se resuelve en el efecto de abajo,
   // una vez se conoce la Bodega elegida — Spec: HU-045 CA-02)
   useEffect(() => {
-    fetch('/api/compras/areas').then(r => r.json()).then(setAreas).catch(console.error)
     fetch('/api/compras/areas?solo_bodega=1').then(r => r.json()).then(setAreasBodega).catch(console.error)
     fetch('/api/compras/bodega/bodegas').then(r => r.json()).then(setBodegas).catch(console.error)
   }, [])
+
+  // Spec: hallazgo real de usuario (2026-11-27) — "Categoría (texto legado)"
+  // y "Área (texto legado)" seguían vivos (los usa el buscador de NP/OC y el
+  // filtro del listado de Inventario), pero mostrarlos junto a la Categoría
+  // normalizada obligaba a cargar el mismo dato 2 veces. Se derivan solos
+  // desde la selección normalizada — el usuario ya no los ve ni los toca.
+  useEffect(() => {
+    const cat = categorias.find((c) => c.id === form.categoria_id)
+    setForm((f) => ({ ...f, categoria: cat?.nombre ?? '' }))
+  }, [form.categoria_id, categorias])
+
+  useEffect(() => {
+    const ar = areasBodega.find((a) => a.id === areaFiltro)
+    setForm((f) => ({ ...f, area: ar?.nombre ?? '' }))
+  }, [areaFiltro, areasBodega])
 
   // Spec: HU-045 CA-02 — sugiere el próximo código usando el prefijo real de
   // la Bodega elegida (su campo "Código", ej. AL-I/AL-C); sin Bodega elegida
@@ -169,21 +182,6 @@ export default function NuevoItemPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <Label className="text-xs">Categoría (texto legado)</Label>
-                <Input value={form.categoria} onChange={e => setField('categoria', e.target.value)} className="mt-1 h-8 text-sm" placeholder="Ej: Mecánica, Eléctrico..." />
-              </div>
-              <div>
-                <Label className="text-xs">Área (texto legado)</Label>
-                <select value={form.area} onChange={e => setField('area', e.target.value)} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
-                  <option value="">Sin área</option>
-                  {areas.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
-                </select>
-              </div>
-              <div>
-                <Label className="text-xs">Locación</Label>
-                <Input value={form.locacion} onChange={e => setField('locacion', e.target.value)} className="mt-1 h-8 text-sm" placeholder="Ej: Almacén A - Estante 3" />
-              </div>
-              <div>
                 <Label className="text-xs">Código Origen</Label>
                 <Input value={form.codigo_origen} onChange={e => setField('codigo_origen', e.target.value)} className="mt-1 h-8 text-sm" />
               </div>
@@ -205,6 +203,10 @@ export default function NuevoItemPage() {
                   camposExtra={[{ key: 'codigo', label: 'Código', requerido: true }, { key: 'referencia', label: 'Referencia (opcional)' }]}
                 />
                 <div>
+                  <Label className="text-xs">Locación</Label>
+                  <Input value={form.locacion} onChange={e => setField('locacion', e.target.value)} className="mt-1 h-8 text-sm" placeholder="Ej: Almacén A - Estante 3" />
+                </div>
+                <div>
                   <Label className="text-xs">Área (para filtrar Categoría — no se guarda)</Label>
                   <select value={areaFiltro} onChange={e => setAreaFiltro(e.target.value)} className="mt-1 w-full h-8 rounded-md border border-input bg-background px-2 text-sm">
                     <option value="">Todas las categorías</option>
@@ -218,7 +220,6 @@ export default function NuevoItemPage() {
                     {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                   </select>
                 </div>
-                <div />
                 <div>
                   <Label className="text-xs">Stock Mínimo</Label>
                   <Input type="number" step="0.01" min="0" value={form.stock_minimo} onChange={e => setField('stock_minimo', e.target.value)} className="mt-1 h-8 text-sm" />
