@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { formatNumeroOc } from '@/lib/oc-utils'
 import { SelectorLineasNPModal, type ItemAgregado } from '@/components/SelectorLineasNPModal'
+import { ComboConAlta } from '@/components/ComboConAlta'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -378,6 +379,15 @@ export default function DetalleOCPage() {
   const [cantidadesRecepcion, setCantidadesRecepcion] = useState<Record<string, string>>({})
   const [generandoRecepcion, setGenerandoRecepcion] = useState(false)
   const [errRecepcion, setErrRecepcion] = useState('')
+  // Spec: hallazgo real de usuario (2026-11-26) — la recepción adicional no
+  // tiene de dónde inferir la bodega (sus líneas no traen código real que
+  // matchear contra inventario), así que se pide explícita al generar.
+  const [bodegasRecepcion, setBodegasRecepcion] = useState<{ id: string; nombre: string }[]>([])
+  const [bodegaIdRecepcion, setBodegaIdRecepcion] = useState('')
+
+  useEffect(() => {
+    fetch('/api/compras/bodega/bodegas').then((r) => r.json()).then((d) => setBodegasRecepcion(Array.isArray(d) ? d : [])).catch(() => {})
+  }, [])
 
   function cargar() {
     setCargando(true)
@@ -652,18 +662,20 @@ export default function DetalleOCPage() {
       .map(([item_oc_id, cant]) => ({ item_oc_id, cantidad: Number(cant) }))
       .filter((l) => l.cantidad > 0)
     if (lineas.length === 0) { setErrRecepcion('Ingresa al menos una cantidad mayor a 0'); return }
+    if (!bodegaIdRecepcion) { setErrRecepcion('Selecciona la bodega donde ingresa esta recepción'); return }
 
     setGenerandoRecepcion(true); setErrRecepcion('')
     try {
       const res = await fetch(`/api/compras/ordenes/${id}/recepciones`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lineas }),
+        body: JSON.stringify({ lineas, bodega_id: bodegaIdRecepcion }),
       })
       const data = await res.json()
       if (res.ok) {
         setModalRecepcion(false)
         setCantidadesRecepcion({})
+        setBodegaIdRecepcion('')
         cargar()
       } else {
         setErrRecepcion(data.error || 'Error al generar la recepción')
@@ -1195,7 +1207,7 @@ export default function DetalleOCPage() {
         {/* Spec: HU-047 CA-02 — modal Generar recepción adicional */}
         {modalRecepcion && coberturaRecepcion && (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-            <Card className="max-w-lg w-full">
+            <Card className="max-w-lg w-full overflow-visible">
               <CardHeader>
                 <CardTitle className="text-base">Generar recepción adicional</CardTitle>
               </CardHeader>
@@ -1203,6 +1215,16 @@ export default function DetalleOCPage() {
                 <p className="text-xs text-slate-500">
                   Ingresa la cantidad que llegó en este envío para cada línea con saldo pendiente.
                 </p>
+                <ComboConAlta
+                  label="Bodega"
+                  value={bodegaIdRecepcion}
+                  onChange={setBodegaIdRecepcion}
+                  opciones={bodegasRecepcion}
+                  onCreado={(nuevo) => setBodegasRecepcion((prev) => [...prev, nuevo])}
+                  crearEndpoint="/api/compras/bodega/bodegas"
+                  construirBody={(nombre, extra) => ({ nombre, codigo: extra.codigo, referencia: extra.referencia || null })}
+                  camposExtra={[{ key: 'codigo', label: 'Código', requerido: true }, { key: 'referencia', label: 'Referencia (opcional)' }]}
+                />
                 {coberturaRecepcion.por_item.filter((it) => it.saldo > 0).map((it) => (
                   <div key={it.item_oc_id} className="flex items-center justify-between gap-3">
                     <div className="text-sm">
@@ -1222,7 +1244,7 @@ export default function DetalleOCPage() {
                 ))}
                 {errRecepcion && <p className="text-xs text-red-600">{errRecepcion}</p>}
                 <div className="flex justify-end gap-2 pt-2">
-                  <Button variant="outline" size="sm" onClick={() => { setModalRecepcion(false); setErrRecepcion('') }}>Cancelar</Button>
+                  <Button variant="outline" size="sm" onClick={() => { setModalRecepcion(false); setErrRecepcion(''); setBodegaIdRecepcion('') }}>Cancelar</Button>
                   <Button size="sm" onClick={handleGenerarRecepcion} disabled={generandoRecepcion}>
                     {generandoRecepcion ? 'Generando...' : 'Generar recepción'}
                   </Button>

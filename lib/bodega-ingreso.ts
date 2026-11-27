@@ -154,7 +154,8 @@ type ResultadoRecepcionAdicional =
 export async function generarRecepcionAdicionalOC(
   registroComprasId: string,
   lineas: LineaRecepcionAdicional[],
-  actor: ActorIngreso
+  actor: ActorIngreso,
+  bodegaId: string | null = null
 ): Promise<ResultadoRecepcionAdicional> {
   if (lineas.length === 0) return { ok: false, error: 'El documento debe tener al menos 1 línea' }
 
@@ -198,7 +199,12 @@ export async function generarRecepcionAdicionalOC(
     .from('documentos_ingreso')
     .insert({
       numero,
-      bodega_id: null,
+      // Spec: hallazgo real de usuario (2026-11-26) — a diferencia del hook
+      // automático (generarDocumentoIngresoDesdeOC, que infiere bodega del
+      // primer ítem matcheado), esta recepción adicional nace sin ningún
+      // ítem con código real que inferir, así que la bodega se recibe
+      // explícita desde quien registra la recepción.
+      bodega_id: bodegaId,
       estado: 'generado',
       registro_compras_id: registroComprasId,
       creado_por_id: actor.id,

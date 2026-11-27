@@ -11,6 +11,7 @@ import { toast } from '@/lib/toast'
 import { ProductoSearch, type InvItem } from '@/components/ProductoSearch'
 import { CrearProductoYVolver } from '@/components/CrearProductoYVolver'
 import { leerDraftProducto, limpiarDraftProducto } from '@/lib/bodega-draft-producto'
+import { ComboConAlta } from '@/components/ComboConAlta'
 
 type Linea = {
   id: string
@@ -37,11 +38,15 @@ type Documento = {
   estado: string
   tipo_movimiento: string
   numero_oc: string | null
+  bodega_id: string | null
+  bodega_nombre: string | null
   created_at: string
   cerrado_en: string | null
   motivo_anulacion: string | null
   lineas: Linea[]
 }
+
+type Bodega = { id: string; nombre: string }
 
 const ESTADO_LABEL: Record<string, string> = {
   generado: 'Generado', en_validacion: 'En Validación', cerrado: 'Cerrado', anulado: 'Anulado',
@@ -62,6 +67,8 @@ export default function DetalleIngresoPage() {
   // mapeo hardcodeado, para que una corrección futura de etiqueta se
   // refleje aquí sin tocar código.
   const [tiposIngreso, setTiposIngreso] = useState<{ codigo: string; nombre: string }[]>([])
+  const [bodegas, setBodegas] = useState<Bodega[]>([])
+  const [bodegaId, setBodegaId] = useState('')
 
   function cargar() {
     setCargando(true)
@@ -69,6 +76,7 @@ export default function DetalleIngresoPage() {
       .then((r) => r.json())
       .then((data) => {
         setDoc(data)
+        setBodegaId(data?.bodega_id ?? '')
         let lineas: Linea[] = data?.lineas ?? []
         // Spec: hallazgo real de usuario (2026-11-22) — si se vuelve de
         // crear un producto nuevo (o de cancelar esa creación), se
@@ -98,6 +106,7 @@ export default function DetalleIngresoPage() {
   useEffect(() => { if (id) cargar() }, [id])
   useEffect(() => {
     fetch('/api/compras/bodega/tipos-ingreso').then((r) => r.json()).then((d) => setTiposIngreso(Array.isArray(d) ? d : [])).catch(() => {})
+    fetch('/api/compras/bodega/bodegas').then((r) => r.json()).then((d) => setBodegas(Array.isArray(d) ? d : [])).catch(() => {})
   }, [])
 
   const editable = doc && ['generado', 'en_validacion'].includes(doc.estado)
@@ -140,7 +149,7 @@ export default function DetalleIngresoPage() {
       const res = await fetch(`/api/compras/bodega/ingresos/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lineas: lineasEdit }),
+        body: JSON.stringify({ lineas: lineasEdit, bodega_id: bodegaId || null }),
       })
       if (!res.ok) {
         const data = await res.json()
@@ -175,7 +184,7 @@ export default function DetalleIngresoPage() {
 
   return (
     <div className="max-w-[1600px] mx-auto p-6 space-y-4">
-      <Card>
+      <Card className="overflow-visible">
         <CardHeader>
           <CardTitle>Documento de Ingreso {doc.numero}</CardTitle>
         </CardHeader>
@@ -183,6 +192,22 @@ export default function DetalleIngresoPage() {
           <p><strong>Tipo:</strong> {tiposIngreso.find((t) => t.codigo === doc.tipo_movimiento)?.nombre ?? doc.tipo_movimiento}</p>
           <p><strong>Estado:</strong> {ESTADO_LABEL[doc.estado] ?? doc.estado}</p>
           {doc.numero_oc && <p><strong>OC de origen:</strong> {doc.numero_oc}</p>}
+          {editable ? (
+            <div className="max-w-xs">
+              <ComboConAlta
+                label="Bodega"
+                value={bodegaId}
+                onChange={setBodegaId}
+                opciones={bodegas}
+                onCreado={(nuevo) => setBodegas((prev) => [...prev, nuevo])}
+                crearEndpoint="/api/compras/bodega/bodegas"
+                construirBody={(nombre, extra) => ({ nombre, codigo: extra.codigo, referencia: extra.referencia || null })}
+                camposExtra={[{ key: 'codigo', label: 'Código', requerido: true }, { key: 'referencia', label: 'Referencia (opcional)' }]}
+              />
+            </div>
+          ) : (
+            <p><strong>Bodega:</strong> {doc.bodega_nombre ?? '— sin asignar —'}</p>
+          )}
           {doc.motivo_anulacion && <p className="text-red-600"><strong>Anulado:</strong> {doc.motivo_anulacion}</p>}
         </CardContent>
       </Card>

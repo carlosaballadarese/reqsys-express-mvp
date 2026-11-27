@@ -19,10 +19,11 @@ export async function POST(
   const { id } = await params
   const body = await req.json()
   const lineas = Array.isArray(body.lineas) ? body.lineas : []
+  const bodegaId = typeof body.bodega_id === 'string' && body.bodega_id ? body.bodega_id : null
 
   const resultado = await generarRecepcionAdicionalOC(id, lineas, {
     id: auth.userId, nombre: auth.nombre, email: auth.email, rol: auth.rol,
-  })
+  }, bodegaId)
 
   if (!resultado.ok) {
     return NextResponse.json({ error: resultado.error }, { status: 400 })

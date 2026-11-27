@@ -59,7 +59,17 @@ export async function GET(
     numeroOc = oc?.numero_oc ?? null
   }
 
-  return NextResponse.json({ ...documento, numero_oc: numeroOc, lineas: lineasConProducto })
+  let bodegaNombre: string | null = null
+  if (documento.bodega_id) {
+    const { data: bodega } = await adminClient()
+      .from('bodegas')
+      .select('nombre')
+      .eq('id', documento.bodega_id)
+      .single()
+    bodegaNombre = bodega?.nombre ?? null
+  }
+
+  return NextResponse.json({ ...documento, numero_oc: numeroOc, bodega_nombre: bodegaNombre, lineas: lineasConProducto })
 }
 
 type LineaEdit = {
@@ -112,6 +122,16 @@ export async function PUT(
   }
 
   await adminClient().from('documentos_ingreso_items').delete().eq('documento_ingreso_id', id)
+
+  // Spec: hallazgo real de usuario (2026-11-26) — la bodega también se
+  // puede corregir/asignar aquí, no solo al crear el documento (cubre tanto
+  // los ya existentes con bodega_id=null como una corrección posterior).
+  if (typeof body.bodega_id !== 'undefined') {
+    await adminClient()
+      .from('documentos_ingreso')
+      .update({ bodega_id: body.bodega_id || null })
+      .eq('id', id)
+  }
 
   if (lineas.length > 0) {
     const { error: errInsert } = await adminClient().from('documentos_ingreso_items').insert(
